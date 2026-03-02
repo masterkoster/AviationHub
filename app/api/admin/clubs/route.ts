@@ -38,7 +38,7 @@ export async function GET() {
       clubs: groups.map(g => ({
         id: g.id,
         name: g.name,
-        description: g.description,
+        description: null,
         ownerId: g.ownerId,
         createdAt: g.createdAt?.toISOString() || null,
         members: Number(g._count?.members || 0),
