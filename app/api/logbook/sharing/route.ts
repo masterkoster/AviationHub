@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getOrCreatePilotProfile } from '@/lib/pilot-profile'
 import crypto from 'crypto'
 
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
+  const profile = await getOrCreatePilotProfile(session.user.id)
   const links = await prisma.logbookSharingLink.findMany({
-    where: { userId: session.user.id },
+    where: { pilotProfileId: profile.id },
     orderBy: { createdAt: 'desc' },
   })
 
@@ -22,9 +24,10 @@ export async function POST(request: Request) {
   const body = await request.json()
   const token = crypto.randomBytes(24).toString('hex')
 
+  const profile = await getOrCreatePilotProfile(session.user.id)
   const link = await prisma.logbookSharingLink.create({
     data: {
-      userId: session.user.id,
+      pilotProfileId: profile.id,
       token,
       label: body.label || null,
       scope: body.scope || 'public',

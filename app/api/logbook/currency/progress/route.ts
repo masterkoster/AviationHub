@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getOrCreatePilotProfile } from '@/lib/pilot-profile'
 import { addDays, subDays } from 'date-fns'
 
 type ProgressRule = {
@@ -30,8 +31,9 @@ export async function GET() {
     select: { bfrExpiry: true, medicalExpiry: true },
   })
 
+  const profile = await getOrCreatePilotProfile(session.user.id)
   const entries = await prisma.logbookEntry.findMany({
-    where: { userId: session.user.id },
+    where: { pilotProfileId: profile.id },
     orderBy: { date: 'desc' },
   })
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getOrCreatePilotProfile } from '@/lib/pilot-profile'
 import { addDays } from 'date-fns'
 
 const DEFAULT_RULES = [
@@ -17,8 +18,9 @@ export async function POST() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
+  const profile = await getOrCreatePilotProfile(session.user.id)
   const entries = await prisma.logbookEntry.findMany({
-    where: { userId: session.user.id },
+    where: { pilotProfileId: profile.id },
     orderBy: { date: 'desc' },
   })
 
@@ -45,9 +47,9 @@ export async function POST() {
     })
 
     await prisma.currencyStatus.upsert({
-      where: { userId_ruleId: { userId: session.user.id, ruleId: ruleRecord.id } },
+      where: { pilotProfileId_ruleId: { pilotProfileId: profile.id, ruleId: ruleRecord.id } },
       create: {
-        userId: session.user.id,
+        pilotProfileId: profile.id,
         ruleId: ruleRecord.id,
         status,
         lastSatisfiedAt,
@@ -62,7 +64,7 @@ export async function POST() {
   }
 
   const statuses = await prisma.currencyStatus.findMany({
-    where: { userId: session.user.id },
+    where: { pilotProfileId: profile.id },
     include: { rule: true },
   })
 

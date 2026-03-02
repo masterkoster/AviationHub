@@ -79,7 +79,7 @@ function LogbookContent() {
 
   const [authority, setAuthority] = useState<Authority>('FAA')
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: '',
     aircraft: '',
     routeFrom: '',
     routeTo: '',
@@ -144,6 +144,12 @@ function LogbookContent() {
     notifyTotalsWeekly: false,
     notifyTotalsMonthly: false,
   })
+
+  useEffect(() => {
+    if (!formData.date) {
+      setFormData((prev) => ({ ...prev, date: new Date().toISOString().split('T')[0] }))
+    }
+  }, [formData.date])
 
   useEffect(() => {
     if (status !== 'authenticated') return

@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import Image from "next/image"
 import { ArrowRight, Fuel, Calculator, Users, GraduationCap, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -40,13 +39,10 @@ export function HeroSection() {
     <section className="relative flex min-h-[100svh] items-center overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <Image
-          src="/images/platform-hero.jpg"
+        <img
+          src="/globe.svg"
           alt=""
-          fill
-          className="object-cover"
-          priority
-          sizes="100vw"
+          className="h-full w-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/70 to-background" />
       </div>

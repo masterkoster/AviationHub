@@ -69,9 +69,9 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     // Only allow delete for NEEDED status and by admin
     const maintenance = await prisma.$queryRawUnsafe(`
-      SELECT m.*, a.groupId
+      SELECT m.*, a.organizationId
       FROM Maintenance m
-      JOIN ClubAircraft a ON m.aircraftId = a.id
+      JOIN ClubAircraft a ON m.clubAircraftId = a.id
       WHERE m.id = '${id}'
     `) as any[];
 
@@ -81,7 +81,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     // Check admin role
     const membership = await prisma.groupMember.findFirst({
-      where: { userId: user.id, groupId: maintenance[0].groupId, role: 'ADMIN' },
+      where: { userId: user.id, groupId: maintenance[0].organizationId, role: 'ADMIN' },
     });
 
     if (!membership) {

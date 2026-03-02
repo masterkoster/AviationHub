@@ -8,6 +8,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    if (!('mechanicQuote' in prisma) || !('maintenanceRequest' in prisma)) {
+      return NextResponse.json({ unread: 0 })
+    }
+
     const preferences = await prisma.userPreferences.findUnique({
       where: { userId: session.user.id },
       select: { mechanicInboxLastViewed: true },

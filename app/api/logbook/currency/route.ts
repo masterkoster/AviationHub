@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getOrCreatePilotProfile } from '@/lib/pilot-profile'
 
 const FAA_RULES = [
   { code: 'FAA-FR', name: 'Flight Review (24 months)', days: 730 },
@@ -19,8 +20,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
+  const profile = await getOrCreatePilotProfile(session.user.id)
   const statuses = await prisma.currencyStatus.findMany({
-    where: { userId: session.user.id },
+    where: { pilotProfileId: profile.id },
     include: { rule: true },
   })
 

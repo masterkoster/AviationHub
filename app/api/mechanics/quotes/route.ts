@@ -8,6 +8,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    if (!('mechanicQuote' in prisma) || !('maintenanceRequest' in prisma)) {
+      return NextResponse.json({ quotes: [] })
+    }
+
     const quotes = await prisma.mechanicQuote.findMany({
       where: {
         maintenanceRequest: {

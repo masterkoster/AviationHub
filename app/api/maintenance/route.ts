@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth, prisma } from '@/lib/auth';
+import { getOrCreatePilotProfile } from '@/lib/pilot-profile';
 
 export async function GET(request: Request) {
   try {
@@ -16,8 +17,8 @@ export async function GET(request: Request) {
     const maintenance = await prisma.$queryRaw`
       SELECT m.*, a.nNumber, a.customName, a.nickname, a.make, a.model
       FROM Maintenance m
-      LEFT JOIN ClubAircraft a ON m.aircraftId = a.id
-      WHERE m.userId = ${user.id}
+      LEFT JOIN ClubAircraft a ON m.clubAircraftId = a.id
+      WHERE m.reportedByUserId = ${user.id}
       ORDER BY m.reportedDate DESC
     `;
 
@@ -49,11 +50,11 @@ export async function POST(request: Request) {
     }
 
     await prisma.$executeRaw`
-      INSERT INTO Maintenance (id, aircraftId, userId, groupId, description, notes, status, isGrounded, reportedDate, createdAt, updatedAt)
+      INSERT INTO Maintenance (id, clubAircraftId, reportedByUserId, organizationId, description, notes, status, isGrounded, reportedDate, createdAt, updatedAt)
       VALUES (NEWID(), ${aircraftId}, ${user.id}, ${groupId || null}, ${description}, ${notes || null}, 'NEEDED', ${isGrounded ? 1 : 0}, GETDATE(), GETDATE(), GETDATE())
     `;
 
-    if (postToMarketplace) {
+    if (postToMarketplace && 'maintenanceRequest' in prisma) {
       const aircraft = await prisma.clubAircraft.findUnique({
         where: { id: aircraftId },
       })
@@ -67,8 +68,9 @@ export async function POST(request: Request) {
         nNumber: allowTailNumber ? aircraft.nNumber : null,
       } : null
 
+      const profile = await getOrCreatePilotProfile(user.id)
       const logbookEntries = await prisma.logbookEntry.findMany({
-        where: { userId: user.id },
+        where: { pilotProfileId: profile.id },
         orderBy: { date: 'desc' },
       })
       const normalizedSize = jobSize || (description?.toLowerCase().includes('overhaul') || description?.toLowerCase().includes('rebuild') ? 'LARGE' : 'MEDIUM')

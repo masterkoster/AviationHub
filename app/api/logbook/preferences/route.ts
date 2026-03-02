@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getOrCreatePilotProfile } from '@/lib/pilot-profile'
 
 export async function GET() {
   const session = await auth()
@@ -8,8 +9,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
+  const profile = await getOrCreatePilotProfile(session.user.id)
   const prefs = await prisma.logbookPreferences.findUnique({
-    where: { userId: session.user.id },
+    where: { pilotProfileId: profile.id },
   })
 
   return NextResponse.json({ preferences: prefs })
@@ -23,10 +25,11 @@ export async function POST(request: Request) {
 
   const body = await request.json()
 
+  const profile = await getOrCreatePilotProfile(session.user.id)
   const prefs = await prisma.logbookPreferences.upsert({
-    where: { userId: session.user.id },
+    where: { pilotProfileId: profile.id },
     create: {
-      userId: session.user.id,
+      pilotProfileId: profile.id,
       ...body,
     },
     update: {

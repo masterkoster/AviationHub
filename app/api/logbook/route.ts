@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { getOrCreatePilotProfile } from '@/lib/pilot-profile';
 
 // GET - Fetch user's logbook entries
 export async function GET() {
@@ -25,8 +26,10 @@ export async function GET() {
       }, { status: 403 });
     }
 
+    const profile = await getOrCreatePilotProfile(session.user.id);
+
     const entries = await prisma.logbookEntry.findMany({
-      where: { userId: session.user.id },
+      where: { pilotProfileId: profile.id },
       orderBy: { date: 'desc' },
     });
 
@@ -68,10 +71,11 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
+    const profile = await getOrCreatePilotProfile(session.user.id);
     
     const entry = await prisma.logbookEntry.create({
       data: {
-        userId: session.user.id,
+        pilotProfileId: profile.id,
         date: new Date(body.date),
         aircraft: body.aircraft,
         routeFrom: body.routeFrom,
@@ -132,8 +136,10 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Entry ID required' }, { status: 400 });
     }
 
+    const profile = await getOrCreatePilotProfile(session.user.id);
+
     await prisma.logbookEntry.deleteMany({
-      where: { id, userId: session.user.id },
+      where: { id, pilotProfileId: profile.id },
     });
 
     return NextResponse.json({ message: 'Entry deleted' });

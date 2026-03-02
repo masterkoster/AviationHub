@@ -1,12 +1,56 @@
 generator client {
-  provider      = "prisma-client-js"
-  output        = "../node_modules/.prisma/client"
-  engineType    = "library"
+  provider   = "prisma-client-js"
+  output     = "../node_modules/.prisma/client"
+  engineType = "library"
 }
 
 datasource db {
-  provider = "sqlserver"
-  url      = env("DATABASE_URL")
+  provider          = "sqlserver"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(uuid()) @db.NVarChar(36)
+  name      String   @db.NVarChar(255)
+  type      String   @default("club") @db.NVarChar(20)
+  ownerId   String   @db.NVarChar(36)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner               User                 @relation("OrganizationOwner", fields: [ownerId], references: [id], onDelete: NoAction)
+  members             OrganizationMember[]
+  aircraft            ClubAircraft[]
+  bookings            Booking[]
+  invoices            Invoice[]
+  logbooks            LogbookEntry[]       @relation("OrganizationLogbooks")
+  blockOuts           BlockOut[]
+  groupChatMessages   GroupChatMessage[]
+  flightLogs          FlightLog[]
+  maintenances        Maintenance[]
+  fuelExpenses        FuelExpense[]
+  billingRuns         BillingRun[]
+  integrations        Integration[]
+  maintenanceRequests MaintenanceRequest[]
+
+  @@map("Organization")
+}
+
+model OrganizationMember {
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  organizationId String?  @db.NVarChar(36)
+  userId         String   @db.NVarChar(36)
+  role           String   @default("pilot") @db.NVarChar(20)
+  joinedAt       DateTime @default(now())
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user           User          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pilotProfileId String?       @unique @db.NVarChar(36)
+  pilotProfile   PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, role])
+  @@map("OrganizationMember")
 }
 
 model User {
@@ -22,7 +66,7 @@ model User {
   password         String?  @db.NVarChar(255)
 
   // E2EE (public key only; private key stays client-side)
-  e2eePublicKeyJwk       String? @db.NVarChar(Max)
+  e2eePublicKeyJwk       String?   @db.NVarChar(Max)
   e2eePublicKeyUpdatedAt DateTime?
 
   // Email verification
@@ -45,79 +89,64 @@ model User {
   homeState            String?   @db.NVarChar(2)
 
   // Pilot credentials
-  bfrExpiry      DateTime?
-  medicalExpiry  DateTime?
-  medicalClass   String?   @db.NVarChar(10) // "1", "2", "3"
+  bfrExpiry     DateTime?
+  medicalExpiry DateTime?
+  medicalClass  String?   @db.NVarChar(10) // "1", "2", "3"
 
-  flightPlans         FlightPlan[]
-  memberships         GroupMember[]
-  aircraft            UserAircraft[]
-  aircraftProfiles    AircraftProfile[]
-  documents           Document[]
-  errorReports        ErrorReport[]
-  trainingProgress    TrainingProgress?
-  trainingGoal        TrainingGoal?
-  trainingFinancials  TrainingFinancials?
-  logbookEntries      LogbookEntry[]
-  logbookEntriesAsInstructor LogbookEntry[] @relation("LogbookEntryInstructor")
-  logbookEntriesAsStudent    LogbookEntry[] @relation("LogbookEntryStudent")
-  flightTracks        FlightTrack[]
-  marketplaceListings MarketplaceListing[]
-  pilotProfile        PilotProfile?
-  userContact         UserContact?
-  pilotMedical        PilotMedical?
-  pilotLicenses       PilotLicense[]
-  userPreferences     UserPreferences?
-  userNotificationSettings UserNotificationSettings?
-  groupMemberSettings GroupMemberSettings[]
-  mechanicProfile    Mechanic?
-  maintenanceRequests MaintenanceRequest[] @relation("UserMaintenanceRequests")
-  instructorProfile   InstructorProfile?
-  endorsementsGiven   Endorsement[] @relation("EndorsementInstructor")
-  endorsementsReceived Endorsement[] @relation("EndorsementStudent")
-  endorsementRequestsSent EndorsementRequest[] @relation("EndorsementRequestStudent")
-  endorsementRequestsReceived EndorsementRequest[] @relation("EndorsementRequestInstructor")
-  signatures          Signature[]
-  logbookStartingTotals LogbookStartingTotal?
-  logbookPreferences   LogbookPreferences?
-  logbookTemplates     LogbookTemplate[]
-  logbookSharingLinks  LogbookSharingLink[]
-  logbookCustomRules   LogbookCustomRule[]
-  logbookDeadlines     LogbookDeadline[]
-  logbookImports      LogbookImport[]
-  currencyStatuses    CurrencyStatus[]
-  currencyEvents      CurrencyEvent[]
-  airportVisits       AirportVisit[]
-  flightRoutes        FlightRoute[]
-  friendRequestsSent     FriendRequest[]       @relation("FriendRequestRequester")
-  friendRequestsReceived FriendRequest[]       @relation("FriendRequestRecipient")
-  conversationParticipants ConversationParticipant[]
-  messages               Message[]
-  presence               UserPresence?
-  aircraftInquiries      AircraftInquiry[]
-  engineDataUploads     EngineDataUpload[]
-  engineAnomalies       EngineAnomaly[]
+  aircraft                    UserAircraft[]
+  documents                   Document[]
+  errorReports                ErrorReport[]
+  logbookEntriesAsInstructor  LogbookEntry[]            @relation("LogbookEntryInstructor")
+  logbookEntriesAsStudent     LogbookEntry[]            @relation("LogbookEntryStudent")
+  pilotProfile                PilotProfile?
+  userContact                 UserContact?
+  pilotMedical                PilotMedical?
+  pilotLicenses               PilotLicense[]
+  userPreferences             UserPreferences?
+  userNotificationSettings    UserNotificationSettings?
+  mechanicProfile             Mechanic?
+  organizationMembers         OrganizationMember[]
+  organizationsOwned          Organization[]            @relation("OrganizationOwner")
+  instructorProfile           InstructorProfile?
+  endorsementsGiven           Endorsement[]             @relation("EndorsementInstructor")
+  endorsementsReceived        Endorsement[]             @relation("EndorsementStudent")
+  endorsementRequestsSent     EndorsementRequest[]      @relation("EndorsementRequestStudent")
+  endorsementRequestsReceived EndorsementRequest[]      @relation("EndorsementRequestInstructor")
+  signatures                  Signature[]
+  friendRequestsSent          FriendRequest[]           @relation("FriendRequestRequester")
+  friendRequestsReceived      FriendRequest[]           @relation("FriendRequestRecipient")
+  conversationParticipants    ConversationParticipant[]
+  messages                    Message[]
+  presence                    UserPresence?             @relation(fields: [userPresenceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userPresenceId              String?                   @db.NVarChar(36)
+  aircraftInquiries           AircraftInquiry[]
+  engineDataUploads           EngineDataUpload[]
+  engineAnomalies             EngineAnomaly[]
+  MarketplaceListing          MarketplaceListing[]
+  LogbookStartingTotal        LogbookStartingTotal?
+  GroupChatMessage            GroupChatMessage[]
 
   @@map("User")
 }
 
 // User encryption keys for server-side message encryption
 model UserKey {
-  userId      String   @id @db.NVarChar(36)
-  encryptionKey String @db.NVarChar(64) // 32-byte hex key (64 hex chars)
-  createdAt   DateTime @default(now())
+  userId        String   @id @db.NVarChar(36)
+  encryptionKey String   @db.NVarChar(64) // 32-byte hex key (64 hex chars)
+  createdAt     DateTime @default(now())
 
   @@map("UserKey")
 }
 
 model UserPresence {
-  id        String   @id @default(uuid()) @db.NVarChar(36)
-  userId    String   @unique @db.NVarChar(36)
-  isOnline  Boolean  @default(false)
-  lastSeenAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String?  @unique @db.NVarChar(36)
+  isOnline       Boolean  @default(false)
+  lastSeenAt     DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User         User[]
 
   @@index([isOnline])
   @@map("UserPresence")
@@ -146,28 +175,28 @@ model MarketplaceListing {
   updatedAt     DateTime @updatedAt
 
   // Aircraft-specific fields (new)
-  nNumber          String?   @db.NVarChar(10)   // N-number (tail number)
-  make            String?   @db.NVarChar(100)  // Manufacturer
-  model           String?   @db.NVarChar(100)  // Model
-  year            Int?                         // Year built
-  totalTime       Int?                         // Total time on aircraft (TTSN)
-  engineTime      Int?                         // Engine hours
-  propTime        Int?                         // Prop hours
-  airframeTime    Int?                         // Airframe hours
-  annualDue       DateTime?                    // Annual inspection expiration
-  registrationType String? @db.NVarChar(50)  // Standard, Limited, Experimental, etc.
-  airworthiness  String? @db.NVarChar(50)    // Current, Expired
-  fuelType        String? @db.NVarChar(20)   // 100LL, JetA, UL94
-  avionics       String? @db.NVarChar(Max)   // JSON array of avionics
-  features        String? @db.NVarChar(Max)   // JSON array of features
-  upgrades        String? @db.NVarChar(Max)   // JSON array of upgrades
-  sellerType      String? @db.NVarChar(20)    // owner, broker, dealer
-  isVerified     Boolean  @default(false)     // Verified listing
-  verifiedAt     DateTime?                    // When verified
-  faaData        String? @db.NVarChar(Max)    // Cached FAA response
-  videoUrl        String? @db.NVarChar(500)   // YouTube/video link
+  nNumber          String?   @db.NVarChar(10) // N-number (tail number)
+  make             String?   @db.NVarChar(100) // Manufacturer
+  model            String?   @db.NVarChar(100) // Model
+  year             Int? // Year built
+  totalTime        Int? // Total time on aircraft (TTSN)
+  engineTime       Int? // Engine hours
+  propTime         Int? // Prop hours
+  airframeTime     Int? // Airframe hours
+  annualDue        DateTime? // Annual inspection expiration
+  registrationType String?   @db.NVarChar(50) // Standard, Limited, Experimental, etc.
+  airworthiness    String?   @db.NVarChar(50) // Current, Expired
+  fuelType         String?   @db.NVarChar(20) // 100LL, JetA, UL94
+  avionics         String?   @db.NVarChar(Max) // JSON array of avionics
+  features         String?   @db.NVarChar(Max) // JSON array of features
+  upgrades         String?   @db.NVarChar(Max) // JSON array of upgrades
+  sellerType       String?   @db.NVarChar(20) // owner, broker, dealer
+  isVerified       Boolean   @default(false) // Verified listing
+  verifiedAt       DateTime? // When verified
+  faaData          String?   @db.NVarChar(Max) // Cached FAA response
+  videoUrl         String?   @db.NVarChar(500) // YouTube/video link
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   inquiries AircraftInquiry[]
 
   @@index([airportIcao], name: "idx_marketplace_airport")
@@ -183,13 +212,13 @@ model AircraftInquiry {
   listingId   String   @db.NVarChar(36)
   buyerId     String   @db.NVarChar(36)
   message     String   @db.NVarChar(Max)
-  offerAmount Int?                         // If making an offer
+  offerAmount Int? // If making an offer
   status      String   @default("unread") @db.NVarChar(20) // unread, read, responded, archived
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   listing MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  buyer   User @relation(fields: [buyerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  buyer   User               @relation(fields: [buyerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([listingId])
   @@index([buyerId])
@@ -198,22 +227,52 @@ model AircraftInquiry {
 }
 
 model PilotProfile {
-  id           String   @id @default(cuid()) @db.NVarChar(36)
-  userId       String   @unique @db.NVarChar(36)
-  homeAirport  String?  @db.NVarChar(10)
-  homeAirportName String? @db.NVarChar(200)
-  homeAirportFbo  String? @db.NVarChar(200)
-  homeAirportFuelType String? @db.NVarChar(50)
-  ratings      String?  @db.NVarChar(Max)
-  availability String?  @db.NVarChar(50)
-  aircraft     String?  @db.NVarChar(Max)
-  hours        Int?
-  bio          String?  @db.NVarChar(Max)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                   String   @id @default(cuid()) @db.NVarChar(36)
+  userId               String   @unique @db.NVarChar(36)
+  organizationMemberId String?  @db.NVarChar(36)
+  homeAirport          String?  @db.NVarChar(10)
+  homeAirportName      String?  @db.NVarChar(200)
+  homeAirportFbo       String?  @db.NVarChar(200)
+  homeAirportFuelType  String?  @db.NVarChar(50)
+  ratings              String?  @db.NVarChar(Max)
+  availability         String?  @db.NVarChar(50)
+  aircraft             String?  @db.NVarChar(Max)
+  hours                Int?
+  bio                  String?  @db.NVarChar(Max)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                   User                  @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organizationMember     OrganizationMember?
+  logbookEntries         LogbookEntry[]
+  logbookStartingTotals  LogbookStartingTotal? @relation(fields: [logbookStartingTotalId], references: [id])
+  logbookPreferences     LogbookPreferences?
+  logbookTemplates       LogbookTemplate[]
+  logbookSharingLinks    LogbookSharingLink[]
+  logbookCustomRules     LogbookCustomRule[]
+  logbookDeadlines       LogbookDeadline[]
+  logbookImports         LogbookImport[]
+  aircraftProfiles       AircraftProfile[]
+  flightPlans            FlightPlan[]
+  flightTracks           FlightTrack[]
+  flightRoutes           FlightRoute[]
+  airportVisits          AirportVisit[]
+  trainingProgress       TrainingProgress?
+  trainingGoal           TrainingGoal?
+  trainingFinancials     TrainingFinancials?
+  currencyStatuses       CurrencyStatus[]
+  currencyEvents         CurrencyEvent[]
+  maintenanceRequests    MaintenanceRequest[]
+  bookings               Booking[]
+  flightLogs             FlightLog[]
+  maintenancesReported   Maintenance[]
+  fuelExpenses           FuelExpense[]
+  invoices               Invoice[]
+  UserPresence           UserPresence?
+  logbookStartingTotalId String?               @db.NVarChar(36)
+  PilotLicense           PilotLicense[]
 
+  @@index([userId])
   @@map("PilotProfile")
 }
 
@@ -230,21 +289,21 @@ model UserContact {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("UserContact")
 }
 
 model PilotMedical {
-  id               String   @id @default(uuid()) @db.NVarChar(36)
-  userId           String   @unique @db.NVarChar(36)
-  medicalClass     String?  @db.NVarChar(10)
-  certificateNumber String? @db.NVarChar(100)
-  examinerName     String?  @db.NVarChar(200)
-  issueDate        DateTime?
-  expirationDate   DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                String    @id @default(uuid()) @db.NVarChar(36)
+  userId            String    @unique @db.NVarChar(36)
+  medicalClass      String?   @db.NVarChar(10)
+  certificateNumber String?   @db.NVarChar(100)
+  examinerName      String?   @db.NVarChar(200)
+  issueDate         DateTime?
+  expirationDate    DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -252,31 +311,33 @@ model PilotMedical {
 }
 
 model PilotLicense {
-  id        String   @id @default(uuid()) @db.NVarChar(36)
-  userId    String   @db.NVarChar(36)
-  type      String   @db.NVarChar(100)
-  number    String?  @db.NVarChar(100)
-  issueDate DateTime?
-  ratings   String?  @db.NVarChar(Max)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String    @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String    @db.NVarChar(36)
+  type           String    @db.NVarChar(100)
+  number         String?   @db.NVarChar(100)
+  issueDate      DateTime?
+  ratings        String?   @db.NVarChar(Max)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User         User?        @relation(fields: [userId], references: [id])
+  userId       String?      @db.NVarChar(36)
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("PilotLicense")
 }
 
 model UserPreferences {
-  id               String   @id @default(uuid()) @db.NVarChar(36)
-  userId           String   @unique @db.NVarChar(36)
-  distanceUnit     String   @default("nautical") @db.NVarChar(20)
-  temperatureUnit  String   @default("fahrenheit") @db.NVarChar(20)
-  timeFormat       String   @default("24h") @db.NVarChar(10)
-  dateFormat       String   @default("MM/DD/YYYY") @db.NVarChar(20)
+  id                      String    @id @default(uuid()) @db.NVarChar(36)
+  userId                  String    @unique @db.NVarChar(36)
+  distanceUnit            String    @default("nautical") @db.NVarChar(20)
+  temperatureUnit         String    @default("fahrenheit") @db.NVarChar(20)
+  timeFormat              String    @default("24h") @db.NVarChar(10)
+  dateFormat              String    @default("MM/DD/YYYY") @db.NVarChar(20)
   mechanicInboxLastViewed DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -284,115 +345,115 @@ model UserPreferences {
 }
 
 model LogbookPreferences {
-  id                    String   @id @default(uuid()) @db.NVarChar(36)
-  userId                String   @unique @db.NVarChar(36)
-  timeDisplayFormat     String   @default("decimal-1-2") @db.NVarChar(50) // decimal-1-2, decimal-1, decimal-2, hhmm
-  sumTimeMode           String   @default("whole-minutes") @db.NVarChar(50) // whole-minutes, hundredths
-  preferredTimeZone     String   @default("UTC") @db.NVarChar(50)
-  dateInterpretation    String   @default("local") @db.NVarChar(20) // local, utc
-  showInstructorTime    Boolean  @default(true)
-  showSicTime           Boolean  @default(true)
-  showHobbsTach         Boolean  @default(false)
-  commonTimeOrder       String?  @db.NVarChar(Max)
-  telemetryFields       String?  @db.NVarChar(Max)
-  autoFillTimes         Boolean  @default(true)
-  autoFillLandings      Boolean  @default(true)
-  takeoffSpeedKts       Int?     @default(70)
-  includeHeliports      Boolean  @default(false)
-  estimateNight         Boolean  @default(false)
-  roundNearestTenth     Boolean  @default(false)
-  nightStartRule        String   @default("civil-twilight") @db.NVarChar(50)
-  nightLandingRule      String   @default("sunset-plus-60") @db.NVarChar(50)
-  colorizeSavedSearches Boolean  @default(false)
-  mapRouteColor         String?  @db.NVarChar(20)
-  mapPathColor          String?  @db.NVarChar(20)
-  defaultTemplateId     String?  @db.NVarChar(36)
-  totalsByCategoryClass Boolean  @default(true)
-  totalsByModel         Boolean  @default(false)
-  totalsByModelFamily   Boolean  @default(false)
-  totalsByFeatures      Boolean  @default(true)
-  currencyAuthorities   String?  @db.NVarChar(Max) // FAA,EASA,CAA,AU
-  currencyByCategory    Boolean  @default(true)
-  currencyByModel       Boolean  @default(false)
-  allowNightTouchAndGo  Boolean  @default(true)
-  requireDayLandings    Boolean  @default(false)
-  showAr951             Boolean  @default(false)
-  showFar117            Boolean  @default(false)
-  showFar125            Boolean  @default(false)
-  showFar135            Boolean  @default(false)
-  showFar135Duty        Boolean  @default(false)
-  showGroundInstructor  Boolean  @default(false)
-  expiredCurrencyDisplay String @default("forever") @db.NVarChar(50)
-  maintenanceDueWindowDays Int @default(90)
-  notifyCurrencyWeekly  Boolean  @default(false)
-  notifyCurrencyOnExpiry Boolean @default(true)
-  notifyTotalsWeekly    Boolean  @default(false)
-  notifyTotalsMonthly   Boolean  @default(false)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                       String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId           String?  @unique @db.NVarChar(36)
+  timeDisplayFormat        String   @default("decimal-1-2") @db.NVarChar(50) // decimal-1-2, decimal-1, decimal-2, hhmm
+  sumTimeMode              String   @default("whole-minutes") @db.NVarChar(50) // whole-minutes, hundredths
+  preferredTimeZone        String   @default("UTC") @db.NVarChar(50)
+  dateInterpretation       String   @default("local") @db.NVarChar(20) // local, utc
+  showInstructorTime       Boolean  @default(true)
+  showSicTime              Boolean  @default(true)
+  showHobbsTach            Boolean  @default(false)
+  commonTimeOrder          String?  @db.NVarChar(Max)
+  telemetryFields          String?  @db.NVarChar(Max)
+  autoFillTimes            Boolean  @default(true)
+  autoFillLandings         Boolean  @default(true)
+  takeoffSpeedKts          Int?     @default(70)
+  includeHeliports         Boolean  @default(false)
+  estimateNight            Boolean  @default(false)
+  roundNearestTenth        Boolean  @default(false)
+  nightStartRule           String   @default("civil-twilight") @db.NVarChar(50)
+  nightLandingRule         String   @default("sunset-plus-60") @db.NVarChar(50)
+  colorizeSavedSearches    Boolean  @default(false)
+  mapRouteColor            String?  @db.NVarChar(20)
+  mapPathColor             String?  @db.NVarChar(20)
+  defaultTemplateId        String?  @db.NVarChar(36)
+  totalsByCategoryClass    Boolean  @default(true)
+  totalsByModel            Boolean  @default(false)
+  totalsByModelFamily      Boolean  @default(false)
+  totalsByFeatures         Boolean  @default(true)
+  currencyAuthorities      String?  @db.NVarChar(Max) // FAA,EASA,CAA,AU
+  currencyByCategory       Boolean  @default(true)
+  currencyByModel          Boolean  @default(false)
+  allowNightTouchAndGo     Boolean  @default(true)
+  requireDayLandings       Boolean  @default(false)
+  showAr951                Boolean  @default(false)
+  showFar117               Boolean  @default(false)
+  showFar125               Boolean  @default(false)
+  showFar135               Boolean  @default(false)
+  showFar135Duty           Boolean  @default(false)
+  showGroundInstructor     Boolean  @default(false)
+  expiredCurrencyDisplay   String   @default("forever") @db.NVarChar(50)
+  maintenanceDueWindowDays Int      @default(90)
+  notifyCurrencyWeekly     Boolean  @default(false)
+  notifyCurrencyOnExpiry   Boolean  @default(true)
+  notifyTotalsWeekly       Boolean  @default(false)
+  notifyTotalsMonthly      Boolean  @default(false)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
   @@map("LogbookPreferences")
 }
 
 model LogbookTemplate {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  userId      String   @db.NVarChar(36)
-  name        String   @db.NVarChar(100)
-  description String?  @db.NVarChar(255)
-  fieldsJson  String?  @db.NVarChar(Max)
-  createdAt   DateTime @default(now())
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String?  @db.NVarChar(36)
+  name           String   @db.NVarChar(100)
+  description    String?  @db.NVarChar(255)
+  fieldsJson     String?  @db.NVarChar(Max)
+  createdAt      DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("LogbookTemplate")
 }
 
 model LogbookSharingLink {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  userId      String   @db.NVarChar(36)
-  token       String   @unique @db.NVarChar(64)
-  label       String?  @db.NVarChar(100)
-  scope       String   @default("public") @db.NVarChar(50) // public, totals, endorsements
-  createdAt   DateTime @default(now())
-  revokedAt   DateTime?
+  id             String    @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String    @db.NVarChar(36)
+  token          String    @unique @db.NVarChar(64)
+  label          String?   @db.NVarChar(100)
+  scope          String    @default("public") @db.NVarChar(50) // public, totals, endorsements
+  createdAt      DateTime  @default(now())
+  revokedAt      DateTime?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("LogbookSharingLink")
 }
 
 model LogbookCustomRule {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  userId      String   @db.NVarChar(36)
-  name        String   @db.NVarChar(100)
-  ruleJson    String   @db.NVarChar(Max)
-  createdAt   DateTime @default(now())
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String?  @db.NVarChar(36)
+  name           String   @db.NVarChar(100)
+  ruleJson       String   @db.NVarChar(Max)
+  createdAt      DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("LogbookCustomRule")
 }
 
 model LogbookDeadline {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  userId      String   @db.NVarChar(36)
-  aircraftId  String?  @db.NVarChar(36)
-  name        String   @db.NVarChar(100)
-  dueDate     DateTime?
-  dueHours    Float?
-  hourType    String?  @db.NVarChar(20) // hobbs, tach
-  notes       String?  @db.NVarChar(Max)
-  createdAt   DateTime @default(now())
+  id             String    @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String    @db.NVarChar(36)
+  aircraftId     String?   @db.NVarChar(36)
+  name           String    @db.NVarChar(100)
+  dueDate        DateTime?
+  dueHours       Float?
+  hourType       String?   @db.NVarChar(20) // hobbs, tach
+  notes          String?   @db.NVarChar(Max)
+  createdAt      DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  aircraft AircraftProfile? @relation(fields: [aircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pilotProfile PilotProfile     @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  aircraft     AircraftProfile? @relation(fields: [aircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("LogbookDeadline")
 }
 
@@ -439,7 +500,7 @@ model Conversation {
   updatedAt DateTime @updatedAt
 
   // Marketplace listing this conversation is about (if applicable)
-  listingId String?  @db.NVarChar(36)
+  listingId String? @db.NVarChar(36)
 
   participants ConversationParticipant[]
   messages     Message[]
@@ -465,13 +526,13 @@ model ConversationParticipant {
 model Message {
   id             String   @id @default(uuid()) @db.NVarChar(36)
   conversationId String   @db.NVarChar(36)
-  senderId       String   @db.NVarChar(36)
-  body           String   @db.NVarChar(Max)  // Encrypted for recipient
-  bodyForSender  String?  @db.NVarChar(Max)  // Encrypted for sender (so they can read their own messages)
+  senderId       String?  @db.NVarChar(36)
+  body           String   @db.NVarChar(Max) // Encrypted for recipient
+  bodyForSender  String?  @db.NVarChar(Max) // Encrypted for sender (so they can read their own messages)
   createdAt      DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  sender       User?        @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
   @@index([senderId])
@@ -479,8 +540,8 @@ model Message {
 }
 
 model FlightTrack {
-  id     String @id @default(uuid()) @db.NVarChar(36)
-  userId String @db.NVarChar(36)
+  id             String  @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String? @db.NVarChar(36)
 
   // Flight Info
   name     String   @db.NVarChar(200)
@@ -500,80 +561,83 @@ model FlightTrack {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
   @@map("FlightTrack")
 }
 
 model LogbookEntry {
-  id     String @id @default(uuid()) @db.NVarChar(36)
-  userId String @db.NVarChar(36)
+  id             String  @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String? @db.NVarChar(36)
+  organizationId String? @db.NVarChar(36)
+  clubAircraftId String? @db.NVarChar(36)
+  visibility     String  @default("pilot") @db.NVarChar(20)
 
   // Flight Details
-  date          DateTime
-  aircraft      String   @db.NVarChar(100)
-  aircraftId    String?  @db.NVarChar(36)
-  routeFrom     String   @db.NVarChar(10)
-  routeTo       String   @db.NVarChar(10)
-  routeVia      String?  @db.NVarChar(Max)
-  departureTime DateTime?
-  arrivalTime   DateTime?
-  blockTime     Float?   @default(0)
-  hobbsStart    Float?
-  hobbsEnd      Float?
-  tachStart     Float?
-  tachEnd       Float?
-  landingsFullStop Int?  @default(0)
+  date             DateTime
+  aircraft         String    @db.NVarChar(100)
+  aircraftId       String?   @db.NVarChar(36)
+  routeFrom        String    @db.NVarChar(10)
+  routeTo          String    @db.NVarChar(10)
+  routeVia         String?   @db.NVarChar(Max)
+  departureTime    DateTime?
+  arrivalTime      DateTime?
+  blockTime        Float?    @default(0)
+  hobbsStart       Float?
+  hobbsEnd         Float?
+  tachStart        Float?
+  tachEnd          Float?
+  landingsFullStop Int?      @default(0)
 
   // Times (in hours)
-  totalTime        Float @default(0)
-  picTime          Float @default(0)
-  sicTime          Float @default(0)
-  soloTime         Float @default(0)
-  dualGiven        Float @default(0)
-  dualReceived     Float @default(0)
-  nightTime        Float @default(0)
-  instrumentTime   Float @default(0)
+  totalTime               Float @default(0)
+  picTime                 Float @default(0)
+  sicTime                 Float @default(0)
+  soloTime                Float @default(0)
+  dualGiven               Float @default(0)
+  dualReceived            Float @default(0)
+  nightTime               Float @default(0)
+  instrumentTime          Float @default(0)
   simulatedInstrumentTime Float @default(0)
-  crossCountryTime Float @default(0)
+  crossCountryTime        Float @default(0)
 
   // Landings
   dayLandings   Int @default(0)
   nightLandings Int @default(0)
 
   // Conditions & Rules
-  isCrossCountry Boolean @default(false)
-  isNight       Boolean @default(false)
-  isDay         Boolean @default(true)
-  isSolo        Boolean @default(false)
-  isDual        Boolean @default(false)
-  approaches    Int @default(0)
-  holds         Int @default(0)
-  dmeArcs       Int @default(0)
-  intercepts    Int @default(0)
-  routeDistanceNm Float? @default(0)
+  isCrossCountry  Boolean @default(false)
+  isNight         Boolean @default(false)
+  isDay           Boolean @default(true)
+  isSolo          Boolean @default(false)
+  isDual          Boolean @default(false)
+  approaches      Int     @default(0)
+  holds           Int     @default(0)
+  dmeArcs         Int     @default(0)
+  intercepts      Int     @default(0)
+  routeDistanceNm Float?  @default(0)
 
   // Authority & compliance
-  authority    String   @default("FAA") @db.NVarChar(10) // FAA, EASA, BOTH
-  crewRole     String?  @db.NVarChar(50) // PIC, SIC, DUAL, INSTRUCTOR, STUDENT
-  faaType      String?  @db.NVarChar(50)
-  easaType     String?  @db.NVarChar(50)
+  authority String  @default("FAA") @db.NVarChar(10) // FAA, EASA, BOTH
+  crewRole  String? @db.NVarChar(50) // PIC, SIC, DUAL, INSTRUCTOR, STUDENT
+  faaType   String? @db.NVarChar(50)
+  easaType  String? @db.NVarChar(50)
 
   // Training & compliance
-  safetyPilotName String? @db.NVarChar(100)
-  requiresSafetyPilot Boolean @default(false)
-  groundTrainingReceived Float @default(0)
-  simTrainingReceived Float @default(0)
-  trainingDeviceId String? @db.NVarChar(100)
+  safetyPilotName        String? @db.NVarChar(100)
+  requiresSafetyPilot    Boolean @default(false)
+  groundTrainingReceived Float   @default(0)
+  simTrainingReceived    Float   @default(0)
+  trainingDeviceId       String? @db.NVarChar(100)
   trainingDeviceLocation String? @db.NVarChar(100)
-  isSimulator Boolean @default(false)
+  isSimulator            Boolean @default(false)
 
   // Additional Info
-  remarks    String? @db.NVarChar(Max)
-  instructor String? @db.NVarChar(100)
+  remarks      String? @db.NVarChar(Max)
+  instructor   String? @db.NVarChar(100)
   instructorId String? @db.NVarChar(36)
-  studentId   String? @db.NVarChar(36)
-  isPending   Boolean @default(false)
+  studentId    String? @db.NVarChar(36)
+  isPending    Boolean @default(false)
 
   // Link to flight plan if applicable
   flightPlanId String? @db.NVarChar(36)
@@ -582,16 +646,20 @@ model LogbookEntry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  instructorUser User? @relation("LogbookEntryInstructor", fields: [instructorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  studentUser    User? @relation("LogbookEntryStudent", fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  aircraftProfile AircraftProfile? @relation(fields: [aircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  route FlightRoute? @relation(fields: [routeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  flightPlan FlightPlan? @relation(fields: [flightPlanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  endorsements   Endorsement[]
-  attachments    LogbookAttachment[]
+  pilotProfile    PilotProfile?       @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organization    Organization?       @relation("OrganizationLogbooks", fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubAircraft    ClubAircraft?       @relation(fields: [clubAircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  instructorUser  User?               @relation("LogbookEntryInstructor", fields: [instructorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studentUser     User?               @relation("LogbookEntryStudent", fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  aircraftProfile AircraftProfile?    @relation(fields: [aircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  route           FlightRoute?        @relation(fields: [routeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  flightPlan      FlightPlan?         @relation(fields: [flightPlanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  endorsements    Endorsement[]
+  attachments     LogbookAttachment[]
 
-  @@index([userId, date])
+  @@index([pilotProfileId, date])
+  @@index([organizationId, date])
+  @@index([clubAircraftId, date])
   @@index([aircraftId])
   @@index([routeFrom])
   @@index([routeTo])
@@ -599,19 +667,19 @@ model LogbookEntry {
 }
 
 model AircraftModel {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  manufacturer String? @db.NVarChar(100)
-  model       String  @db.NVarChar(100)
-  categoryClass String? @db.NVarChar(100)
-  engineType  String? @db.NVarChar(50)
-  isComplex   Boolean @default(false)
-  isHighPerformance Boolean @default(false)
-  isTailwheel Boolean @default(false)
-  isMultiEngine Boolean @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String   @id @default(uuid()) @db.NVarChar(36)
+  manufacturer      String?  @db.NVarChar(100)
+  model             String   @db.NVarChar(100)
+  categoryClass     String?  @db.NVarChar(100)
+  engineType        String?  @db.NVarChar(50)
+  isComplex         Boolean  @default(false)
+  isHighPerformance Boolean  @default(false)
+  isTailwheel       Boolean  @default(false)
+  isMultiEngine     Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  profiles    AircraftProfile[]
+  profiles AircraftProfile[]
 
   @@index([manufacturer])
   @@index([model])
@@ -619,29 +687,29 @@ model AircraftModel {
 }
 
 model AircraftProfile {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  userId      String   @db.NVarChar(36)
-  nNumber     String   @db.NVarChar(10)
-  nickname    String?  @db.NVarChar(100)
-  modelId     String?  @db.NVarChar(36)
-  categoryClass String? @db.NVarChar(100)
-  engineType  String?  @db.NVarChar(50)
-  notes       String?  @db.NVarChar(Max)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String?  @db.NVarChar(36)
+  nNumber        String   @db.NVarChar(10)
+  nickname       String?  @db.NVarChar(100)
+  modelId        String?  @db.NVarChar(36)
+  categoryClass  String?  @db.NVarChar(100)
+  engineType     String?  @db.NVarChar(50)
+  notes          String?  @db.NVarChar(Max)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  model AircraftModel? @relation(fields: [modelId], references: [id])
-  logbookEntries LogbookEntry[]
+  pilotProfile     PilotProfile?     @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
+  model            AircraftModel?    @relation(fields: [modelId], references: [id])
+  logbookEntries   LogbookEntry[]
   logbookDeadlines LogbookDeadline[]
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("AircraftProfile")
 }
 
 model TrainingProgress {
-  id     String @id @default(uuid()) @db.NVarChar(36)
-  userId String @unique @db.NVarChar(36)
+  id             String  @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String? @unique @db.NVarChar(36)
 
   // Hours
   totalHours        Int @default(0)
@@ -663,26 +731,26 @@ model TrainingProgress {
 
   lastUpdated DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
   @@map("TrainingProgress")
 }
 
 model InstructorProfile {
-  id                 String   @id @default(uuid()) @db.NVarChar(36)
-  userId             String   @unique @db.NVarChar(36)
-  certificateNumber  String   @db.NVarChar(100)
-  certificateType    String?  @db.NVarChar(100) // CFI, CFII, MEI, EASA FI, etc.
-  certificateIssuer  String?  @db.NVarChar(50) // FAA, EASA
+  id                 String    @id @default(uuid()) @db.NVarChar(36)
+  userId             String    @unique @db.NVarChar(36)
+  certificateNumber  String    @db.NVarChar(100)
+  certificateType    String?   @db.NVarChar(100) // CFI, CFII, MEI, EASA FI, etc.
+  certificateIssuer  String?   @db.NVarChar(50) // FAA, EASA
   certificateExpires DateTime?
-  verificationStatus String   @default("pending") @db.NVarChar(20) // pending, verified, rejected
-  verificationNotes  String?  @db.NVarChar(Max)
+  verificationStatus String    @default("pending") @db.NVarChar(20) // pending, verified, rejected
+  verificationNotes  String?   @db.NVarChar(Max)
   verifiedAt         DateTime?
-  verifiedBy         String?  @db.NVarChar(36)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  verifiedBy         String?   @db.NVarChar(36)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  certificates       InstructorCertificate[]
+  certificates InstructorCertificate[]
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -690,12 +758,12 @@ model InstructorProfile {
 }
 
 model InstructorCertificate {
-  id            String   @id @default(uuid()) @db.NVarChar(36)
-  instructorId  String   @db.NVarChar(36)
-  fileUrl       String   @db.NVarChar(500)
-  fileName      String   @db.NVarChar(255)
-  mimeType      String?  @db.NVarChar(100)
-  uploadedAt    DateTime @default(now())
+  id           String   @id @default(uuid()) @db.NVarChar(36)
+  instructorId String   @db.NVarChar(36)
+  fileUrl      String   @db.NVarChar(500)
+  fileName     String   @db.NVarChar(255)
+  mimeType     String?  @db.NVarChar(100)
+  uploadedAt   DateTime @default(now())
 
   instructor InstructorProfile @relation(fields: [instructorId], references: [id], onDelete: Cascade)
 
@@ -704,18 +772,18 @@ model InstructorCertificate {
 }
 
 model Signature {
-  id           String   @id @default(uuid()) @db.NVarChar(36)
-  userId       String   @db.NVarChar(36)
-  type         String   @default("drawn") @db.NVarChar(20) // drawn, typed
-  svgData      String?  @db.NVarChar(Max)
-  typedName    String?  @db.NVarChar(255)
-  certNumber   String?  @db.NVarChar(100)
-  ipAddress    String?  @db.NVarChar(50)
-  userAgent    String?  @db.NVarChar(255)
-  hash         String   @db.NVarChar(64)
-  createdAt    DateTime @default(now())
+  id         String   @id @default(uuid()) @db.NVarChar(36)
+  userId     String   @db.NVarChar(36)
+  type       String   @default("drawn") @db.NVarChar(20) // drawn, typed
+  svgData    String?  @db.NVarChar(Max)
+  typedName  String?  @db.NVarChar(255)
+  certNumber String?  @db.NVarChar(100)
+  ipAddress  String?  @db.NVarChar(50)
+  userAgent  String?  @db.NVarChar(255)
+  hash       String   @db.NVarChar(64)
+  createdAt  DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   endorsements Endorsement[]
 
   @@index([userId])
@@ -723,14 +791,14 @@ model Signature {
 }
 
 model EndorsementTemplate {
-  id           String   @id @default(uuid()) @db.NVarChar(36)
-  authority    String   @db.NVarChar(10) // FAA, EASA
-  name         String   @db.NVarChar(255)
-  code         String   @db.NVarChar(100)
-  text         String   @db.NVarChar(Max)
-  category     String?  @db.NVarChar(100)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id        String   @id @default(uuid()) @db.NVarChar(36)
+  authority String   @db.NVarChar(10) // FAA, EASA
+  name      String   @db.NVarChar(255)
+  code      String   @db.NVarChar(100)
+  text      String   @db.NVarChar(Max)
+  category  String?  @db.NVarChar(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   endorsements Endorsement[]
   requests     EndorsementRequest[]
@@ -751,11 +819,11 @@ model Endorsement {
   notes          String?  @db.NVarChar(Max)
   createdAt      DateTime @default(now())
 
-  template   EndorsementTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  student    User @relation("EndorsementStudent", fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  instructor User @relation("EndorsementInstructor", fields: [instructorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  signature  Signature @relation(fields: [signatureId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  logbookEntry LogbookEntry? @relation(fields: [logbookEntryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  template     EndorsementTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  student      User                @relation("EndorsementStudent", fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  instructor   User                @relation("EndorsementInstructor", fields: [instructorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  signature    Signature           @relation(fields: [signatureId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  logbookEntry LogbookEntry?       @relation(fields: [logbookEntryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([studentId])
   @@index([instructorId])
@@ -773,8 +841,8 @@ model EndorsementRequest {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  student    User @relation("EndorsementRequestStudent", fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  instructor User @relation("EndorsementRequestInstructor", fields: [instructorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  student    User                 @relation("EndorsementRequestStudent", fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  instructor User                 @relation("EndorsementRequestInstructor", fields: [instructorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   template   EndorsementTemplate? @relation(fields: [templateId], references: [id])
 
   @@index([studentId])
@@ -783,12 +851,12 @@ model EndorsementRequest {
 }
 
 model LogbookAttachment {
-  id           String   @id @default(uuid()) @db.NVarChar(36)
-  logbookEntryId String @db.NVarChar(36)
-  fileUrl      String   @db.NVarChar(500)
-  fileName     String   @db.NVarChar(255)
-  mimeType     String?  @db.NVarChar(100)
-  createdAt    DateTime @default(now())
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  logbookEntryId String   @db.NVarChar(36)
+  fileUrl        String   @db.NVarChar(500)
+  fileName       String   @db.NVarChar(255)
+  mimeType       String?  @db.NVarChar(100)
+  createdAt      DateTime @default(now())
 
   entry LogbookEntry @relation(fields: [logbookEntryId], references: [id], onDelete: Cascade)
 
@@ -797,154 +865,155 @@ model LogbookAttachment {
 }
 
 model LogbookStartingTotal {
-  id        String   @id @default(uuid()) @db.NVarChar(36)
-  userId    String   @unique @db.NVarChar(36)
-  totalTime Float   @default(0)
-  picTime   Float   @default(0)
-  sicTime   Float   @default(0)
-  nightTime Float   @default(0)
-  instrumentTime Float @default(0)
-  crossCountryTime Float @default(0)
-  landingsDay Int @default(0)
-  landingsNight Int @default(0)
-  asOfDate  DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String    @id @default(uuid()) @db.NVarChar(36)
+  userId           String    @unique @db.NVarChar(36)
+  totalTime        Float     @default(0)
+  picTime          Float     @default(0)
+  sicTime          Float     @default(0)
+  nightTime        Float     @default(0)
+  instrumentTime   Float     @default(0)
+  crossCountryTime Float     @default(0)
+  landingsDay      Int       @default(0)
+  landingsNight    Int       @default(0)
+  asOfDate         DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  PilotProfile PilotProfile[]
 
   @@map("LogbookStartingTotal")
 }
 
 model CurrencyRule {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  authority   String   @db.NVarChar(10) // FAA, EASA
-  code        String   @unique @db.NVarChar(50)
-  name        String   @db.NVarChar(255)
-  ruleJson    String   @db.NVarChar(Max)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid()) @db.NVarChar(36)
+  authority String   @db.NVarChar(10) // FAA, EASA
+  code      String   @unique @db.NVarChar(50)
+  name      String   @db.NVarChar(255)
+  ruleJson  String   @db.NVarChar(Max)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  statuses    CurrencyStatus[]
+  statuses CurrencyStatus[]
 
   @@index([authority])
   @@map("CurrencyRule")
 }
 
 model CurrencyStatus {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  userId      String   @db.NVarChar(36)
-  ruleId      String   @db.NVarChar(36)
-  status      String   @db.NVarChar(20) // current, expiring, expired
+  id              String    @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId  String?   @db.NVarChar(36)
+  ruleId          String    @db.NVarChar(36)
+  status          String    @db.NVarChar(20) // current, expiring, expired
   lastSatisfiedAt DateTime?
-  nextDueAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  nextDueAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rule CurrencyRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
+  rule         CurrencyRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, ruleId])
-  @@index([userId])
+  @@unique([pilotProfileId, ruleId])
+  @@index([pilotProfileId])
   @@map("CurrencyStatus")
 }
 
 model CurrencyEvent {
-  id        String   @id @default(uuid()) @db.NVarChar(36)
-  userId    String   @db.NVarChar(36)
-  ruleCode  String   @db.NVarChar(50)
-  eventDate DateTime
-  details   String?  @db.NVarChar(Max)
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String?  @db.NVarChar(36)
+  ruleCode       String   @db.NVarChar(50)
+  eventDate      DateTime
+  details        String?  @db.NVarChar(Max)
+  createdAt      DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("CurrencyEvent")
 }
 
 model LogbookImport {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  userId      String   @db.NVarChar(36)
-  source      String   @db.NVarChar(50) // CSV, MYFLIGHTBOOK, FOREFLIGHT, GARMIN
-  status      String   @default("pending") @db.NVarChar(20)
-  fileUrl     String?  @db.NVarChar(500)
-  summaryJson String?  @db.NVarChar(Max)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String?  @db.NVarChar(36)
+  source         String   @db.NVarChar(50) // CSV, MYFLIGHTBOOK, FOREFLIGHT, GARMIN
+  status         String   @default("pending") @db.NVarChar(20)
+  fileUrl        String?  @db.NVarChar(500)
+  summaryJson    String?  @db.NVarChar(Max)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("LogbookImport")
 }
 
 model FlightRoute {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  userId      String   @db.NVarChar(36)
-  name        String?  @db.NVarChar(200)
-  routeIcaos  String   @db.NVarChar(Max)
-  totalDistanceNm Float? @default(0)
-  createdAt   DateTime @default(now())
+  id              String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId  String?  @db.NVarChar(36)
+  name            String?  @db.NVarChar(200)
+  routeIcaos      String   @db.NVarChar(Max)
+  totalDistanceNm Float?   @default(0)
+  createdAt       DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  entries LogbookEntry[]
+  pilotProfile PilotProfile?  @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  entries      LogbookEntry[]
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("FlightRoute")
 }
 
 model AirportVisit {
-  id        String   @id @default(uuid()) @db.NVarChar(36)
-  userId    String   @db.NVarChar(36)
-  icao      String   @db.NVarChar(10)
-  firstVisited DateTime
-  lastVisited  DateTime
-  visits    Int @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String?  @db.NVarChar(36)
+  icao           String   @db.NVarChar(10)
+  firstVisited   DateTime
+  lastVisited    DateTime
+  visits         Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, icao])
+  @@unique([pilotProfileId, icao])
   @@map("AirportVisit")
 }
 
 model TrainingGoal {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  userId      String   @unique @db.NVarChar(36)
-  goalType    String   @db.NVarChar(20) // "PPL", "IR", "CPL", "CFI", "CFII", "MEI", "ATP", "HELICOPTER"
-  targetDate  DateTime?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String    @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String?   @unique @db.NVarChar(36)
+  goalType       String    @db.NVarChar(20) // "PPL", "IR", "CPL", "CFI", "CFII", "MEI", "ATP", "HELICOPTER"
+  targetDate     DateTime?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([pilotProfileId])
   @@map("TrainingGoal")
 }
 
 model TrainingFinancials {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  userId          String   @unique @db.NVarChar(36)
-  
+  id             String  @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String? @unique @db.NVarChar(36)
+
   // Cost inputs
-  aircraftRate    Decimal  @default(0) @db.Decimal(10, 2)   // $/hr
-  instructorRate  Decimal  @default(0) @db.Decimal(10, 2)   // $/hr
-  checkrideFee    Decimal  @default(0) @db.Decimal(10, 2)
-  examFees        Decimal  @default(0) @db.Decimal(10, 2)
-  medicalFee      Decimal  @default(0) @db.Decimal(10, 2)
-  monthlyDues     Decimal  @default(0) @db.Decimal(10, 2)
-  equipmentCost  Decimal  @default(0) @db.Decimal(10, 2)
-  
+  aircraftRate   Decimal @default(0) @db.Decimal(10, 2) // $/hr
+  instructorRate Decimal @default(0) @db.Decimal(10, 2) // $/hr
+  checkrideFee   Decimal @default(0) @db.Decimal(10, 2)
+  examFees       Decimal @default(0) @db.Decimal(10, 2)
+  medicalFee     Decimal @default(0) @db.Decimal(10, 2)
+  monthlyDues    Decimal @default(0) @db.Decimal(10, 2)
+  equipmentCost  Decimal @default(0) @db.Decimal(10, 2)
+
   // Flight patterns
   flightsPerMonth Int     @default(0)
-  avgFlightHours  Decimal @default(0) @db.Decimal(4, 1)  // hours per flight
-  
-  updatedAt       DateTime @updatedAt
-  
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avgFlightHours  Decimal @default(0) @db.Decimal(4, 1) // hours per flight
+
+  updatedAt DateTime @updatedAt
+
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
   @@map("TrainingFinancials")
 }
@@ -952,75 +1021,75 @@ model TrainingFinancials {
 // Engine Health Monitoring
 
 model EngineDataUpload {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  aircraftId  String   @db.NVarChar(36)
+  id         String   @id @default(uuid()) @db.NVarChar(36)
+  aircraftId String   @db.NVarChar(36)
   userId     String   @db.NVarChar(36)
   uploadDate DateTime @default(now())
   fileName   String   @db.NVarChar(255)
   fileType   String   @db.NVarChar(20) // "JPI", "GARMIN", "AVIDYNE", "EI", "CSV"
   data       String   @db.NVarChar(Max) // JSON encoded flight data
-  
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@index([aircraftId])
   @@map("EngineDataUpload")
 }
 
 model EngineFlightData {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  uploadId        String   @db.NVarChar(36)
-  flightDate      DateTime
-  flightDuration  Decimal  @db.Decimal(6, 2) // hours
-  
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  uploadId       String   @db.NVarChar(36)
+  flightDate     DateTime
+  flightDuration Decimal  @db.Decimal(6, 2) // hours
+
   // Cylinder temps (for JPI/EI)
-  chtMin          Decimal? @db.Decimal(6, 2)
-  chtMax          Decimal? @db.Decimal(6, 2)
-  chtAvg          Decimal? @db.Decimal(6, 2)
-  egtMin          Decimal? @db.Decimal(6, 2)
-  egtMax          Decimal? @db.Decimal(6, 2)
-  egtAvg          Decimal? @db.Decimal(6, 2)
-  
+  chtMin Decimal? @db.Decimal(6, 2)
+  chtMax Decimal? @db.Decimal(6, 2)
+  chtAvg Decimal? @db.Decimal(6, 2)
+  egtMin Decimal? @db.Decimal(6, 2)
+  egtMax Decimal? @db.Decimal(6, 2)
+  egtAvg Decimal? @db.Decimal(6, 2)
+
   // Fuel flow
-  fuelFlowMin     Decimal? @db.Decimal(6, 2)
-  fuelFlowMax     Decimal? @db.Decimal(6, 2)
-  fuelFlowAvg     Decimal? @db.Decimal(6, 2)
-  fuelUsed        Decimal? @db.Decimal(8, 2)
-  
+  fuelFlowMin Decimal? @db.Decimal(6, 2)
+  fuelFlowMax Decimal? @db.Decimal(6, 2)
+  fuelFlowAvg Decimal? @db.Decimal(6, 2)
+  fuelUsed    Decimal? @db.Decimal(8, 2)
+
   // Oil
-  oilTempMin      Decimal? @db.Decimal(6, 2)
-  oilTempMax      Decimal? @db.Decimal(6, 2)
-  oilPressureMin  Decimal? @db.Decimal(6, 2)
-  oilPressureMax  Decimal? @db.Decimal(6, 2)
-  
+  oilTempMin     Decimal? @db.Decimal(6, 2)
+  oilTempMax     Decimal? @db.Decimal(6, 2)
+  oilPressureMin Decimal? @db.Decimal(6, 2)
+  oilPressureMax Decimal? @db.Decimal(6, 2)
+
   // Other
-  rpmAvg          Decimal? @db.Decimal(6, 2)
+  rpmAvg           Decimal? @db.Decimal(6, 2)
   manifoldPressure Decimal? @db.Decimal(6, 2)
-  
-  createdAt       DateTime @default(now())
-  
+
+  createdAt DateTime @default(now())
+
   @@index([uploadId])
   @@index([flightDate])
   @@map("EngineFlightData")
 }
 
 model EngineAnomaly {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  aircraftId      String   @db.NVarChar(36)
-  userId          String   @db.NVarChar(36)
-  uploadId        String?  @db.NVarChar(36)
-  flightDate      DateTime
-  type            String   @db.NVarChar(30) // "CHT_SPREAD", "EGT_SPREAD", "OIL_TEMP", "OIL_PRESSURE", "FUEL_FLOW"
-  severity        String   @db.NVarChar(10) // "INFO", "WARNING", "CRITICAL"
-  value           Decimal  @db.Decimal(10, 2)
-  threshold       Decimal  @db.Decimal(10, 2)
-  message         String   @db.NVarChar(500)
-  acknowledged    Boolean  @default(false)
-  acknowledgedBy  String?  @db.NVarChar(36)
-  acknowledgedAt  DateTime?
-  createdAt       DateTime @default(now())
-  
+  id             String    @id @default(uuid()) @db.NVarChar(36)
+  aircraftId     String    @db.NVarChar(36)
+  userId         String    @db.NVarChar(36)
+  uploadId       String?   @db.NVarChar(36)
+  flightDate     DateTime
+  type           String    @db.NVarChar(30) // "CHT_SPREAD", "EGT_SPREAD", "OIL_TEMP", "OIL_PRESSURE", "FUEL_FLOW"
+  severity       String    @db.NVarChar(10) // "INFO", "WARNING", "CRITICAL"
+  value          Decimal   @db.Decimal(10, 2)
+  threshold      Decimal   @db.Decimal(10, 2)
+  message        String    @db.NVarChar(500)
+  acknowledged   Boolean   @default(false)
+  acknowledgedBy String?   @db.NVarChar(36)
+  acknowledgedAt DateTime?
+  createdAt      DateTime  @default(now())
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@index([aircraftId])
   @@index([severity])
   @@map("EngineAnomaly")
@@ -1128,150 +1197,119 @@ model AircraftSpecs {
   @@map("AircraftSpecs")
 }
 
-model FlyingGroup {
-  id          String    @id(map: "PK__FlyingGr__3213E83F620FD61F") @default("newid()", map: "DF__FlyingGroup__id__160F4887") @db.NVarChar(36)
-  name        String    @db.NVarChar(255)
-  description String?   @db.NVarChar(Max)
-  ownerId     String    @db.NVarChar(36)
-  dryRate     Decimal?  @db.Decimal(10, 2)
-  wetRate     Decimal?  @db.Decimal(10, 2)
-  customRates String?   @db.NVarChar(Max)
-  createdAt   DateTime? @default(now(), map: "DF__FlyingGro__creat__17036CC0")
-  updatedAt   DateTime? @default(now(), map: "DF__FlyingGro__updat__17F790F9") @updatedAt
-
-  members     GroupMember[]
-  memberSettings GroupMemberSettings[]
-  invites     Invite[]
-  integrations Integration[]
-
-  @@map("FlyingGroup")
-}
-
-model GroupMember {
-  id       String    @id(map: "PK__GroupMem__3213E83F73ED1832") @default("newid()", map: "DF__GroupMember__id__1BC821DD") @db.NVarChar(36)
-  userId   String    @db.NVarChar(36)
-  groupId  String    @db.NVarChar(36)
-  role     String?   @default("VIEWER", map: "DF__GroupMembe__role__1CBC4616") @db.NVarChar(20)
-  joinedAt DateTime? @default(now(), map: "DF__GroupMemb__joine__1DB06A4F")
-
-  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group FlyingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, groupId])
-  @@map("GroupMember")
-}
-
-model GroupMemberSettings {
-  id                String   @id @default(uuid()) @db.NVarChar(36)
-  userId            String   @db.NVarChar(36)
-  groupId           String   @db.NVarChar(36)
-  defaultTab        String?  @db.NVarChar(50)
-  notifyMaintenance Boolean  @default(true)
-  notifyBookings    Boolean  @default(true)
-  notifyBilling     Boolean  @default(false)
-  maintenanceRole   String?  @db.NVarChar(30) // MAINTENANCE_MANAGER, etc.
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group FlyingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, groupId])
-  @@map("GroupMemberSettings")
-}
-
-model Invite {
-  id        String    @id(map: "PK__Invite__3213E83F3215783F") @default("newid()", map: "DF__Invite__id__2180FB33") @db.NVarChar(36)
-  groupId   String    @db.NVarChar(36)
-  token     String    @unique(map: "UQ__Invite__CA90DA7A533235A9") @db.NVarChar(255)
-  email     String?   @db.NVarChar(255)
-  role      String?   @default("VIEWER", map: "DF__Invite__role__22751F6C") @db.NVarChar(20)
-  expiresAt DateTime
-  createdBy String    @db.NVarChar(36)
-  createdAt DateTime? @default(now(), map: "DF__Invite__createdA__236943A5")
-
-  group FlyingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-
-  @@map("Invite")
-}
-
 model Maintenance {
-  id              String    @id(map: "PK__Maintena__3213E83FBBF3C62C") @default("newid()", map: "DF__Maintenance__id__3493CFA7") @db.NVarChar(36)
-  aircraftId      String    @db.NVarChar(36)
-  userId          String    @db.NVarChar(36)
-  description     String    @db.NVarChar(Max)
-  status          String?   @default("NEEDED", map: "DF__Maintenan__statu__3587F3E0") @db.NVarChar(20)
-  maintenanceType String?   @default("CLUB") @db.NVarChar(20) // "PERSONAL" or "CLUB"
-  category        String?   @db.NVarChar(50) // Oil, Engine, Avionics, Airframe, Prop, Electrical, Interior, OTHER
-  isGeneric       Boolean   @default(false) // True if auto-created squawk
-  isPlaneSpecific Boolean  @default(false) // True if goes to admin queue
-  severity        String?   @default("LOW") @db.NVarChar(20) // LOW, MEDIUM, HIGH
-  flightLogId     String?   @db.NVarChar(36) // Link to flight that caused issue
-  reportedByUserId String?  @db.NVarChar(36)
-  isGrounded     Boolean   @default(false)
-  reportedDate   DateTime? @default(now(), map: "DF__Maintenan__repor__367C1819")
-  resolvedDate   DateTime?
-  cost           Decimal?  @db.Decimal(10, 2)
-  notes          String?   @db.NVarChar(Max)
-  createdAt      DateTime? @default(now(), map: "DF__Maintenan__creat__37703C52")
-  updatedAt      DateTime? @default(now(), map: "DF__Maintenan__updat__3864608B") @updatedAt
+  id                String    @id(map: "PK__Maintena__3213E83FBBF3C62C") @default("newid()", map: "DF__Maintenance__id__3493CFA7") @db.NVarChar(36)
+  organizationId    String?   @db.NVarChar(36)
+  clubAircraftId    String?   @db.NVarChar(36)
+  reportedByPilotId String?   @db.NVarChar(36)
+  description       String    @db.NVarChar(Max)
+  status            String?   @default("NEEDED", map: "DF__Maintenan__statu__3587F3E0") @db.NVarChar(20)
+  maintenanceType   String?   @default("CLUB") @db.NVarChar(20) // "PERSONAL" or "CLUB"
+  category          String?   @db.NVarChar(50) // Oil, Engine, Avionics, Airframe, Prop, Electrical, Interior, OTHER
+  isGeneric         Boolean   @default(false) // True if auto-created squawk
+  isPlaneSpecific   Boolean   @default(false) // True if goes to admin queue
+  severity          String?   @default("LOW") @db.NVarChar(20) // LOW, MEDIUM, HIGH
+  flightLogId       String?   @db.NVarChar(36) // Link to flight that caused issue
+  reportedByUserId  String?   @db.NVarChar(36)
+  isGrounded        Boolean   @default(false)
+  reportedDate      DateTime? @default(now(), map: "DF__Maintenan__repor__367C1819")
+  resolvedDate      DateTime?
+  cost              Decimal?  @db.Decimal(10, 2)
+  notes             String?   @db.NVarChar(Max)
+  createdAt         DateTime? @default(now(), map: "DF__Maintenan__creat__37703C52")
+  updatedAt         DateTime? @default(now(), map: "DF__Maintenan__updat__3864608B") @updatedAt
 
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubAircraft    ClubAircraft? @relation(fields: [clubAircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reportedByPilot PilotProfile? @relation(fields: [reportedByPilotId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  flightLog       FlightLog?    @relation(fields: [flightLogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organizationId])
+  @@index([clubAircraftId])
+  @@index([reportedByPilotId])
   @@map("Maintenance")
 }
 
 model FuelExpense {
-  id           String    @id @default("newid()") @db.NVarChar(36)
-  aircraftId   String    @db.NVarChar(36)
-  userId       String    @db.NVarChar(36)
-  flightLogId  String?   @db.NVarChar(36)
-  gallons      Decimal   @db.Decimal(10, 2)
-  pricePerGallon Decimal @db.Decimal(10, 2)
-  totalCost    Decimal   @db.Decimal(10, 2)
-  status       String    @default("PENDING") @db.NVarChar(20) // PENDING, APPROVED, DENIED
-  receiptUrl   String?   @db.NVarChar(500)
-  notes        String?   @db.NVarChar(Max)
-  approvedBy   String?   @db.NVarChar(36)
-  approvedAt   DateTime?
-  createdAt    DateTime? @default(now())
-  updatedAt    DateTime? @default(now()) @updatedAt
+  id             String    @id @default("newid()") @db.NVarChar(36)
+  organizationId String?   @db.NVarChar(36)
+  clubAircraftId String?   @db.NVarChar(36)
+  pilotProfileId String?   @db.NVarChar(36)
+  flightLogId    String?   @db.NVarChar(36)
+  gallons        Decimal   @db.Decimal(10, 2)
+  pricePerGallon Decimal   @db.Decimal(10, 2)
+  totalCost      Decimal   @db.Decimal(10, 2)
+  status         String    @default("PENDING") @db.NVarChar(20) // PENDING, APPROVED, DENIED
+  receiptUrl     String?   @db.NVarChar(500)
+  notes          String?   @db.NVarChar(Max)
+  approvedBy     String?   @db.NVarChar(36)
+  approvedAt     DateTime?
+  createdAt      DateTime? @default(now())
+  updatedAt      DateTime? @default(now()) @updatedAt
 
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubAircraft ClubAircraft? @relation(fields: [clubAircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  flightLog    FlightLog?    @relation(fields: [flightLogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organizationId])
+  @@index([clubAircraftId])
+  @@index([pilotProfileId])
   @@map("FuelExpense")
 }
 
 model ClubAircraft {
-  id               String    @id(map: "PK__ClubAirc__3213E83F197A971B") @default("newid()", map: "DF__ClubAircraft__id__2645B050") @db.NVarChar(36)
-  groupId          String    @db.NVarChar(36)
-  nNumber          String?   @db.NVarChar(10)
-  nickname         String?   @db.NVarChar(100)
-  customName       String?   @db.NVarChar(255)
-  hourlyRate       Decimal?  @db.Decimal(10, 2)
-  createdAt        DateTime? @default(now(), map: "DF__ClubAircr__creat__2739D489")
-  updatedAt        DateTime? @default(now(), map: "DF__ClubAircr__updat__282DF8C2") @updatedAt
-  make             String?   @db.NVarChar(100)
-  model            String?   @db.NVarChar(100)
-  year             Int?
-  totalTachHours   Decimal?  @db.Decimal(6, 2)
-  totalHobbsHours  Decimal?  @db.Decimal(6, 2)
-  registrationType String?   @db.NVarChar(50)
-  hasInsurance     Boolean?
-  maxPassengers    Int?
-  aircraftNotes    String?   @db.NVarChar(Max)
-  status           String?   @db.NVarChar(50)
-  bookingWindowDays Int     @default(30)
+  id                String    @id(map: "PK__ClubAirc__3213E83F197A971B") @default("newid()", map: "DF__ClubAircraft__id__2645B050") @db.NVarChar(36)
+  organizationId    String?   @db.NVarChar(36)
+  nNumber           String?   @db.NVarChar(10)
+  nickname          String?   @db.NVarChar(100)
+  customName        String?   @db.NVarChar(255)
+  hourlyRate        Decimal?  @db.Decimal(10, 2)
+  createdAt         DateTime? @default(now(), map: "DF__ClubAircr__creat__2739D489")
+  updatedAt         DateTime? @default(now(), map: "DF__ClubAircr__updat__282DF8C2") @updatedAt
+  make              String?   @db.NVarChar(100)
+  model             String?   @db.NVarChar(100)
+  year              Int?
+  totalTachHours    Decimal?  @db.Decimal(6, 2)
+  totalHobbsHours   Decimal?  @db.Decimal(6, 2)
+  registrationType  String?   @db.NVarChar(50)
+  hasInsurance      Boolean?
+  maxPassengers     Int?
+  aircraftNotes     String?   @db.NVarChar(Max)
+  status            String?   @db.NVarChar(50)
+  bookingWindowDays Int       @default(30)
 
+  organization   Organization?  @relation(fields: [organizationId], references: [id], onDelete: NoAction)
+  bookings       Booking[]
+  flightLogs     FlightLog[]
+  maintenances   Maintenance[]
+  fuelExpenses   FuelExpense[]
+  blockOuts      BlockOut[]
+  logbookEntries LogbookEntry[]
+  invoiceItems   InvoiceItem[]
+
+  @@index([organizationId])
   @@map("ClubAircraft")
 }
 
 model Booking {
-  id         String    @id(map: "PK__Booking__3213E83F64A346D6") @default("newid()", map: "DF__Booking__id__2B0A656D") @db.NVarChar(36)
-  aircraftId String    @db.NVarChar(36)
-  userId     String    @db.NVarChar(36)
-  startTime  DateTime
-  endTime    DateTime
-  purpose    String?   @db.NVarChar(500)
-  createdAt  DateTime? @default(now(), map: "DF__Booking__created__2BFE89A6")
-  updatedAt  DateTime? @default(now(), map: "DF__Booking__updated__2CF2ADDF") @updatedAt
+  id             String    @id(map: "PK__Booking__3213E83F64A346D6") @default("newid()", map: "DF__Booking__id__2B0A656D") @db.NVarChar(36)
+  organizationId String?   @db.NVarChar(36)
+  clubAircraftId String?   @db.NVarChar(36)
+  pilotProfileId String?   @db.NVarChar(36)
+  startTime      DateTime
+  endTime        DateTime
+  purpose        String?   @db.NVarChar(500)
+  createdAt      DateTime? @default(now(), map: "DF__Booking__created__2BFE89A6")
+  updatedAt      DateTime? @default(now(), map: "DF__Booking__updated__2CF2ADDF") @updatedAt
 
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubAircraft ClubAircraft? @relation(fields: [clubAircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organizationId, startTime])
+  @@index([clubAircraftId, startTime])
+  @@index([pilotProfileId, startTime])
   @@map("Booking")
 }
 
@@ -1291,21 +1329,25 @@ model PersonalBooking {
 }
 
 model GroupChatMessage {
-  id        String   @id @default(uuid()) @db.NVarChar(36)
-  groupId   String   @db.NVarChar(36)
-  userId    String   @db.NVarChar(36)
-  message   String   @db.NVarChar(1000)
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  organizationId String?  @db.NVarChar(36)
+  senderId       String?  @db.NVarChar(36)
+  message        String   @db.NVarChar(1000)
+  createdAt      DateTime @default(now())
 
-  @@index([groupId, createdAt])
-  @@index([userId])
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sender       User?         @relation(fields: [senderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organizationId, createdAt])
+  @@index([senderId])
   @@map("GroupChatMessage")
 }
 
 model FlightLog {
   id             String    @id(map: "PK__FlightLo__3213E83FB28F28FC") @default("newid()", map: "DF__FlightLog__id__2FCF1A8A") @db.NVarChar(36)
-  aircraftId     String    @db.NVarChar(36)
-  userId         String    @db.NVarChar(36)
+  organizationId String?   @db.NVarChar(36)
+  clubAircraftId String?   @db.NVarChar(36)
+  pilotProfileId String?   @db.NVarChar(36)
   date           DateTime
   tachTime       Decimal?  @db.Decimal(6, 2)
   hobbsTime      Decimal?  @db.Decimal(6, 2)
@@ -1316,37 +1358,48 @@ model FlightLog {
   hobbsStart     Decimal?  @db.Decimal(6, 2)
   hobbsEnd       Decimal?  @db.Decimal(6, 2)
 
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubAircraft     ClubAircraft? @relation(fields: [clubAircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pilotProfile     PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  maintenanceItems Maintenance[]
+  fuelExpenses     FuelExpense[]
+  invoiceItems     InvoiceItem[]
+
+  @@index([organizationId, date])
+  @@index([clubAircraftId, date])
+  @@index([pilotProfileId, date])
   @@map("FlightLog")
 }
 
 model FlightPlan {
-  id            String    @id @default(uuid()) @db.NVarChar(36)
-  userId        String    @db.NVarChar(36)
-  name          String?   @db.NVarChar(255)
-  callsign      String?   @db.NVarChar(20)
-  aircraftType  String?   @db.NVarChar(20)
-  aircraftSpeed Int?
-  aircraftBurnRate Float?
+  id                   String    @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId       String?   @db.NVarChar(36)
+  name                 String?   @db.NVarChar(255)
+  callsign             String?   @db.NVarChar(20)
+  aircraftType         String?   @db.NVarChar(20)
+  aircraftSpeed        Int?
+  aircraftBurnRate     Float?
   aircraftFuelCapacity Int?
-  pilotName     String?   @db.NVarChar(100)
-  departureIcao String?   @db.NVarChar(10)
-  departureTime DateTime?
-  departureFuel Int?
-  arrivalIcao   String?   @db.NVarChar(10)
-  alternateIcao String?   @db.NVarChar(10)
-  cruisingAlt   Int?
-  route         String?   @db.NVarChar(Max)
-  remarks       String?   @db.NVarChar(Max)
-  soulsOnBoard  Int?
-  isFiled       Boolean   @default(false)
-  filedAt       DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  pilotName            String?   @db.NVarChar(100)
+  departureIcao        String?   @db.NVarChar(10)
+  departureTime        DateTime?
+  departureFuel        Int?
+  arrivalIcao          String?   @db.NVarChar(10)
+  alternateIcao        String?   @db.NVarChar(10)
+  cruisingAlt          Int?
+  route                String?   @db.NVarChar(Max)
+  remarks              String?   @db.NVarChar(Max)
+  soulsOnBoard         Int?
+  isFiled              Boolean   @default(false)
+  filedAt              DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   waypoints      FlightPlanWaypoint[]
   logbookEntries LogbookEntry[]
-  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pilotProfile   PilotProfile?        @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
+  @@index([pilotProfileId])
   @@map("FlightPlan")
 }
 
@@ -1411,14 +1464,14 @@ model FuelPriceCache {
 
 // Community-reported fuel prices (layered on top of AirNav data)
 model CommunityFuelPrice {
-  id            String   @id @default(uuid()) @db.NVarChar(36)
-  icao          String   @db.NVarChar(10)
-  fbo           String?  @db.NVarChar(100)
-  fuelType      String   @db.NVarChar(10) // 100LL, JetA
-  price         Decimal  @db.Decimal(6, 2)
-  purchaseDate  DateTime
-  userId        String?  @db.NVarChar(36) // Optional - can be anonymous
-  createdAt     DateTime @default(now())
+  id           String   @id @default(uuid()) @db.NVarChar(36)
+  icao         String   @db.NVarChar(10)
+  fbo          String?  @db.NVarChar(100)
+  fuelType     String   @db.NVarChar(10) // 100LL, JetA
+  price        Decimal  @db.Decimal(6, 2)
+  purchaseDate DateTime
+  userId       String?  @db.NVarChar(36) // Optional - can be anonymous
+  createdAt    DateTime @default(now())
 
   @@index([icao, fuelType])
   @@index([purchaseDate])
@@ -1510,42 +1563,51 @@ model ErrorReport {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  user             User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("ErrorReport")
 }
 
 model BlockOut {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  groupId     String   @db.NVarChar(36)
-  aircraftId  String?  @db.NVarChar(36)
-  title       String   @db.NVarChar(255)
-  startTime   DateTime
-  endTime     DateTime
-  createdAt   DateTime @default(now())
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  organizationId String?  @db.NVarChar(36)
+  clubAircraftId String?  @db.NVarChar(36)
+  title          String   @db.NVarChar(255)
+  startTime      DateTime
+  endTime        DateTime
+  createdAt      DateTime @default(now())
 
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubAircraft ClubAircraft? @relation(fields: [clubAircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organizationId, startTime])
+  @@index([clubAircraftId, startTime])
   @@map("BlockOut")
 }
 
 model BillingRun {
-  id           String    @id @default(uuid()) @db.NVarChar(36)
-  groupId      String    @db.NVarChar(36)
-  startedAt    DateTime  @default(now())
-  completedAt  DateTime?
-  status       String    @db.NVarChar(20) // "running", "completed", "failed"
-  totalAmount  Decimal?  @db.Decimal(10, 2)
-  successCount Int?
-  failureCount Int?
-  details      String?   @db.NVarChar(Max) // JSON with per-member results
+  id             String    @id @default(uuid()) @db.NVarChar(36)
+  organizationId String?   @db.NVarChar(36)
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  status         String    @db.NVarChar(20) // "running", "completed", "failed"
+  totalAmount    Decimal?  @db.Decimal(10, 2)
+  successCount   Int?
+  failureCount   Int?
+  details        String?   @db.NVarChar(Max) // JSON with per-member results
 
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction)
+  Invoice      Invoice[]
+
+  @@index([organizationId])
   @@map("BillingRun")
 }
 
 model Invoice {
   id              String    @id @default(uuid()) @db.NVarChar(36)
-  groupId         String    @db.NVarChar(36)
-  userId          String    @db.NVarChar(36)
-  billingRunId    String    @db.NVarChar(36)
+  organizationId  String?   @db.NVarChar(36)
+  pilotProfileId  String?   @db.NVarChar(36)
+  billingRunId    String?   @db.NVarChar(36)
   totalAmount     Decimal   @db.Decimal(10, 2)
   status          String    @default("pending") @db.NVarChar(20) // "pending", "paid", "failed"
   stripePaymentId String?   @db.NVarChar(100)
@@ -1555,31 +1617,40 @@ model Invoice {
 
   items InvoiceItem[]
 
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  billingRun   BillingRun?   @relation(fields: [billingRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organizationId])
+  @@index([pilotProfileId])
+  @@index([billingRunId])
   @@map("Invoice")
 }
 
 model InvoiceItem {
-  id          String  @id @default(uuid()) @db.NVarChar(36)
-  invoiceId   String  @db.NVarChar(36)
-  flightLogId String  @db.NVarChar(36)
-  aircraftId  String  @db.NVarChar(36)
-  hobbsHours  Decimal @db.Decimal(6, 2)
-  hourlyRate  Decimal @db.Decimal(10, 2)
-  amount      Decimal @db.Decimal(10, 2)
+  id             String  @id @default(uuid()) @db.NVarChar(36)
+  invoiceId      String? @db.NVarChar(36)
+  flightLogId    String? @db.NVarChar(36)
+  clubAircraftId String? @db.NVarChar(36)
+  hobbsHours     Decimal @db.Decimal(6, 2)
+  hourlyRate     Decimal @db.Decimal(10, 2)
+  amount         Decimal @db.Decimal(10, 2)
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice      Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  flightLog    FlightLog?    @relation(fields: [flightLogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubAircraft ClubAircraft? @relation(fields: [clubAircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("InvoiceItem")
 }
 
 // Demo data configuration - controls what sample data gets generated
 model DemoData {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  key         String   @unique @db.NVarChar(50)  // e.g., "clubs", "aircraft", "members", "bookings"
-  enabled     Boolean  @default(true)
-  config      String?  @db.NVarChar(Max) // JSON config for this data type
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid()) @db.NVarChar(36)
+  key       String   @unique @db.NVarChar(50) // e.g., "clubs", "aircraft", "members", "bookings"
+  enabled   Boolean  @default(true)
+  config    String?  @db.NVarChar(Max) // JSON config for this data type
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("DemoData")
 }
@@ -1587,8 +1658,8 @@ model DemoData {
 // ============ OUTREACH SYSTEM ============
 
 model OutreachContact {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  
+  id String @id @default(uuid()) @db.NVarChar(36)
+
   // Organization info
   organizationType String  @db.NVarChar(50) // "airport", "flight_club", "flight_school", "fbo"
   organizationName String  @db.NVarChar(255)
@@ -1596,29 +1667,29 @@ model OutreachContact {
   airportName      String? @db.NVarChar(255)
   city             String? @db.NVarChar(100)
   state            String? @db.NVarChar(50)
-  
+
   // Contact person info
-  contactName      String? @db.NVarChar(255)
-  contactTitle     String? @db.NVarChar(100) // "President", "Treasurer", "Manager", "Owner"
-  contactEmail     String? @db.NVarChar(255)
-  contactPhone     String? @db.NVarChar(50)
-  alternateEmail   String? @db.NVarChar(255)
-  alternatePhone   String? @db.NVarChar(50)
-  
+  contactName    String? @db.NVarChar(255)
+  contactTitle   String? @db.NVarChar(100) // "President", "Treasurer", "Manager", "Owner"
+  contactEmail   String? @db.NVarChar(255)
+  contactPhone   String? @db.NVarChar(50)
+  alternateEmail String? @db.NVarChar(255)
+  alternatePhone String? @db.NVarChar(50)
+
   // Source tracking
-  sourceUrl        String? @db.NVarChar(500)
-  sourceType       String  @db.NVarChar(50) // "airnav", "aopa", "eaa", "manual", "import"
-  scrapedAt        DateTime @default(now())
-  
+  sourceUrl  String?  @db.NVarChar(500)
+  sourceType String   @db.NVarChar(50) // "airnav", "aopa", "eaa", "manual", "import"
+  scrapedAt  DateTime @default(now())
+
   // Additional data
-  website          String? @db.NVarChar(500)
-  notes            String? @db.NVarChar(Max)
-  
+  website String? @db.NVarChar(500)
+  notes   String? @db.NVarChar(Max)
+
   // Relations
-  emails          OutreachEmail[]
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  emails OutreachEmail[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([organizationType])
   @@index([state])
@@ -1628,27 +1699,27 @@ model OutreachContact {
 }
 
 model OutreachCampaign {
-  id          String   @id @default(uuid()) @db.NVarChar(36)
-  name        String   @db.NVarChar(255)
-  description String?  @db.NVarChar(Max)
-  subject     String   @db.NVarChar(500)
-  bodyHtml    String   @db.NVarChar(Max)
-  bodyText    String?  @db.NVarChar(Max)
-  
-  status      String   @default("draft") @db.NVarChar(20) // draft, active, paused, completed
-  
+  id          String  @id @default(uuid()) @db.NVarChar(36)
+  name        String  @db.NVarChar(255)
+  description String? @db.NVarChar(Max)
+  subject     String  @db.NVarChar(500)
+  bodyHtml    String  @db.NVarChar(Max)
+  bodyText    String? @db.NVarChar(Max)
+
+  status String @default("draft") @db.NVarChar(20) // draft, active, paused, completed
+
   // Stats
-  totalContacts Int     @default(0)
-  emailsSent    Int     @default(0)
-  emailsOpened  Int     @default(0)
-  emailsClicked Int     @default(0)
-  responses     Int     @default(0)
-  interested    Int     @default(0)
-  
-  emails      OutreachEmail[]
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  totalContacts Int @default(0)
+  emailsSent    Int @default(0)
+  emailsOpened  Int @default(0)
+  emailsClicked Int @default(0)
+  responses     Int @default(0)
+  interested    Int @default(0)
+
+  emails OutreachEmail[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   startedAt   DateTime?
   completedAt DateTime?
 
@@ -1656,38 +1727,38 @@ model OutreachCampaign {
 }
 
 model OutreachEmail {
-  id           String   @id @default(uuid()) @db.NVarChar(36)
-  campaignId   String   @db.NVarChar(36)
-  contactId    String   @db.NVarChar(36)
-  
+  id         String @id @default(uuid()) @db.NVarChar(36)
+  campaignId String @db.NVarChar(36)
+  contactId  String @db.NVarChar(36)
+
   // Email details
-  toEmail      String   @db.NVarChar(255)
-  toName       String?  @db.NVarChar(255)
-  subject      String   @db.NVarChar(500)
-  bodyHtml     String   @db.NVarChar(Max)
-  bodyText     String?  @db.NVarChar(Max)
-  
+  toEmail  String  @db.NVarChar(255)
+  toName   String? @db.NVarChar(255)
+  subject  String  @db.NVarChar(500)
+  bodyHtml String  @db.NVarChar(Max)
+  bodyText String? @db.NVarChar(Max)
+
   // Delivery tracking
-  status       String   @default("pending") @db.NVarChar(20) // pending, sent, delivered, failed, bounced
-  sentAt       DateTime?
-  deliveredAt  DateTime?
-  openedAt     DateTime?
-  clickedAt    DateTime?
-  
+  status      String    @default("pending") @db.NVarChar(20) // pending, sent, delivered, failed, bounced
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  openedAt    DateTime?
+  clickedAt   DateTime?
+
   // Response tracking (manual)
-  responseStatus String? @db.NVarChar(20) // null, "responded", "interested", "not_interested", "invalid"
-  responseNotes  String? @db.NVarChar(Max)
+  responseStatus String?   @db.NVarChar(20) // null, "responded", "interested", "not_interested", "invalid"
+  responseNotes  String?   @db.NVarChar(Max)
   respondedAt    DateTime?
-  
+
   // External IDs
-  resendId       String? @db.NVarChar(100)
-  
+  resendId String? @db.NVarChar(100)
+
   // Relations
-  campaign    OutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  contact     OutreachContact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  campaign OutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact  OutreachContact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([campaignId])
   @@index([contactId])
@@ -1701,61 +1772,61 @@ model OutreachEmail {
 // ────────────────────────────────────────────────────────────────────────────
 
 model Integration {
-  id               String    @id @default(uuid()) @db.NVarChar(36)
-  groupId          String    @db.NVarChar(36) // Flying club this integration belongs to
-  provider         String    @db.NVarChar(50) // "quickbooks", "google-calendar", "zapier"
-  status           String    @default("disconnected") @db.NVarChar(20) // "connected", "disconnected", "error"
-  
-  // OAuth tokens (encrypted in production)
-  accessToken      String?   @db.NVarChar(Max)
-  refreshToken     String?   @db.NVarChar(Max)
-  tokenExpiry      DateTime?
-  realmId          String?   @db.NVarChar(100) // QuickBooks Company ID
-  
-  // Configuration
-  config           String    @default("{}") @db.NVarChar(Max) // JSON config
-  
-  // Metadata
-  lastSyncAt       DateTime?
-  lastSyncStatus   String?   @db.NVarChar(20) // "success", "error", "partial"
-  lastSyncError    String?   @db.NVarChar(Max)
-  syncFrequency    Int       @default(10) // minutes
-  
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  
-  group            FlyingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  mappings         QuickBooksMapping[]
-  syncLogs         SyncLog[]
+  id             String @id @default(uuid()) @db.NVarChar(36)
+  organizationId String @db.NVarChar(36) // Organization this integration belongs to
+  provider       String @db.NVarChar(50) // "quickbooks", "google-calendar", "zapier"
+  status         String @default("disconnected") @db.NVarChar(20) // "connected", "disconnected", "error"
 
-  @@unique([groupId, provider])
-  @@index([groupId])
+  // OAuth tokens (encrypted in production)
+  accessToken  String?   @db.NVarChar(Max)
+  refreshToken String?   @db.NVarChar(Max)
+  tokenExpiry  DateTime?
+  realmId      String?   @db.NVarChar(100) // QuickBooks Company ID
+
+  // Configuration
+  config String @default("{}") @db.NVarChar(Max) // JSON config
+
+  // Metadata
+  lastSyncAt     DateTime?
+  lastSyncStatus String?   @db.NVarChar(20) // "success", "error", "partial"
+  lastSyncError  String?   @db.NVarChar(Max)
+  syncFrequency  Int       @default(10) // minutes
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mappings     QuickBooksMapping[]
+  syncLogs     SyncLog[]
+
+  @@unique([organizationId, provider])
+  @@index([organizationId])
   @@index([provider])
   @@index([status])
   @@map("Integration")
 }
 
 model QuickBooksMapping {
-  id                String   @id @default(uuid()) @db.NVarChar(36)
-  integrationId     String   @db.NVarChar(36)
-  
+  id            String @id @default(uuid()) @db.NVarChar(36)
+  integrationId String @db.NVarChar(36)
+
   // Local entity (what we're mapping FROM)
-  entityType        String   @db.NVarChar(50) // "aircraft", "rate", "member", "charge_type"
-  entityId          String   @db.NVarChar(36)
-  entityName        String   @db.NVarChar(255) // Human-readable name
-  
+  entityType String @db.NVarChar(50) // "aircraft", "rate", "member", "charge_type"
+  entityId   String @db.NVarChar(36)
+  entityName String @db.NVarChar(255) // Human-readable name
+
   // QuickBooks entity (what we're mapping TO)
-  qbType            String   @db.NVarChar(50) // "Item", "Customer", "Account", "Class"
-  qbId              String   @db.NVarChar(100) // QuickBooks ID
-  qbName            String   @db.NVarChar(255) // QuickBooks name
-  
+  qbType String @db.NVarChar(50) // "Item", "Customer", "Account", "Class"
+  qbId   String @db.NVarChar(100) // QuickBooks ID
+  qbName String @db.NVarChar(255) // QuickBooks name
+
   // Mapping config
-  config            String   @default("{}") @db.NVarChar(Max) // JSON for special rules
-  
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
-  integration       Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  config String @default("{}") @db.NVarChar(Max) // JSON for special rules
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@unique([integrationId, entityType, entityId])
   @@index([integrationId])
@@ -1764,28 +1835,28 @@ model QuickBooksMapping {
 }
 
 model SyncLog {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  integrationId   String   @db.NVarChar(36)
-  
+  id            String @id @default(uuid()) @db.NVarChar(36)
+  integrationId String @db.NVarChar(36)
+
   // What was synced
-  syncType        String   @db.NVarChar(50) // "invoice", "payment", "customer", "manual", "scheduled"
-  direction       String   @db.NVarChar(20) // "to_qb", "from_qb", "bidirectional"
-  
+  syncType  String @db.NVarChar(50) // "invoice", "payment", "customer", "manual", "scheduled"
+  direction String @db.NVarChar(20) // "to_qb", "from_qb", "bidirectional"
+
   // Results
-  status          String   @db.NVarChar(20) // "success", "error", "partial"
-  recordsTotal    Int      @default(0)
-  recordsSuccess  Int      @default(0)
-  recordsFailed   Int      @default(0)
-  
+  status         String @db.NVarChar(20) // "success", "error", "partial"
+  recordsTotal   Int    @default(0)
+  recordsSuccess Int    @default(0)
+  recordsFailed  Int    @default(0)
+
   // Details
-  details         String?  @db.NVarChar(Max) // JSON with specifics
-  errorMessage    String?  @db.NVarChar(Max)
-  
-  startedAt       DateTime @default(now())
-  completedAt     DateTime?
-  durationMs      Int?     // Duration in milliseconds
-  
-  integration     Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  details      String? @db.NVarChar(Max) // JSON with specifics
+  errorMessage String? @db.NVarChar(Max)
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  durationMs  Int? // Duration in milliseconds
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@index([integrationId])
   @@index([syncType])
@@ -1797,62 +1868,62 @@ model SyncLog {
 // Flying Club Currency Tracking - FAA Standard Currency Rules
 
 model PilotCurrency {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  userId          String   @db.NVarChar(36)
-  groupId         String   @db.NVarChar(36)
-  
+  id             String @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId String @db.NVarChar(36)
+  organizationId String @db.NVarChar(36)
+
   // Day currency (3 takeoffs/landings in last 90 days)
-  dayLandings     Int      @default(0)
+  dayLandings     Int       @default(0)
   dayLandingsDate DateTime?
-  
+
   // Night currency (3 takeoffs/landings in last 90 days)  
-  nightLandings   Int      @default(0)
+  nightLandings     Int       @default(0)
   nightLandingsDate DateTime?
-  
+
   // Instrument currency (6 approaches, holds, intercepting in last 6 months)
-  approaches     Int      @default(0)
-  holds          Int      @default(0)
-  instrumentTime Decimal  @default(0) @db.Decimal(8, 2)
+  approaches             Int       @default(0)
+  holds                  Int       @default(0)
+  instrumentTime         Decimal   @default(0) @db.Decimal(8, 2)
   instrumentCurrencyDate DateTime?
-  
+
   // Tail-specific currency (aircraft user is cleared for) - stored as JSON
-  clearedAircraft String   @default("[]") @db.NVarChar(Max)
-  
+  clearedAircraft String @default("[]") @db.NVarChar(Max)
+
   // Meta
-  lastFlightDate  DateTime?
-  updatedAt       DateTime @updatedAt
-  
-  @@unique([userId, groupId])
-  @@index([userId])
-  @@index([groupId])
+  lastFlightDate DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([pilotProfileId, organizationId])
+  @@index([pilotProfileId])
+  @@index([organizationId])
   @@map("PilotCurrency")
 }
 
 model NotificationPreference {
-  id            String   @id @default(uuid()) @db.NVarChar(36)
-  userId        String   @db.NVarChar(36)
-  groupId       String?  @db.NVarChar(36)  // null = global preferences
-  
+  id             String  @id @default(uuid()) @db.NVarChar(36)
+  userId         String  @db.NVarChar(36)
+  organizationId String? @db.NVarChar(36) // null = global preferences
+
   // Email notifications
-  emailBookingConfirm Boolean @default(true)
-  emailBookingReminder Boolean @default(true)
+  emailBookingConfirm   Boolean @default(true)
+  emailBookingReminder  Boolean @default(true)
   emailMaintenanceAlert Boolean @default(true)
-  emailBillingRun    Boolean @default(true)
-  emailCurrencyExpiry Boolean @default(true)
-  
+  emailBillingRun       Boolean @default(true)
+  emailCurrencyExpiry   Boolean @default(true)
+
   // SMS notifications (if enabled)
-  smsBookingConfirm Boolean @default(false)
-  smsBookingReminder Boolean @default(false)
+  smsBookingConfirm   Boolean @default(false)
+  smsBookingReminder  Boolean @default(false)
   smsMaintenanceAlert Boolean @default(false)
-  smsUrgent         Boolean @default(true)
-  
+  smsUrgent           Boolean @default(true)
+
   // Phone for SMS
-  phone           String?  @db.NVarChar(20)
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  @@unique([userId, groupId])
+  phone String? @db.NVarChar(20)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, organizationId])
   @@index([userId])
   @@map("NotificationPreference")
 }
@@ -1860,60 +1931,60 @@ model NotificationPreference {
 // ============ MECHANIC MARKETPLACE ============
 
 model Mechanic {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  userId          String   @unique @db.NVarChar(36)
-  
+  id     String @id @default(uuid()) @db.NVarChar(36)
+  userId String @unique @db.NVarChar(36)
+
   // Contact info
-  email           String   @unique @db.NVarChar(255)
-  name            String   @db.NVarChar(255)
-  phone           String?  @db.NVarChar(50)
-  
+  email String  @unique @db.NVarChar(255)
+  name  String  @db.NVarChar(255)
+  phone String? @db.NVarChar(50)
+
   // Business info
-  businessName    String?  @db.NVarChar(255)
-  city            String?  @db.NVarChar(100)
-  state           String?  @db.NVarChar(50)
-  locationIcao    String?  @db.NVarChar(10)
+  businessName    String? @db.NVarChar(255)
+  city            String? @db.NVarChar(100)
+  state           String? @db.NVarChar(50)
+  locationIcao    String? @db.NVarChar(10)
   locationLat     Float?
   locationLng     Float?
-  locationPrivacy String   @default("CITY") @db.NVarChar(20) // CITY, ICAO
+  locationPrivacy String  @default("CITY") @db.NVarChar(20) // CITY, ICAO
   serviceRadiusNm Int?
-  serviceArea     String?  @db.NVarChar(500) // Areas they service (comma-separated)
-  
+  serviceArea     String? @db.NVarChar(500) // Areas they service (comma-separated)
+
   // Specialties (JSON array)
-  specialties     String?  @db.NVarChar(Max) // e.g., ["piston", "turbine", "avionics"]
-  
+  specialties String? @db.NVarChar(Max) // e.g., ["piston", "turbine", "avionics"]
+
   // Bio
-  bio             String?  @db.NVarChar(Max)
-  yearsExperience Int?     @default(0)
-  
+  bio             String? @db.NVarChar(Max)
+  yearsExperience Int?    @default(0)
+
   // Certification
-  certifications  String?  @db.NVarChar(Max) // JSON array of certs
-  certificateNumber String? @db.NVarChar(100)
-  iaNumber        String?  @db.NVarChar(100) // Inspection Authorization
-  a_pLicense      String?  @db.NVarChar(50)  // A&P license number
-  expiryDate      DateTime? // Certificate expiry
-  
+  certifications    String?   @db.NVarChar(Max) // JSON array of certs
+  certificateNumber String?   @db.NVarChar(100)
+  iaNumber          String?   @db.NVarChar(100) // Inspection Authorization
+  a_pLicense        String?   @db.NVarChar(50) // A&P license number
+  expiryDate        DateTime? // Certificate expiry
+
   // Rating
-  rating          Decimal  @default(0) @db.Decimal(3, 2)
-  reviewCount     Int      @default(0)
-  
+  rating      Decimal @default(0) @db.Decimal(3, 2)
+  reviewCount Int     @default(0)
+
   // Status
-  isVerified      Boolean  @default(false)
-  isActive        Boolean  @default(true)
-  
+  isVerified Boolean @default(false)
+  isActive   Boolean @default(true)
+
   // Pricing
-  hourlyRate      Decimal? @db.Decimal(10, 2)
-  travelFee       Decimal? @db.Decimal(10, 2)
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
+  hourlyRate Decimal? @db.Decimal(10, 2)
+  travelFee  Decimal? @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  quotes          MechanicQuote[]
-  reviews         MechanicReview[]
-  fileRequests    MechanicFileRequest[]
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  quotes       MechanicQuote[]
+  reviews      MechanicReview[]
+  fileRequests MechanicFileRequest[]
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([city, state])
   @@index([locationIcao])
   @@index([isActive])
@@ -1922,64 +1993,65 @@ model Mechanic {
 
 // Public maintenance requests (shown in marketplace)
 model MaintenanceRequest {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  postedByUserId  String?  @db.NVarChar(36)
-  
+  id              String  @id @default(uuid()) @db.NVarChar(36)
+  postedByPilotId String? @db.NVarChar(36)
+
   // Reference to internal maintenance if from club
-  maintenanceId   String?  @db.NVarChar(36)
-  groupId         String?  @db.NVarChar(36)
-  aircraftId      String?  @db.NVarChar(36)
-  
+  maintenanceId  String? @db.NVarChar(36)
+  organizationId String? @db.NVarChar(36)
+  aircraftId     String? @db.NVarChar(36)
+
   // Public info
-  title           String   @db.NVarChar(255)
-  description     String   @db.NVarChar(Max)
-  aircraftType    String?  @db.NVarChar(100) // e.g., "Cessna 172", "Piper Cherokee"
-  nNumber         String?  @db.NVarChar(10)
-  
+  title        String  @db.NVarChar(255)
+  description  String  @db.NVarChar(Max)
+  aircraftType String? @db.NVarChar(100) // e.g., "Cessna 172", "Piper Cherokee"
+  nNumber      String? @db.NVarChar(10)
+
   // Location
-  airportIcao     String?  @db.NVarChar(10)
-  airportName     String?  @db.NVarChar(255)
-  city            String?  @db.NVarChar(100)
-  state           String?  @db.NVarChar(50)
+  airportIcao     String? @db.NVarChar(10)
+  airportName     String? @db.NVarChar(255)
+  city            String? @db.NVarChar(100)
+  state           String? @db.NVarChar(50)
   locationLat     Float?
   locationLng     Float?
-  locationPrivacy String   @default("CITY") @db.NVarChar(20) // CITY, ICAO
-  
+  locationPrivacy String  @default("CITY") @db.NVarChar(20) // CITY, ICAO
+
   // Category
-  category        String   @db.NVarChar(50) // Engine, Avionics, Airframe, Oil, Prop, Electrical, OTHER
-  urgency         String   @default("NORMAL") @db.NVarChar(20) // LOW, NORMAL, HIGH, URGENT
-  neededBy        DateTime?
-  jobSize         String   @default("MEDIUM") @db.NVarChar(20) // SMALL, MEDIUM, LARGE
-  
+  category String    @db.NVarChar(50) // Engine, Avionics, Airframe, Oil, Prop, Electrical, OTHER
+  urgency  String    @default("NORMAL") @db.NVarChar(20) // LOW, NORMAL, HIGH, URGENT
+  neededBy DateTime?
+  jobSize  String    @default("MEDIUM") @db.NVarChar(20) // SMALL, MEDIUM, LARGE
+
   // Budget
-  budgetMin       Decimal? @db.Decimal(10, 2)
-  budgetMax       Decimal? @db.Decimal(10, 2)
-  
+  budgetMin Decimal? @db.Decimal(10, 2)
+  budgetMax Decimal? @db.Decimal(10, 2)
+
   // Status
-  status          String   @default("OPEN") @db.NVarChar(20) // OPEN, QUOTED, ACCEPTED, IN_PROGRESS, COMPLETED, CANCELLED, REVOKED
-  source          String   @default("manual") @db.NVarChar(20) // squawk, manual, scheduled
-  anonymous       Boolean  @default(true)
-  requestedWork   String?  @db.NVarChar(Max)
-  visibility      String   @default("MECHANIC") @db.NVarChar(20) // MECHANIC, PUBLIC
-  allowTailNumber Boolean  @default(false)
+  status           String  @default("OPEN") @db.NVarChar(20) // OPEN, QUOTED, ACCEPTED, IN_PROGRESS, COMPLETED, CANCELLED, REVOKED
+  source           String  @default("manual") @db.NVarChar(20) // squawk, manual, scheduled
+  anonymous        Boolean @default(true)
+  requestedWork    String? @db.NVarChar(Max)
+  visibility       String  @default("MECHANIC") @db.NVarChar(20) // MECHANIC, PUBLIC
+  allowTailNumber  Boolean @default(false)
   aircraftSnapshot String? @db.NVarChar(Max)
-  logbookSnapshot String?  @db.NVarChar(Max)
-  
+  logbookSnapshot  String? @db.NVarChar(Max)
+
   // User info (who posted)
-  postedByName    String?  @db.NVarChar(255)
-  postedByEmail   String?  @db.NVarChar(255)
-  postedByPhone   String?  @db.NVarChar(50)
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
+  postedByName  String? @db.NVarChar(255)
+  postedByEmail String? @db.NVarChar(255)
+  postedByPhone String? @db.NVarChar(50)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  quotes          MechanicQuote[]
-  schedules       MechanicJobSchedule[]
-  reviews         MechanicReview[]
-  postedBy        User?             @relation("UserMaintenanceRequests", fields: [postedByUserId], references: [id], onDelete: SetNull)
-  fileRequests    MechanicFileRequest[]
-  
+  quotes       MechanicQuote[]
+  schedules    MechanicJobSchedule[]
+  reviews      MechanicReview[]
+  postedBy     PilotProfile?         @relation(fields: [postedByPilotId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organization Organization?         @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  fileRequests MechanicFileRequest[]
+
   @@index([category])
   @@index([status])
   @@index([jobSize])
@@ -1990,40 +2062,40 @@ model MaintenanceRequest {
 
 // Quotes from mechanics on maintenance requests
 model MechanicQuote {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  
+  id String @id @default(uuid()) @db.NVarChar(36)
+
   // References
   maintenanceRequestId String @db.NVarChar(36)
-  mechanicId      String   @db.NVarChar(36)
-  
+  mechanicId           String @db.NVarChar(36)
+
   // Quote details
-  amount          Decimal? @db.Decimal(10, 2)
-  description     String   @db.NVarChar(Max)
-  laborRate       Decimal? @db.Decimal(10, 2)
-  laborHours      Decimal? @db.Decimal(10, 2)
-  partsEstimate   Decimal? @db.Decimal(10, 2)
-  requiresApproval Boolean @default(false)
-  
+  amount           Decimal? @db.Decimal(10, 2)
+  description      String   @db.NVarChar(Max)
+  laborRate        Decimal? @db.Decimal(10, 2)
+  laborHours       Decimal? @db.Decimal(10, 2)
+  partsEstimate    Decimal? @db.Decimal(10, 2)
+  requiresApproval Boolean  @default(false)
+
   // Timeline
-  estimatedDays   Int?     // Days to complete
-  availableDate   DateTime? // When they can start
-  
+  estimatedDays Int? // Days to complete
+  availableDate DateTime? // When they can start
+
   // Contact
-  contactMethod   String?  @db.NVarChar(50) // email, phone, both
-  notes           String?  @db.NVarChar(Max)
-  
+  contactMethod String? @db.NVarChar(50) // email, phone, both
+  notes         String? @db.NVarChar(Max)
+
   // Status
-  status          String   @default("PENDING") @db.NVarChar(20) // PENDING, ACCEPTED, DECLINED, WITHDRAWN
-  
+  status String @default("PENDING") @db.NVarChar(20) // PENDING, ACCEPTED, DECLINED, WITHDRAWN
+
   // Timestamps
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  maintenanceRequest MaintenanceRequest @relation(fields: [maintenanceRequestId], references: [id], onDelete: Cascade)
-  mechanic          Mechanic            @relation(fields: [mechanicId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  schedules         MechanicJobSchedule[]
-  
+  maintenanceRequest MaintenanceRequest    @relation(fields: [maintenanceRequestId], references: [id], onDelete: Cascade)
+  mechanic           Mechanic              @relation(fields: [mechanicId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  schedules          MechanicJobSchedule[]
+
   @@index([maintenanceRequestId])
   @@index([mechanicId])
   @@index([status])
@@ -2031,19 +2103,19 @@ model MechanicQuote {
 }
 
 model MechanicJobSchedule {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  maintenanceRequestId String @db.NVarChar(36)
-  mechanicQuoteId String @db.NVarChar(36)
-  scheduledFor    DateTime
-  estimatedHours  Decimal? @db.Decimal(6, 2)
-  location        String?  @db.NVarChar(255)
-  notes           String?  @db.NVarChar(Max)
-  status          String   @default("SCHEDULED") @db.NVarChar(20) // SCHEDULED, COMPLETED, CANCELLED
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                   String   @id @default(uuid()) @db.NVarChar(36)
+  maintenanceRequestId String   @db.NVarChar(36)
+  mechanicQuoteId      String   @db.NVarChar(36)
+  scheduledFor         DateTime
+  estimatedHours       Decimal? @db.Decimal(6, 2)
+  location             String?  @db.NVarChar(255)
+  notes                String?  @db.NVarChar(Max)
+  status               String   @default("SCHEDULED") @db.NVarChar(20) // SCHEDULED, COMPLETED, CANCELLED
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   maintenanceRequest MaintenanceRequest @relation(fields: [maintenanceRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  mechanicQuote       MechanicQuote      @relation(fields: [mechanicQuoteId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  mechanicQuote      MechanicQuote      @relation(fields: [mechanicQuoteId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([maintenanceRequestId])
   @@index([mechanicQuoteId])
@@ -2052,15 +2124,15 @@ model MechanicJobSchedule {
 }
 
 model MechanicReview {
-  id           String   @id @default(uuid()) @db.NVarChar(36)
-  mechanicId   String   @db.NVarChar(36)
-  reviewerId   String   @db.NVarChar(36)
-  maintenanceRequestId String @db.NVarChar(36)
-  rating       Int      @db.Int
-  comment      String?  @db.NVarChar(Max)
-  createdAt    DateTime @default(now())
+  id                   String   @id @default(uuid()) @db.NVarChar(36)
+  mechanicId           String   @db.NVarChar(36)
+  reviewerId           String   @db.NVarChar(36)
+  maintenanceRequestId String   @db.NVarChar(36)
+  rating               Int      @db.Int
+  comment              String?  @db.NVarChar(Max)
+  createdAt            DateTime @default(now())
 
-  mechanic     Mechanic            @relation(fields: [mechanicId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  mechanic           Mechanic           @relation(fields: [mechanicId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   maintenanceRequest MaintenanceRequest @relation(fields: [maintenanceRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([mechanicId])
@@ -2069,16 +2141,16 @@ model MechanicReview {
 }
 
 model MechanicFileRequest {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  maintenanceRequestId String @db.NVarChar(36)
-  mechanicId      String   @db.NVarChar(36)
-  requestedFiles  String   @db.NVarChar(Max) // JSON list
-  status          String   @default("PENDING") @db.NVarChar(20) // PENDING, SENT, DECLINED
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                   String   @id @default(uuid()) @db.NVarChar(36)
+  maintenanceRequestId String   @db.NVarChar(36)
+  mechanicId           String   @db.NVarChar(36)
+  requestedFiles       String   @db.NVarChar(Max) // JSON list
+  status               String   @default("PENDING") @db.NVarChar(20) // PENDING, SENT, DECLINED
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   maintenanceRequest MaintenanceRequest @relation(fields: [maintenanceRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  mechanic         Mechanic            @relation(fields: [mechanicId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  mechanic           Mechanic           @relation(fields: [mechanicId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([maintenanceRequestId])
   @@index([mechanicId])
