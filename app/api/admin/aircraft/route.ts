@@ -96,7 +96,7 @@ export async function POST(request: Request) {
     // Create aircraft
     const aircraft = await prisma.clubAircraft.create({
       data: {
-        groupId,
+        organizationId: groupId,
         nNumber,
         nickname,
         make,
