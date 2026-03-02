@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getOrCreatePilotProfile } from '@/lib/pilot-profile';
 
 // GET - Fetch user's logbook entries
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await auth();
     
@@ -28,12 +28,23 @@ export async function GET() {
 
     const profile = await getOrCreatePilotProfile(session.user.id);
 
+    const { searchParams } = new URL(request.url);
+    const limitParam = Number(searchParams.get('limit'));
+    const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 50;
+    const cursor = searchParams.get('cursor');
+
     const entries = await prisma.logbookEntry.findMany({
       where: { pilotProfileId: profile.id },
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
 
-    return NextResponse.json({ entries });
+    const hasMore = entries.length > limit;
+    const pageEntries = hasMore ? entries.slice(0, limit) : entries;
+    const nextCursor = hasMore ? pageEntries[pageEntries.length - 1]?.id ?? null : null;
+
+    return NextResponse.json({ entries: pageEntries, nextCursor });
   } catch (error) {
     console.error('Error fetching logbook entries:', error);
     return NextResponse.json({ error: 'Failed to fetch entries' }, { status: 500 });

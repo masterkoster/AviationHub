@@ -11,42 +11,19 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Plane, Download, Plus, FileText, ShieldCheck, Upload } from 'lucide-react'
-
-type Authority = 'FAA' | 'EASA' | 'BOTH'
-
-interface LogbookEntry {
-  id: string
-  date: string
-  aircraft: string
-  routeFrom: string
-  routeTo: string
-  totalTime: number
-  picTime: number
-  sicTime: number
-  soloTime: number
-  dualGiven: number
-  dualReceived: number
-  nightTime: number
-  instrumentTime: number
-  crossCountryTime: number
-  dayLandings: number
-  nightLandings: number
-  remarks?: string | null
-  authority?: Authority
-  isPending?: boolean
-}
-
-interface StartingTotals {
-  totalTime: number
-  picTime: number
-  sicTime: number
-  nightTime: number
-  instrumentTime: number
-  crossCountryTime: number
-  landingsDay: number
-  landingsNight: number
-  asOfDate?: string | null
-}
+import type { Authority, LogbookEntry, LogbookPreferences, StartingTotals } from '@/lib/logbook/types'
+import {
+  createLogbookEntry,
+  fetchCurrencyProgress,
+  fetchLogbookEntries,
+  fetchPreferences,
+  fetchStartingTotals,
+  refreshCurrency,
+  savePreferences as savePreferencesApi,
+  saveStartingTotals as saveStartingTotalsApi,
+} from '@/lib/logbook/api'
+import { LogbookHeader } from '@/app/logbook/components/LogbookHeader'
+import { LogbookSummaryCards } from '@/app/logbook/components/LogbookSummaryCards'
 
 const TAB_KEYS = [
   'add',
@@ -72,6 +49,8 @@ function LogbookContent() {
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab)
 
   const [entries, setEntries] = useState<LogbookEntry[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [startingTotals, setStartingTotals] = useState<StartingTotals | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -113,7 +92,7 @@ function LogbookContent() {
   const [filters, setFilters] = useState({ year: 'all', aircraft: 'all', search: '' })
   const [currencyProgress, setCurrencyProgress] = useState<any[]>([])
   const [openDialog, setOpenDialog] = useState<null | 'add' | 'import' | 'starting-totals' | 'print'>(null)
-  const [preferences, setPreferences] = useState<any>({
+  const [preferences, setPreferences] = useState<LogbookPreferences>({
     timeDisplayFormat: 'decimal-1-2',
     sumTimeMode: 'whole-minutes',
     preferredTimeZone: 'UTC',
@@ -167,22 +146,52 @@ function LogbookContent() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/logbook')
-      if (!res.ok) throw new Error('Failed to load logbook')
-      const data = await res.json()
+      const data = await fetchLogbookEntries(50)
       setEntries(Array.isArray(data.entries) ? data.entries : [])
-    } catch {
-      setError('Failed to load logbook')
+      setNextCursor(data.nextCursor ?? null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load logbook')
     } finally {
       setLoading(false)
     }
   }
 
+  const getFieldErrors = () => {
+    const nextErrors: Record<string, string> = {}
+    if (!formData.date) nextErrors.date = 'Required'
+    if (!formData.totalTime) nextErrors.totalTime = 'Required'
+    if (!formData.isSimulator && !formData.routeFrom) nextErrors.routeFrom = 'Required'
+    if (!formData.isSimulator && !formData.routeTo) nextErrors.routeTo = 'Required'
+    if (formData.isSimulator && !formData.trainingDeviceId) nextErrors.trainingDeviceId = 'Required'
+    if (formData.isSimulator && !formData.trainingDeviceLocation) nextErrors.trainingDeviceLocation = 'Required'
+    if (formData.requiresSafetyPilot && !formData.safetyPilotName) nextErrors.safetyPilotName = 'Required'
+    if (parseFloat(formData.instrumentTime) > 0 && !formData.actualInstrumentTime && !formData.simulatedInstrumentTime) {
+      nextErrors.instrumentBreakdown = 'Required'
+    }
+    return nextErrors
+  }
+
+  const toNumber = (value: string) => (Number.isFinite(parseFloat(value)) ? parseFloat(value) : 0)
+  const toInt = (value: string) => (Number.isFinite(parseInt(value, 10)) ? parseInt(value, 10) : 0)
+
+  const loadMoreEntries = async () => {
+    if (!nextCursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const data = await fetchLogbookEntries(50, nextCursor)
+      const newEntries = Array.isArray(data.entries) ? data.entries : []
+      setEntries((prev) => [...prev, ...newEntries])
+      setNextCursor(data.nextCursor ?? null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more entries')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
   const loadStartingTotals = async () => {
     try {
-      const res = await fetch('/api/logbook/starting-totals')
-      if (!res.ok) return
-      const data = await res.json()
+      const data = await fetchStartingTotals()
       setStartingTotals(data.totals ?? null)
     } catch {
       setStartingTotals(null)
@@ -191,9 +200,7 @@ function LogbookContent() {
 
   const loadCurrencyProgress = async () => {
     try {
-      const res = await fetch('/api/logbook/currency/progress')
-      if (!res.ok) return
-      const data = await res.json()
+      const data = await fetchCurrencyProgress()
       setCurrencyProgress(data.progress || [])
     } catch {
       setCurrencyProgress([])
@@ -202,22 +209,16 @@ function LogbookContent() {
 
   const loadPreferences = async () => {
     try {
-      const res = await fetch('/api/logbook/preferences')
-      if (!res.ok) return
-      const data = await res.json()
+      const data = await fetchPreferences()
       if (data.preferences) setPreferences({ ...preferences, ...data.preferences })
     } catch {
       // noop
     }
   }
 
-  const savePreferences = async (next: any) => {
+  const savePreferences = async (next: LogbookPreferences) => {
     setPreferences(next)
-    await fetch('/api/logbook/preferences', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(next),
-    })
+    await savePreferencesApi(next)
   }
 
   const filteredEntries = useMemo(() => {
@@ -272,17 +273,7 @@ function LogbookContent() {
     setLoading(true)
     setError(null)
     try {
-      const nextErrors: Record<string, string> = {}
-      if (!formData.date) nextErrors.date = 'Required'
-      if (!formData.totalTime) nextErrors.totalTime = 'Required'
-      if (!formData.isSimulator && !formData.routeFrom) nextErrors.routeFrom = 'Required'
-      if (!formData.isSimulator && !formData.routeTo) nextErrors.routeTo = 'Required'
-      if (formData.isSimulator && !formData.trainingDeviceId) nextErrors.trainingDeviceId = 'Required'
-      if (formData.isSimulator && !formData.trainingDeviceLocation) nextErrors.trainingDeviceLocation = 'Required'
-      if (formData.requiresSafetyPilot && !formData.safetyPilotName) nextErrors.safetyPilotName = 'Required'
-      if (parseFloat(formData.instrumentTime) > 0 && !formData.actualInstrumentTime && !formData.simulatedInstrumentTime) {
-        nextErrors.instrumentBreakdown = 'Required'
-      }
+      const nextErrors = getFieldErrors()
 
       if (Object.keys(nextErrors).length > 0) {
         setFieldErrors(nextErrors)
@@ -293,54 +284,38 @@ function LogbookContent() {
 
       setFieldErrors({})
 
-      const res = await fetch('/api/logbook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          authority,
-          totalTime: parseFloat(formData.totalTime) || 0,
-          picTime: parseFloat(formData.picTime) || 0,
-          sicTime: parseFloat(formData.sicTime) || 0,
-          soloTime: parseFloat(formData.soloTime) || 0,
-          dualGiven: parseFloat(formData.dualGiven) || 0,
-          dualReceived: parseFloat(formData.dualReceived) || 0,
-          nightTime: parseFloat(formData.nightTime) || 0,
-          instrumentTime: parseFloat(formData.instrumentTime) || 0,
-          actualInstrumentTime: parseFloat(formData.actualInstrumentTime) || 0,
-          simulatedInstrumentTime: parseFloat(formData.simulatedInstrumentTime) || 0,
-          groundTrainingReceived: parseFloat(formData.groundTrainingReceived) || 0,
-          simTrainingReceived: parseFloat(formData.simTrainingReceived) || 0,
-          crossCountryTime: parseFloat(formData.crossCountryTime) || 0,
-          dayLandings: parseInt(formData.dayLandings) || 0,
-          nightLandings: parseInt(formData.nightLandings) || 0,
-        }),
+      await createLogbookEntry({
+        ...formData,
+        authority,
+        totalTime: toNumber(formData.totalTime),
+        picTime: toNumber(formData.picTime),
+        sicTime: toNumber(formData.sicTime),
+        soloTime: toNumber(formData.soloTime),
+        dualGiven: toNumber(formData.dualGiven),
+        dualReceived: toNumber(formData.dualReceived),
+        nightTime: toNumber(formData.nightTime),
+        instrumentTime: toNumber(formData.instrumentTime),
+        actualInstrumentTime: toNumber(formData.actualInstrumentTime),
+        simulatedInstrumentTime: toNumber(formData.simulatedInstrumentTime),
+        groundTrainingReceived: toNumber(formData.groundTrainingReceived),
+        simTrainingReceived: toNumber(formData.simTrainingReceived),
+        crossCountryTime: toNumber(formData.crossCountryTime),
+        dayLandings: toInt(formData.dayLandings),
+        nightLandings: toInt(formData.nightLandings),
       })
-      if (!res.ok) throw new Error('Failed to save entry')
       await loadEntries()
       setActiveTab('search')
-    } catch {
-      setError('Failed to save entry')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save entry')
     } finally {
       setLoading(false)
     }
   }
 
-  const isSaveDisabled = () => {
-    if (!formData.date || !formData.totalTime) return true
-    if (!formData.isSimulator && (!formData.routeFrom || !formData.routeTo)) return true
-    if (formData.isSimulator && (!formData.trainingDeviceId || !formData.trainingDeviceLocation)) return true
-    if (formData.requiresSafetyPilot && !formData.safetyPilotName) return true
-    if (parseFloat(formData.instrumentTime) > 0 && !formData.actualInstrumentTime && !formData.simulatedInstrumentTime) return true
-    return false
-  }
+  const isSaveDisabled = () => Object.keys(getFieldErrors()).length > 0
 
   const saveStartingTotals = async (totals: StartingTotals) => {
-    await fetch('/api/logbook/starting-totals', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(totals),
-    })
+    await saveStartingTotalsApi(totals)
     await loadStartingTotals()
   }
 
@@ -416,59 +391,22 @@ function LogbookContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Logbook</h1>
-          <p className="text-xs text-muted-foreground">FAA + EASA logbook with endorsements, currency, and reports.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => setOpenDialog('add')}>Add Flight</Button>
-          <Button size="sm" variant="outline" onClick={() => setOpenDialog('import')}>Import</Button>
-          <Button size="sm" variant="outline" onClick={() => setOpenDialog('print')}>Print</Button>
-          <Button size="sm" variant="outline" onClick={async () => {
-            await fetch('/api/logbook/currency/calc', { method: 'POST' })
-            await loadCurrencyProgress()
-            setActiveTab('currency')
-          }}>Refresh Currency</Button>
-        </div>
-      </div>
+      <LogbookHeader
+        onAdd={() => setOpenDialog('add')}
+        onImport={() => setOpenDialog('import')}
+        onPrint={() => setOpenDialog('print')}
+        onRefreshCurrency={async () => {
+          await refreshCurrency()
+          await loadCurrencyProgress()
+          setActiveTab('currency')
+        }}
+      />
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">Total Hours</p>
-            <p className="text-2xl font-semibold">{formatHours(totals.totalTime)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">Night</p>
-            <p className="text-2xl font-semibold">{formatHours(totals.nightTime)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">Instrument</p>
-            <p className="text-2xl font-semibold">{formatHours(totals.instrumentTime)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">Cross Country</p>
-            <p className="text-2xl font-semibold">{formatHours(totals.crossCountryTime)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">Currency</p>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">Current {currencyCounts.current}</Badge>
-              <Badge variant="outline">Expiring {currencyCounts.expiring}</Badge>
-              <Badge variant="outline">Expired {currencyCounts.expired}</Badge>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <LogbookSummaryCards
+        totals={totals}
+        currencyCounts={currencyCounts}
+        formatHours={formatHours}
+      />
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
@@ -548,6 +486,11 @@ function LogbookContent() {
                     </CardContent>
                   </Card>
                 ))}
+                {!loading && nextCursor && (
+                  <Button variant="outline" onClick={loadMoreEntries} disabled={loadingMore}>
+                    {loadingMore ? 'Loading…' : 'Load more'}
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -616,7 +559,7 @@ function LogbookContent() {
               </CardHeader>
               <CardContent>
                 <Button variant="outline" onClick={async () => {
-                  await fetch('/api/logbook/currency/calc', { method: 'POST' })
+                  await refreshCurrency()
                   await loadCurrencyProgress()
                 }}>
                   <ShieldCheck className="mr-2 h-4 w-4" /> Refresh Currency

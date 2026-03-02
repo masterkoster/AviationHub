@@ -10,7 +10,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    const profile = await getOrCreatePilotProfile(session.user.id)
+    await getOrCreatePilotProfile(session.user.id)
     const totals = await prisma.logbookStartingTotal.findUnique({
       where: { userId: session.user.id },
     })
