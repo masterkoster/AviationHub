@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 
     // Get all aircraft IDs for this group
     const aircraftList = await prisma.clubAircraft.findMany({
-      where: { groupId },
+      where: { organizationId: groupId },
       select: { id: true, nNumber: true }
     });
 
@@ -39,8 +39,8 @@ export async function GET(request: Request) {
     if (type === 'past') {
       // Fetch past flight logs
       const flights = await prisma.flightLog.findMany({
-        where: { 
-          aircraftId: { in: aircraftIds }
+        where: {
+          clubAircraftId: { in: aircraftIds }
         },
         orderBy: { date: 'desc' },
         take: 50
@@ -48,16 +48,18 @@ export async function GET(request: Request) {
 
       // Get user details for each flight
       const flightsWithDetails = await Promise.all(flights.map(async (flight) => {
-        const user = await prisma.user.findUnique({
-          where: { id: flight.userId },
-          select: { name: true }
-        });
+        const pilot = flight.pilotProfileId
+          ? await prisma.pilotProfile.findUnique({
+              where: { id: flight.pilotProfileId },
+              include: { user: { select: { name: true } } },
+            })
+          : null;
 
-        const aircraft = aircraftList.find(a => a.id === flight.aircraftId);
+        const aircraft = aircraftList.find(a => a.id === flight.clubAircraftId);
 
         return {
           id: flight.id,
-          pilot: user?.name || 'Unknown',
+          pilot: pilot?.user?.name || 'Unknown',
           aircraft: aircraft?.nNumber || 'N/A',
           date: flight.date.toISOString().split('T')[0],
           hobbs: flight.hobbsTime?.toNumber() || 0,
@@ -78,7 +80,7 @@ export async function GET(request: Request) {
 
       const bookings = await prisma.booking.findMany({
         where: {
-          aircraftId: { in: aircraftIds },
+          clubAircraftId: { in: aircraftIds },
           startTime: { lte: now },
           endTime: { gte: now }
         },
@@ -86,16 +88,18 @@ export async function GET(request: Request) {
       });
 
       const dispatchedFlights = await Promise.all(bookings.map(async (booking) => {
-        const user = await prisma.user.findUnique({
-          where: { id: booking.userId },
-          select: { name: true }
-        });
+        const pilot = booking.pilotProfileId
+          ? await prisma.pilotProfile.findUnique({
+              where: { id: booking.pilotProfileId },
+              include: { user: { select: { name: true } } },
+            })
+          : null;
 
-        const aircraft = aircraftList.find(a => a.id === booking.aircraftId);
+        const aircraft = aircraftList.find(a => a.id === booking.clubAircraftId);
 
         return {
           id: booking.id,
-          pilot: user?.name || 'Unknown',
+          pilot: pilot?.user?.name || 'Unknown',
           aircraft: aircraft?.nNumber || 'N/A',
           departed: booking.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           eta: booking.endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -114,7 +118,7 @@ export async function GET(request: Request) {
 
       const bookings = await prisma.booking.findMany({
         where: {
-          aircraftId: { in: aircraftIds },
+          clubAircraftId: { in: aircraftIds },
           startTime: { gt: now }
         },
         orderBy: { startTime: 'asc' },
@@ -122,16 +126,18 @@ export async function GET(request: Request) {
       });
 
       const awaitingFlights = await Promise.all(bookings.map(async (booking) => {
-        const user = await prisma.user.findUnique({
-          where: { id: booking.userId },
-          select: { name: true }
-        });
+        const pilot = booking.pilotProfileId
+          ? await prisma.pilotProfile.findUnique({
+              where: { id: booking.pilotProfileId },
+              include: { user: { select: { name: true } } },
+            })
+          : null;
 
-        const aircraft = aircraftList.find(a => a.id === booking.aircraftId);
+        const aircraft = aircraftList.find(a => a.id === booking.clubAircraftId);
 
         return {
           id: booking.id,
-          pilot: user?.name || 'Unknown',
+          pilot: pilot?.user?.name || 'Unknown',
           aircraft: aircraft?.nNumber || 'N/A',
           plannedDep: booking.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           route: booking.purpose || 'N/A',

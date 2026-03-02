@@ -29,8 +29,8 @@ export async function GET(request: Request) {
     }
 
     // Fetch all members in the group
-    const members = await prisma.groupMember.findMany({
-      where: { groupId },
+    const members = await prisma.organizationMember.findMany({
+      where: { organizationId: groupId },
       include: {
         user: {
           select: {
@@ -103,11 +103,11 @@ export async function POST(request: Request) {
     }
 
     // Check if already a member
-    const existing = await prisma.groupMember.findUnique({
+    const existing = await prisma.organizationMember.findUnique({
       where: {
-        userId_groupId: {
+        organizationId_userId: {
+          organizationId: groupId,
           userId: user.id,
-          groupId
         }
       }
     });
@@ -117,10 +117,10 @@ export async function POST(request: Request) {
     }
 
     // Add member
-    const member = await prisma.groupMember.create({
+    const member = await prisma.organizationMember.create({
       data: {
         userId: user.id,
-        groupId,
+        organizationId: groupId,
         role,
       }
     });

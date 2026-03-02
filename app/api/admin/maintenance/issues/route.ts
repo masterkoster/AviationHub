@@ -4,10 +4,10 @@ import { prisma } from '@/lib/auth';
 
 // Helper function to ensure user is admin/owner for the group
 async function ensureAdminForGroup(userId: string, groupId: string) {
-  const membership = await prisma.groupMember.findFirst({
+  const membership = await prisma.organizationMember.findFirst({
     where: {
       userId,
-      groupId,
+      organizationId: groupId,
       role: { in: ['ADMIN', 'OWNER'] }
     }
   });
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
 
     // Get all aircraft IDs for this group
     const aircraftList = await prisma.clubAircraft.findMany({
-      where: { groupId },
+      where: { organizationId: groupId },
       select: { id: true, nNumber: true, nickname: true }
     });
 
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     // Fetch pending maintenance issues (plane-specific only for admin review)
     const issues = await prisma.maintenance.findMany({
       where: {
-        aircraftId: { in: aircraftIds },
+        clubAircraftId: { in: aircraftIds },
         status: { in: ['NEEDED', 'IN_PROGRESS'] },
         isPlaneSpecific: true
       },
@@ -55,20 +55,22 @@ export async function GET(request: Request) {
 
     // Enrich with pilot names and aircraft details
     const enrichedIssues = await Promise.all(issues.map(async (issue) => {
-      const pilot = await prisma.user.findUnique({
-        where: { id: issue.userId },
-        select: { name: true, email: true }
-      });
+      const pilot = issue.reportedByPilotId
+        ? await prisma.pilotProfile.findUnique({
+            where: { id: issue.reportedByPilotId },
+            include: { user: { select: { name: true, email: true } } },
+          })
+        : null;
 
-      const aircraft = aircraftList.find(a => a.id === issue.aircraftId);
+      const aircraft = aircraftList.find(a => a.id === issue.clubAircraftId);
 
       return {
         id: issue.id,
-        pilot: pilot?.name || 'Unknown',
-        pilotEmail: pilot?.email || '',
+        pilot: pilot?.user?.name || 'Unknown',
+        pilotEmail: pilot?.user?.email || '',
         aircraft: aircraft?.nNumber || 'N/A',
         aircraftNickname: aircraft?.nickname || '',
-        aircraftId: issue.aircraftId,
+        aircraftId: issue.clubAircraftId,
         date: issue.reportedDate?.toISOString().split('T')[0] || issue.createdAt?.toISOString().split('T')[0] || 'N/A',
         issue: issue.description,
         category: issue.category || 'OTHER',

@@ -29,7 +29,7 @@ export async function GET(request: Request) {
 
     // Get all aircraft IDs for this group
     const aircraftList = await prisma.clubAircraft.findMany({
-      where: { groupId },
+      where: { organizationId: groupId },
       select: { id: true, nNumber: true }
     });
 
@@ -37,24 +37,26 @@ export async function GET(request: Request) {
 
     // Fetch recent flight logs as billing transactions
     const recentFlights = await prisma.flightLog.findMany({
-      where: { 
-        aircraftId: { in: aircraftIds }
+      where: {
+        clubAircraftId: { in: aircraftIds }
       },
       orderBy: { date: 'desc' },
       take: 50
     });
 
     const transactions = await Promise.all(recentFlights.map(async (flight) => {
-      const user = await prisma.user.findUnique({
-        where: { id: flight.userId },
-        select: { name: true }
-      });
+      const pilot = flight.pilotProfileId
+        ? await prisma.pilotProfile.findUnique({
+            where: { id: flight.pilotProfileId },
+            include: { user: { select: { name: true } } },
+          })
+        : null;
 
-      const aircraft = aircraftList.find(a => a.id === flight.aircraftId);
+      const aircraft = aircraftList.find(a => a.id === flight.clubAircraftId);
 
       return {
         id: flight.id,
-        member: user?.name || 'Unknown',
+        member: pilot?.user?.name || 'Unknown',
         type: 'Flight',
         aircraft: aircraft?.nNumber || 'N/A',
         date: flight.date.toISOString().split('T')[0],

@@ -30,7 +30,7 @@ export async function GET() {
     const newUsers30Days = await prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } });
     const openErrorReports = await prisma.errorReport.count({ where: { status: 'open' } });
     const totalFlightPlans = await prisma.flightPlan.count();
-    const totalGroups = await prisma.flyingGroup.count();
+    const totalGroups = await prisma.organization.count();
     const totalAircraft = await prisma.clubAircraft.count();
 
     const listingCounts = await prisma.marketplaceListing.groupBy({

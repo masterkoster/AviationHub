@@ -64,24 +64,33 @@ export async function GET(request: Request) {
     ]);
 
     const userIds = users.map((u: any) => u.id);
-    const memberships = await prisma.groupMember.findMany({
+    const memberships = await prisma.organizationMember.findMany({
       where: { userId: { in: userIds } },
-      include: { group: { select: { name: true } } },
+      include: { organization: { select: { name: true } } },
     });
 
     const groupNameByUser = new Map<string, string>();
     memberships.forEach((m: any) => {
       if (!groupNameByUser.has(m.userId)) {
-        groupNameByUser.set(m.userId, m.group?.name || '');
+        groupNameByUser.set(m.userId, m.organization?.name || '');
       }
     });
 
-    const logbookHours = await prisma.logbookEntry.groupBy({
-      by: ['userId'],
-      _sum: { totalTime: true },
+    const pilotProfiles = await prisma.pilotProfile.findMany({
       where: { userId: { in: userIds } },
+      select: { id: true, userId: true },
     });
-    const hoursMap = new Map(logbookHours.map(h => [h.userId, h._sum.totalTime || 0]));
+    const pilotProfileIds = pilotProfiles.map((p) => p.id);
+    const userByPilotProfile = new Map(pilotProfiles.map((p) => [p.id, p.userId]));
+
+    const logbookHours = await prisma.logbookEntry.groupBy({
+      by: ['pilotProfileId'],
+      _sum: { totalTime: true },
+      where: { pilotProfileId: { in: pilotProfileIds } },
+    });
+    const hoursMap = new Map(
+      logbookHours.map((h) => [userByPilotProfile.get(h.pilotProfileId ?? '') ?? '', h._sum.totalTime || 0])
+    );
 
     return NextResponse.json({
        users: users.map((u: any) => ({

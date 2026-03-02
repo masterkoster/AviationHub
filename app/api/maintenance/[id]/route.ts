@@ -80,8 +80,8 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     // Check admin role
-    const membership = await prisma.groupMember.findFirst({
-      where: { userId: user.id, groupId: maintenance[0].organizationId, role: 'ADMIN' },
+    const membership = await prisma.organizationMember.findFirst({
+      where: { userId: user.id, organizationId: maintenance[0].organizationId, role: 'ADMIN' },
     });
 
     if (!membership) {

@@ -15,7 +15,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
-    const groups = await prisma.flyingGroup.findMany({
+    const groups = await prisma.organization.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         _count: {
@@ -28,11 +28,11 @@ export async function GET() {
 
     const groupIds = groups.map(g => g.id);
     const aircraftCounts = await prisma.clubAircraft.groupBy({
-      by: ['groupId'],
+      by: ['organizationId'],
       _count: { _all: true },
-      where: { groupId: { in: groupIds } },
+      where: { organizationId: { in: groupIds } },
     });
-    const aircraftCountMap = new Map(aircraftCounts.map(a => [a.groupId, a._count._all]));
+    const aircraftCountMap = new Map(aircraftCounts.map(a => [a.organizationId, a._count._all]));
 
     return NextResponse.json({
       clubs: groups.map(g => ({

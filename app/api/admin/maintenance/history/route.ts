@@ -35,10 +35,10 @@ export async function GET(request: Request) {
     }
 
     // Check user has access to this aircraft's group
-    const membership = await prisma.groupMember.findFirst({
+    const membership = await prisma.organizationMember.findFirst({
       where: {
         userId: session.user.id,
-        groupId: aircraft.groupId
+        organizationId: aircraft.organizationId
       }
     });
 
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
 
     // Fetch all maintenance records for this aircraft
     const maintenanceRecords = await prisma.maintenance.findMany({
-      where: { aircraftId: aircraft.id },
+      where: { clubAircraftId: aircraft.id },
       orderBy: { reportedDate: 'desc' }
     });
 

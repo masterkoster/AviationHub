@@ -22,8 +22,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ grou
     const userId = users[0].id;
 
     // Check membership using Prisma
-    const membership = await prisma.groupMember.findFirst({
-      where: { userId, groupId }
+    const membership = await prisma.organizationMember.findFirst({
+      where: { userId, organizationId: groupId }
     });
 
     if (!membership) {
@@ -34,14 +34,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ grou
     const messages = await prisma.$queryRawUnsafe(`
       SELECT 
         gcm.id,
-        gcm.groupId,
-        gcm.userId,
+        gcm.organizationId,
+        gcm.senderId,
         gcm.message,
         gcm.createdAt,
         u.name as userName
       FROM GroupChatMessage gcm
-      LEFT JOIN [User] u ON gcm.userId = u.id
-      WHERE gcm.groupId = '${groupId}'
+      LEFT JOIN [User] u ON gcm.senderId = u.id
+      WHERE gcm.organizationId = '${groupId}'
       ORDER BY gcm.createdAt ASC
       OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY
     `) as any[];
@@ -55,12 +55,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ grou
         ? userName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()
         : '??';
       
-      const colorIndex = msg.userId.charCodeAt(0) % colors.length;
+      const colorIndex = msg.senderId.charCodeAt(0) % colors.length;
       
       return {
         id: msg.id,
-        groupId: msg.groupId,
-        userId: msg.userId,
+        groupId: msg.organizationId,
+        userId: msg.senderId,
         user: {
           name: userName,
           initials,
@@ -105,8 +105,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
     const userName = users[0].name;
 
     // Check membership using Prisma
-    const membership = await prisma.groupMember.findFirst({
-      where: { userId, groupId }
+    const membership = await prisma.organizationMember.findFirst({
+      where: { userId, organizationId: groupId }
     });
 
     if (!membership) {
@@ -116,8 +116,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
     // Create message using Prisma
     const newMessage = await prisma.groupChatMessage.create({
       data: {
-        groupId,
-        userId,
+        organizationId: groupId,
+        senderId: userId,
         message: message.trim()
       }
     });
@@ -132,8 +132,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
 
     const response = {
       id: newMessage.id,
-      groupId: newMessage.groupId,
-      userId: newMessage.userId,
+      groupId: newMessage.organizationId,
+      userId: newMessage.senderId,
       user: {
         name: userName || 'Unknown',
         initials,

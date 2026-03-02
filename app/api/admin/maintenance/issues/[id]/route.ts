@@ -29,8 +29,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     // Get the aircraft's group
     const aircraft = await prisma.clubAircraft.findUnique({
-      where: { id: issue.aircraftId },
-      select: { groupId: true }
+      where: { id: issue.clubAircraftId ?? undefined },
+      select: { organizationId: true }
     });
 
     if (!aircraft) {
@@ -38,10 +38,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
 
     // Check admin access
-    const membership = await prisma.groupMember.findFirst({
+    const membership = await prisma.organizationMember.findFirst({
       where: {
         userId: session.user.id,
-        groupId: aircraft.groupId,
+        organizationId: aircraft.organizationId,
         role: { in: ['ADMIN', 'OWNER'] }
       }
     });

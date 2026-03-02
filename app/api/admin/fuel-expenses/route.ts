@@ -19,10 +19,10 @@ export async function GET(request: Request) {
     }
 
     // Check admin access
-    const membership = await prisma.groupMember.findFirst({
+    const membership = await prisma.organizationMember.findFirst({
       where: {
         userId: session.user.id,
-        groupId,
+        organizationId: groupId,
         role: { in: ['ADMIN', 'OWNER'] }
       }
     });
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 
     // Get all aircraft IDs for this group
     const aircraftList = await prisma.clubAircraft.findMany({
-      where: { groupId },
+      where: { organizationId: groupId },
       select: { id: true, nNumber: true }
     });
 
@@ -41,7 +41,7 @@ export async function GET(request: Request) {
 
     // Fetch fuel expenses
     const whereClause: any = {
-      aircraftId: { in: aircraftIds }
+      clubAircraftId: { in: aircraftIds }
     };
 
     if (status) {
@@ -56,17 +56,19 @@ export async function GET(request: Request) {
 
     // Enrich with pilot and aircraft info
     const enrichedExpenses = await Promise.all(expenses.map(async (expense) => {
-      const pilot = await prisma.user.findUnique({
-        where: { id: expense.userId },
-        select: { name: true, email: true }
-      });
+      const pilot = expense.pilotProfileId
+        ? await prisma.pilotProfile.findUnique({
+            where: { id: expense.pilotProfileId },
+            include: { user: { select: { name: true, email: true } } },
+          })
+        : null;
 
-      const aircraft = aircraftList.find(a => a.id === expense.aircraftId);
+      const aircraft = aircraftList.find(a => a.id === expense.clubAircraftId);
 
       return {
         id: expense.id,
-        pilot: pilot?.name || 'Unknown',
-        pilotEmail: pilot?.email || '',
+        pilot: pilot?.user?.name || 'Unknown',
+        pilotEmail: pilot?.user?.email || '',
         aircraft: aircraft?.nNumber || 'N/A',
         date: expense.createdAt?.toISOString().split('T')[0] || 'N/A',
         gallons: expense.gallons.toNumber(),

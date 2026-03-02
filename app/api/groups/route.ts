@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     // Try using Prisma create with error handling
     let group;
     try {
-      group = await prisma.flyingGroup.create({
+      group = await prisma.organization.create({
         data: {
           name,
           description,
@@ -45,19 +45,19 @@ export async function POST(request: Request) {
       // If Prisma fails, try raw SQL
       const groupId = crypto.randomUUID();
       await prisma.$executeRawUnsafe(`
-        INSERT INTO FlyingGroup (id, name, description, ownerId, dryRate, wetRate, customRates, createdAt, updatedAt)
+        INSERT INTO Organization (id, name, description, ownerId, dryRate, wetRate, customRates, createdAt, updatedAt)
         VALUES ('${groupId}', '${name.replace(/'/g, "''")}', ${description ? "'" + description.replace(/'/g, "''") + "'" : 'NULL'}, '${userId}', ${dryRate ? parseFloat(dryRate) : 'NULL'}, ${wetRate ? parseFloat(wetRate) : 'NULL'}, ${customRates ? "'" + JSON.stringify(customRates).replace(/'/g, "''") + "'" : 'NULL'}, GETDATE(), GETDATE())
       `);
-      const groups = await prisma.$queryRawUnsafe(`SELECT * FROM FlyingGroup WHERE id = '${groupId}'`) as any[];
+      const groups = await prisma.$queryRawUnsafe(`SELECT * FROM Organization WHERE id = '${groupId}'`) as any[];
       group = { id: groups[0].id, name: groups[0].name, description: groups[0].description, ownerId: groups[0].ownerId };
     }
 
     // Add creator as admin member
     try {
-      await prisma.groupMember.create({
+      await prisma.organizationMember.create({
         data: {
           userId: userId,
-          groupId: group.id,
+          organizationId: group.id,
           role: 'ADMIN',
         },
       });
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       // Try raw SQL
       const memberId = crypto.randomUUID();
       await prisma.$executeRawUnsafe(`
-        INSERT INTO GroupMember (id, userId, groupId, role, joinedAt)
+        INSERT INTO OrganizationMember (id, userId, organizationId, role, joinedAt)
         VALUES ('${memberId}', '${userId}', '${group.id}', 'ADMIN', GETDATE())
       `);
     }
@@ -112,12 +112,12 @@ export async function GET() {
 
     // Use raw SQL - SQL Server doesn't support ? placeholders in $queryRawUnsafe
     // userId is a UUID from auth, so string interpolation is safe
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT gm.role, fg.id, fg.name, fg.description, fg.ownerId, fg.dryRate, fg.wetRate, fg.customRates, fg.createdAt, fg.updatedAt
-      FROM GroupMember gm
-      JOIN FlyingGroup fg ON gm.groupId = fg.id
-      WHERE gm.userId = '${userId}'
-    `) as any[];
+      const memberships = await prisma.$queryRawUnsafe(`
+        SELECT gm.role, o.id, o.name, o.description, o.ownerId, o.dryRate, o.wetRate, o.customRates, o.createdAt, o.updatedAt
+        FROM OrganizationMember gm
+        JOIN Organization o ON gm.organizationId = o.id
+        WHERE gm.userId = '${userId}'
+      `) as any[];
 
     console.log('Memberships SQL:', memberships);
     console.log('Memberships count:', memberships?.length || 0);
@@ -130,16 +130,16 @@ export async function GET() {
     
     if (groupIds.length > 0) {
       const aircraftList = await prisma.$queryRawUnsafe(`
-        SELECT a.*, fg.name as groupName
+        SELECT a.*, o.name as groupName
         FROM ClubAircraft a
-        JOIN FlyingGroup fg ON a.groupId = fg.id
-        WHERE a.groupId IN (${groupIds.map((id: string) => "'" + id + "'").join(',')})
+        JOIN Organization o ON a.organizationId = o.id
+        WHERE a.organizationId IN (${groupIds.map((id: string) => "'" + id + "'").join(',')})
       `) as any[];
       
       // Group aircraft by groupId
       aircraftList.forEach((a: any) => {
-        if (!aircraftMap[a.groupId]) aircraftMap[a.groupId] = [];
-        aircraftMap[a.groupId].push({
+        if (!aircraftMap[a.organizationId]) aircraftMap[a.organizationId] = [];
+        aircraftMap[a.organizationId].push({
           id: a.id,
           nNumber: a.nNumber,
           nickname: a.nickname,

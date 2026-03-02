@@ -53,13 +53,13 @@ export async function GET(request: NextRequest) {
     // Create or update integration record
     const integration = await prisma.integration.upsert({
       where: {
-        groupId_provider: {
-          groupId: groupId,
+        organizationId_provider: {
+          organizationId: groupId,
           provider: 'quickbooks',
         },
       },
       create: {
-        groupId: groupId,
+        organizationId: groupId,
         provider: 'quickbooks',
         status: 'connected',
         accessToken: tokens.accessToken,

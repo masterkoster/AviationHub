@@ -28,8 +28,8 @@ export async function POST(request: NextRequest) {
     // Find integration
     const integration = await prisma.integration.findUnique({
       where: {
-        groupId_provider: {
-          groupId: groupId,
+        organizationId_provider: {
+          organizationId: groupId,
           provider: 'quickbooks',
         },
       },

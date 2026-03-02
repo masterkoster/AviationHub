@@ -28,8 +28,8 @@ export async function POST(request: NextRequest) {
     // Find integration
     const integration = await prisma.integration.findUnique({
       where: {
-        groupId_provider: {
-          groupId: groupId,
+        organizationId_provider: {
+          organizationId: groupId,
           provider: 'quickbooks',
         },
       },
@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
       // Sync Members → Customers
       // ────────────────────────────────────────────────────────────────────
       if (!syncType || syncType === 'customers' || syncType === 'all') {
-        const members = await prisma.groupMember.findMany({
-          where: { groupId: groupId },
+        const members = await prisma.organizationMember.findMany({
+          where: { organizationId: groupId },
           include: { user: true },
         })
 
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
       // ────────────────────────────────────────────────────────────────────
       if (!syncType || syncType === 'items' || syncType === 'all') {
         const aircraft = await prisma.clubAircraft.findMany({
-          where: { groupId: groupId },
+          where: { organizationId: groupId },
         })
 
         for (const ac of aircraft) {

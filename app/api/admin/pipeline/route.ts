@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     prisma.flightPlan.count(),
     prisma.marketplaceListing.count(),
     prisma.maintenanceRequest.count(),
-    prisma.flyingGroup.count(),
+    prisma.organization.count(),
   ])
 
   const data = {
