@@ -25,12 +25,12 @@ export async function GET(request: Request) {
 
     // Fetch aircraft across all groups (or a specific group)
     const aircraft = await prisma.clubAircraft.findMany({
-      where: groupId ? { groupId } : undefined,
+      where: groupId ? { organizationId: groupId } : undefined,
       orderBy: { createdAt: 'desc' }
     });
 
-    const groupIds = [...new Set(aircraft.map(a => a.groupId))];
-    const groups = await prisma.flyingGroup.findMany({
+    const groupIds = [...new Set(aircraft.map(a => a.organizationId).filter(Boolean))] as string[];
+    const groups = await prisma.organization.findMany({
       where: { id: { in: groupIds } },
       select: { id: true, name: true }
     });
@@ -38,15 +38,15 @@ export async function GET(request: Request) {
 
     // Get maintenance info for each aircraft
     const maintenance = await prisma.maintenance.findMany({
-      where: { aircraftId: { in: aircraft.map(a => a.id) } },
+      where: { clubAircraftId: { in: aircraft.map(a => a.id) } },
       orderBy: { reportedDate: 'desc' },
-      select: { aircraftId: true, reportedDate: true }
+      select: { clubAircraftId: true, reportedDate: true }
     });
 
     const maintenanceMap = new Map<string, { reportedDate: Date | null }>();
     for (const item of maintenance) {
-      if (!maintenanceMap.has(item.aircraftId)) {
-        maintenanceMap.set(item.aircraftId, { reportedDate: item.reportedDate || null });
+      if (item.clubAircraftId && !maintenanceMap.has(item.clubAircraftId)) {
+        maintenanceMap.set(item.clubAircraftId, { reportedDate: item.reportedDate || null });
       }
     }
 
@@ -56,8 +56,8 @@ export async function GET(request: Request) {
 
       return {
         id: ac.id,
-        groupId: ac.groupId,
-        groupName: groupMap.get(ac.groupId) || 'Unknown',
+        groupId: ac.organizationId,
+        groupName: ac.organizationId ? groupMap.get(ac.organizationId) || 'Unknown' : 'Unknown',
         nNumber: ac.nNumber || 'N/A',
         nickname: ac.nickname || '',
         make: ac.make || '',
