@@ -35,7 +35,7 @@ export async function GET(
         subscriptionEnd: true,
         createdAt: true,
         updatedAt: true,
-        _count: { select: { flightPlans: true, memberships: true } },
+        _count: { select: { organizationMembers: true } },
       },
     });
 
@@ -63,8 +63,8 @@ export async function GET(
         subscriptionEnd: user.subscriptionEnd?.toISOString(),
         createdAt: user.createdAt?.toISOString(),
         updatedAt: user.updatedAt?.toISOString(),
-        flightPlanCount: Number(user._count?.flightPlans || 0),
-        clubCount: Number(user._count?.memberships || 0),
+        flightPlanCount: 0,
+        clubCount: Number(user._count?.organizationMembers || 0),
         errorReports: errorReports.map((e) => ({
           id: e.id,
           title: e.title,
