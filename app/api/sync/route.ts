@@ -291,8 +291,8 @@ async function applyChange(
       if (action === 'create') {
         const flightLog = await prisma.flightLog.create({
           data: {
-            aircraftId: data.aircraftId as string,
-            userId,
+            clubAircraftId: data.aircraftId as string,
+            pilotProfileId: data.pilotProfileId as string,
             date: new Date(data.date as string),
             tachTime: data.tachTime ? Number(data.tachTime) : null,
             hobbsTime: data.hobbsTime ? Number(data.hobbsTime) : null,
@@ -328,8 +328,8 @@ async function applyChange(
       if (action === 'create') {
         const maintenance = await prisma.maintenance.create({
           data: {
-            aircraftId: data.aircraftId as string,
-            userId,
+            clubAircraftId: data.aircraftId as string,
+            reportedByUserId: userId,
             description: data.description as string,
             notes: data.notes as string | null,
             status: 'NEEDED',

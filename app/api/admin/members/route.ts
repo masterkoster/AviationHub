@@ -50,8 +50,23 @@ export async function GET(request: Request) {
 
     // Get flight hours for each member
     const membersWithStats = await Promise.all(members.map(async (member) => {
+      if (!member.pilotProfileId) {
+        return {
+          id: member.user.id,
+          name: member.user.name || 'Unknown',
+          email: member.user.email,
+          role: member.role,
+          status: 'Active',
+          hours: 0,
+          balance: 0,
+          joined: member.joinedAt?.toISOString().split('T')[0] || 'N/A',
+          medical: member.user.medicalExpiry?.toISOString().split('T')[0] || '—',
+          image: member.user.image,
+        };
+      }
+
       const flightLogs = await prisma.flightLog.findMany({
-        where: { userId: member.userId },
+        where: { pilotProfileId: member.pilotProfileId },
         select: { hobbsTime: true }
       });
 
