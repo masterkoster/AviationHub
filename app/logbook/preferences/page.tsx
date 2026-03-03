@@ -5,13 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { RefreshCw, Copy } from 'lucide-react'
+import { RefreshCw, Copy, Download } from 'lucide-react'
 
 export default function LogbookPreferencesPage() {
   const [displayId, setDisplayId] = useState('')
   const [loading, setLoading] = useState(true)
   const [regenerating, setRegenerating] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
 
   useEffect(() => {
     fetch('/api/logbook/display-id')
@@ -36,6 +39,25 @@ export default function LogbookPreferencesPage() {
     await navigator.clipboard.writeText(displayId)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
+  }
+
+  const exportAudit = async (format: 'csv' | 'pdf') => {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams({ format })
+      if (fromDate) params.set('from', fromDate)
+      if (toDate) params.set('to', toDate)
+      const res = await fetch(`/api/logbook/history/export?${params.toString()}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `logbook_audit_${Date.now()}.${format}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
@@ -70,6 +92,45 @@ export default function LogbookPreferencesPage() {
               <Button onClick={regenerate} disabled={regenerating}>
                 <RefreshCw className="w-4 h-4 mr-2" /> {regenerating ? 'Regenerating...' : 'Regenerate'}
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Audit Export</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Download a CSV or PDF audit report of your logbook changes.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">From</label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">To</label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <Button variant="outline" onClick={() => exportAudit('csv')} disabled={exporting}>
+                  <Download className="w-4 h-4 mr-2" /> CSV
+                </Button>
+                <Button onClick={() => exportAudit('pdf')} disabled={exporting}>
+                  <Download className="w-4 h-4 mr-2" /> PDF
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -41,6 +41,7 @@ export default function FlightsPage() {
   const [historyEntry, setHistoryEntry] = useState<any>(null)
   const [historyItems, setHistoryItems] = useState<any[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [exportingAudit, setExportingAudit] = useState(false)
 
   // Void entry handler
   const handleVoid = async () => {
@@ -137,6 +138,23 @@ export default function FlightsPage() {
       console.error('Failed to load history', err)
     } finally {
       setHistoryLoading(false)
+    }
+  }
+
+  const exportAudit = async (format: 'csv' | 'pdf') => {
+    if (!historyEntry) return
+    setExportingAudit(true)
+    try {
+      const res = await fetch(`/api/logbook/history/export?entryId=${historyEntry.id}&format=${format}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `logbook_audit_${historyEntry.id}.${format}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExportingAudit(false)
     }
   }
 
@@ -768,6 +786,12 @@ export default function FlightsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setHistoryDialogOpen(false)}>
               Close
+            </Button>
+            <Button variant="outline" onClick={() => exportAudit('csv')} disabled={exportingAudit}>
+              Export CSV
+            </Button>
+            <Button onClick={() => exportAudit('pdf')} disabled={exportingAudit}>
+              Export PDF
             </Button>
           </DialogFooter>
         </DialogContent>
