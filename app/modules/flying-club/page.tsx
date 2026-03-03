@@ -257,6 +257,7 @@ export default function FlyingClubPage() {
   const [showNewGroupModal, setShowNewGroupModal] = useState(false)
   const [showAddAircraftModal, setShowAddAircraftModal] = useState(false)
   const [showNewBookingModal, setShowNewBookingModal] = useState(false)
+  const [showQuickBookingModal, setShowQuickBookingModal] = useState(false)
   const [showReportIssueModal, setShowReportIssueModal] = useState(false)
   const [showLogFlightModal, setShowLogFlightModal] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -1013,7 +1014,7 @@ export default function FlyingClubPage() {
 
           {/* Tabs */}
           <div className="mt-6 flex gap-1 border-b border-border overflow-x-auto">
-            {(['dashboard', 'calendar', 'bookings', 'scheduled', 'aircraft', 'flights', 'maintenance', 'billing', 'members'] as const).map((tab) => (
+            {(['dashboard', 'calendar', 'bookings', 'scheduled', 'aircraft', 'logbook', 'flights', 'maintenance', 'billing', 'members'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -1023,7 +1024,7 @@ export default function FlyingClubPage() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'logbook' ? 'Logbook' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 {activeTab === tab && (
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
                 )}
@@ -1430,7 +1431,7 @@ export default function FlyingClubPage() {
                             setBookingStartTime(startIso)
                             setBookingEndTime(endIso)
                             setBookingPurpose('')
-                            setShowNewBookingModal(true)
+                            setShowQuickBookingModal(true)
                           }
                         }}
                         disabled={aircraft.status !== 'Available' || isPersonal}
@@ -1747,7 +1748,7 @@ export default function FlyingClubPage() {
           </Card>
         )}
 
-        {activeTab === 'flights' && (
+        {(activeTab === 'flights' || activeTab === 'logbook') && (
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -2196,6 +2197,73 @@ export default function FlyingClubPage() {
             <Button onClick={handleCreateBooking} disabled={formLoading}>
               {formLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Create Booking
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Booking Modal (from aircraft tab) */}
+      <Dialog open={showQuickBookingModal} onOpenChange={(open) => { setShowQuickBookingModal(open); if (!open) resetBookingForm() }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Quick Booking</DialogTitle>
+            <DialogDescription>Book this aircraft quickly.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="bookingAircraftQuick">Aircraft *</Label>
+              <select
+                id="bookingAircraftQuick"
+                value={bookingAircraftId}
+                onChange={(e) => setBookingAircraftId(e.target.value)}
+                className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Select aircraft...</option>
+                {displayAircraft.filter(a => a.status === 'Available').map(aircraft => (
+                  <option key={aircraft.id} value={aircraft.id}>
+                    {aircraft.nNumber} - {aircraft.make} {aircraft.model}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="startTimeQuick">Start *</Label>
+                <Input
+                  id="startTimeQuick"
+                  type="datetime-local"
+                  value={bookingStartTime}
+                  onChange={(e) => setBookingStartTime(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endTimeQuick">End *</Label>
+                <Input
+                  id="endTimeQuick"
+                  type="datetime-local"
+                  value={bookingEndTime}
+                  onChange={(e) => setBookingEndTime(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="purposeQuick">Purpose</Label>
+              <Input
+                id="purposeQuick"
+                value={bookingPurpose}
+                onChange={(e) => setBookingPurpose(e.target.value)}
+                placeholder="e.g., Cross country, Pattern work"
+              />
+            </div>
+            {formError && (
+              <p className="text-sm text-destructive">{formError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowQuickBookingModal(false)}>Cancel</Button>
+            <Button onClick={handleCreateBooking} disabled={formLoading}>
+              {formLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Book
             </Button>
           </DialogFooter>
         </DialogContent>

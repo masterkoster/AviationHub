@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { getOrCreatePilotProfile } from '@/lib/pilot-profile';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -36,7 +37,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Get the flight log
     const flight = await prisma.$queryRawUnsafe(`
-      SELECT fl.*, a.hourlyRate, a.totalHobbsHours
+      SELECT fl.*, a.hourlyRate, a.totalHobbsHours, a.organizationId, a.nNumber, a.customName, a.nickname, a.make, a.model
       FROM FlightLog fl
       JOIN ClubAircraft a ON fl.aircraftId = a.id
       WHERE fl.id = '${flightLogId}'
@@ -71,12 +72,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     const newTotal = currentTotal + hobbsTime;
 
     // Update flight log
+    const pilotProfile = await getOrCreatePilotProfile(userId);
+    const homeAirport = pilotProfile?.homeAirport?.trim() || 'UNK';
+
     await prisma.$executeRawUnsafe(`
       UPDATE FlightLog 
       SET hobbsEnd = ${hobbsEnd},
           hobbsTime = ${hobbsTime},
           calculatedCost = ${calculatedCost},
           notes = ${notes ? "'" + notes.replace(/'/g, "''") + "'" : 'NULL'},
+          pilotProfileId = '${pilotProfile.id}',
+          organizationId = ${flightData.organizationId ? "'" + flightData.organizationId + "'" : 'NULL'},
           updatedAt = GETDATE()
       WHERE id = '${flightLogId}'
     `);
@@ -87,6 +93,34 @@ export async function POST(request: Request, { params }: RouteParams) {
       SET totalHobbsHours = ${newTotal}
       WHERE id = '${flightData.aircraftId}'
     `);
+
+    const aircraftLabel = flightData.nNumber || flightData.customName || flightData.nickname || 'Aircraft';
+
+    const logbookEntry = await prisma.logbookEntry.create({
+      data: {
+        pilotProfileId: pilotProfile.id,
+        organizationId: flightData.organizationId || null,
+        clubAircraftId: flightData.aircraftId,
+        date: flightData.date || new Date(),
+        aircraft: aircraftLabel,
+        routeFrom: homeAirport,
+        routeTo: homeAirport,
+        hobbsStart: hobbsStart,
+        hobbsEnd: hobbsEndVal,
+        totalTime: hobbsTime,
+        picTime: hobbsTime,
+        isDay: true,
+        remarks: notes || 'Club flight completion',
+      },
+    });
+
+    await prisma.logbookEntryHistory.create({
+      data: {
+        entryId: logbookEntry.id,
+        action: 'CREATED',
+        changedBy: userId,
+      },
+    });
 
     // Fetch updated flight
     const updated = await prisma.$queryRawUnsafe(`

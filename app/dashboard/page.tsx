@@ -110,6 +110,8 @@ export default function PilotDashboard() {
   const [showScheduler, setShowScheduler] = useState(false)
   const [scheduledRefreshKey, setScheduledRefreshKey] = useState(0)
   const [showNextFlightModal, setShowNextFlightModal] = useState(false)
+  const [showSelectScheduledModal, setShowSelectScheduledModal] = useState(false)
+  const [selectedScheduledFlightId, setSelectedScheduledFlightId] = useState<string>('')
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false)
   const [showLogbookModal, setShowLogbookModal] = useState(false)
   const [maintenanceItems, setMaintenanceItems] = useState<any[]>([])
@@ -219,98 +221,13 @@ export default function PilotDashboard() {
 
       const active = await res.json()
       if (!Array.isArray(active) || active.length === 0) {
-        const now = new Date()
-        const upcoming = scheduledFlights.find((f) => {
-          if (!f?.startTime || !f?.endTime) return false
-          const start = new Date(f.startTime)
-          const end = new Date(f.endTime)
-          return start <= now && end >= now && f.groupId
-        })
-
-        if (!upcoming) {
-          const nextClub = scheduledFlights.find((f) => f?.groupId)
-          if (!nextClub) {
-            alert('No active flights found')
-            return
-          }
-
-          const hobbsStartInput = window.prompt('Enter Hobbs start time to check out this flight')
-          const hobbsStart = hobbsStartInput ? Number(hobbsStartInput) : NaN
-          if (!hobbsStart || Number.isNaN(hobbsStart)) {
-            alert('Valid Hobbs start time is required')
-            return
-          }
-
-          const checkoutRes = await fetch(`/api/clubs/${nextClub.groupId}/flights/checkout`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              aircraftId: nextClub.aircraftId,
-              hobbsStart,
-              notes: nextClub.purpose || null,
-            }),
-          })
-
-          if (!checkoutRes.ok) {
-            const error = await checkoutRes.json()
-            alert(error.error || 'Failed to start flight')
-            return
-          }
-
-          const checkout = await checkoutRes.json()
-          const flight = checkout.flight
-
-          setActiveFlight({
-            id: flight.id,
-            aircraftId: flight.aircraftId,
-            aircraftName: flight.aircraft?.nNumber
-              ? `${flight.aircraft.nNumber}${flight.aircraft.name ? ` (${flight.aircraft.name})` : ''}`
-              : 'Unknown Aircraft',
-            userId: flight.user?.id ?? session?.user?.id ?? 'unknown',
-            userName: flight.user?.name ?? session?.user?.name ?? 'Pilot',
-            hobbsStart: flight.hobbsStart ? Number(flight.hobbsStart) : undefined,
-          })
-          setShowFlightComplete(true)
+        const clubScheduled = scheduledFlights.filter((f) => f?.groupId)
+        if (clubScheduled.length === 0) {
+          alert('No scheduled club flights found')
           return
         }
-
-        const hobbsStartInput = window.prompt('Enter Hobbs start time to check out this flight')
-        const hobbsStart = hobbsStartInput ? Number(hobbsStartInput) : NaN
-        if (!hobbsStart || Number.isNaN(hobbsStart)) {
-          alert('Valid Hobbs start time is required')
-          return
-        }
-
-        const checkoutRes = await fetch(`/api/clubs/${upcoming.groupId}/flights/checkout`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            aircraftId: upcoming.aircraftId,
-            hobbsStart,
-            notes: upcoming.purpose || null,
-          }),
-        })
-
-        if (!checkoutRes.ok) {
-          const error = await checkoutRes.json()
-          alert(error.error || 'Failed to start flight')
-          return
-        }
-
-        const checkout = await checkoutRes.json()
-        const flight = checkout.flight
-
-        setActiveFlight({
-          id: flight.id,
-          aircraftId: flight.aircraftId,
-          aircraftName: flight.aircraft?.nNumber
-            ? `${flight.aircraft.nNumber}${flight.aircraft.name ? ` (${flight.aircraft.name})` : ''}`
-            : 'Unknown Aircraft',
-          userId: flight.user?.id ?? session?.user?.id ?? 'unknown',
-          userName: flight.user?.name ?? session?.user?.name ?? 'Pilot',
-          hobbsStart: flight.hobbsStart ? Number(flight.hobbsStart) : undefined,
-        })
-        setShowFlightComplete(true)
+        setSelectedScheduledFlightId('')
+        setShowSelectScheduledModal(true)
         return
       }
 
@@ -367,6 +284,63 @@ export default function PilotDashboard() {
       cancelled = true
     }
   }, [session?.user?.id, groupIds, scheduledWindow, scheduledRefreshKey])
+
+  const handleStartFromScheduled = async () => {
+    if (!groupId) {
+      alert('Please join or select a flying club to complete a flight')
+      return
+    }
+
+    const selected = scheduledFlights.find((f) => f.id === selectedScheduledFlightId)
+    if (!selected) {
+      alert('Please select a scheduled flight')
+      return
+    }
+
+    const hobbsStartInput = window.prompt('Enter Hobbs start time to check out this flight')
+    const hobbsStart = hobbsStartInput ? Number(hobbsStartInput) : NaN
+    if (!hobbsStart || Number.isNaN(hobbsStart)) {
+      alert('Valid Hobbs start time is required')
+      return
+    }
+
+    try {
+      const checkoutRes = await fetch(`/api/clubs/${groupId}/flights/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aircraftId: selected.aircraftId,
+          hobbsStart,
+          notes: selected.purpose || null,
+        }),
+      })
+
+      if (!checkoutRes.ok) {
+        const error = await checkoutRes.json()
+        alert(error.error || 'Failed to start flight')
+        return
+      }
+
+      const checkout = await checkoutRes.json()
+      const flight = checkout.flight
+
+      setActiveFlight({
+        id: flight.id,
+        aircraftId: flight.aircraftId,
+        aircraftName: flight.aircraft?.nNumber
+          ? `${flight.aircraft.nNumber}${flight.aircraft.name ? ` (${flight.aircraft.name})` : ''}`
+          : 'Unknown Aircraft',
+        userId: flight.user?.id ?? session?.user?.id ?? 'unknown',
+        userName: flight.user?.name ?? session?.user?.name ?? 'Pilot',
+        hobbsStart: flight.hobbsStart ? Number(flight.hobbsStart) : undefined,
+      })
+      setShowSelectScheduledModal(false)
+      setShowFlightComplete(true)
+    } catch (error) {
+      console.error('Failed to start scheduled flight', error)
+      alert('Failed to start flight')
+    }
+  }
 
   useEffect(() => {
     if (!session?.user?.id) return
@@ -1359,7 +1333,7 @@ export default function PilotDashboard() {
                 {scheduledFlights.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No upcoming flights scheduled.</p>
                 ) : (
-                  scheduledFlights.slice(0, 5).map((flight) => (
+                  scheduledFlights.map((flight) => (
                     <div key={flight.id} className="rounded-md border border-border p-3">
                       <div className="flex items-center justify-between">
                         <div>
@@ -1411,6 +1385,60 @@ export default function PilotDashboard() {
                     </div>
                   ))
                 )}
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showSelectScheduledModal} onOpenChange={setShowSelectScheduledModal}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Select Scheduled Flight</DialogTitle>
+                <DialogDescription>Choose a scheduled flight to complete.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                {scheduledFlights.filter((f) => f?.groupId).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No scheduled club flights available.</p>
+                ) : (
+                  <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                    {scheduledFlights.filter((f) => f?.groupId).map((flight) => (
+                      <button
+                        key={flight.id}
+                        type="button"
+                        onClick={() => setSelectedScheduledFlightId(flight.id)}
+                        className={`w-full rounded-md border p-3 text-left transition-colors ${
+                          selectedScheduledFlightId === flight.id
+                            ? 'border-primary bg-primary/10'
+                            : 'border-border hover:bg-muted/50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium">
+                              {flight.aircraft?.nNumber || 'Aircraft'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(flight.startTime).toLocaleString()} — {new Date(flight.endTime).toLocaleString()}
+                            </p>
+                            {flight.groupName && (
+                              <p className="text-xs text-muted-foreground">{flight.groupName}</p>
+                            )}
+                          </div>
+                          <Badge variant="outline" className="text-[10px]">
+                            Scheduled
+                          </Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" size="sm" onClick={() => setShowSelectScheduledModal(false)}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleStartFromScheduled} disabled={!selectedScheduledFlightId}>
+                  Continue
+                </Button>
               </div>
             </DialogContent>
           </Dialog>
