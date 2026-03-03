@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { RefreshCw, Copy, Download } from 'lucide-react'
+import { RefreshCw, Copy, Download, Settings } from 'lucide-react'
 
 export default function LogbookPreferencesPage() {
   const [displayId, setDisplayId] = useState('')
@@ -15,12 +15,20 @@ export default function LogbookPreferencesPage() {
   const [exporting, setExporting] = useState(false)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [prefs, setPrefs] = useState<any>(null)
+  const [prefsSaving, setPrefsSaving] = useState(false)
 
   useEffect(() => {
     fetch('/api/logbook/display-id')
       .then(r => r.json())
       .then(data => setDisplayId(data.displayId || ''))
       .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/logbook/preferences')
+      .then(r => r.json())
+      .then(data => setPrefs(data.preferences || {}))
   }, [])
 
   const regenerate = async () => {
@@ -60,6 +68,19 @@ export default function LogbookPreferencesPage() {
     }
   }
 
+  const savePrefs = async () => {
+    setPrefsSaving(true)
+    try {
+      await fetch('/api/logbook/preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(prefs || {})
+      })
+    } finally {
+      setPrefsSaving(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="border-b border-border bg-card/50 px-6 py-5">
@@ -93,6 +114,80 @@ export default function LogbookPreferencesPage() {
                 <RefreshCw className="w-4 h-4 mr-2" /> {regenerating ? 'Regenerating...' : 'Regenerate'}
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5" />
+              Logbook Preferences
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!prefs ? (
+              <div className="text-muted-foreground">Loading preferences...</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Time Display</label>
+                    <select
+                      value={prefs.timeDisplayFormat || 'decimal-1-2'}
+                      onChange={(e) => setPrefs((p: any) => ({ ...p, timeDisplayFormat: e.target.value }))}
+                      className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                    >
+                      <option value="decimal-1-2">Decimal (1.2)</option>
+                      <option value="decimal-1">Decimal (1.0)</option>
+                      <option value="decimal-2">Decimal (1.00)</option>
+                      <option value="hhmm">HH:MM</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Sum Mode</label>
+                    <select
+                      value={prefs.sumTimeMode || 'whole-minutes'}
+                      onChange={(e) => setPrefs((p: any) => ({ ...p, sumTimeMode: e.target.value }))}
+                      className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                    >
+                      <option value="whole-minutes">Whole Minutes</option>
+                      <option value="hundredths">Hundredths</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Timezone</label>
+                    <input
+                      value={prefs.preferredTimeZone || 'UTC'}
+                      onChange={(e) => setPrefs((p: any) => ({ ...p, preferredTimeZone: e.target.value }))}
+                      className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={prefs.showInstructorTime ?? true} onChange={(e) => setPrefs((p: any) => ({ ...p, showInstructorTime: e.target.checked }))} className="h-4 w-4" />
+                    Show Instructor Time
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={prefs.showSicTime ?? true} onChange={(e) => setPrefs((p: any) => ({ ...p, showSicTime: e.target.checked }))} className="h-4 w-4" />
+                    Show SIC Time
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={prefs.autoFillTimes ?? true} onChange={(e) => setPrefs((p: any) => ({ ...p, autoFillTimes: e.target.checked }))} className="h-4 w-4" />
+                    Auto-fill Times
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={prefs.autoFillLandings ?? true} onChange={(e) => setPrefs((p: any) => ({ ...p, autoFillLandings: e.target.checked }))} className="h-4 w-4" />
+                    Auto-fill Landings
+                  </label>
+                </div>
+
+                <Button onClick={savePrefs} disabled={prefsSaving}>
+                  {prefsSaving ? 'Saving...' : 'Save Preferences'}
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
 
