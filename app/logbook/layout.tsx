@@ -12,6 +12,7 @@ import { useState } from 'react'
 const NAV_ITEMS = [
   { href: '/logbook', label: 'Logbook', icon: BookOpen, exact: true },
   { href: '/logbook/flights/new', label: 'Add Flights', icon: Plus },
+  { href: '/logbook/aircraft', label: 'My Aircraft', icon: Plane },
   { href: '/logbook/flights', label: 'Search', icon: Search },
   { href: '/logbook/totals', label: 'Totals', icon: BarChart2 },
   { href: '/logbook/currency', label: 'Currency', icon: ShieldCheck },

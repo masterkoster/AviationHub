@@ -201,6 +201,7 @@ export async function POST(request: Request) {
         pilotProfileId: profile.id,
         date: new Date(body.date),
         aircraft: body.aircraft,
+        aircraftId: body.aircraftId || null,
         routeFrom: body.routeFrom,
         routeTo: body.routeTo,
         totalTime: body.totalTime || 0,

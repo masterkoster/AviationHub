@@ -5,15 +5,20 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { createLogbookEntry, fetchLogbookEntries } from '@/lib/logbook/api'
+import { Plane, Loader2 } from 'lucide-react'
 
 export default function NewFlightPage() {
   const router = useRouter()
-  const [aircraft, setAircraft] = useState<any[]>([])
+  const [myAircraft, setMyAircraft] = useState<any[]>([])
+  const [recentAircraft, setRecentAircraft] = useState<string[]>([])
+  const [selectedAircraft, setSelectedAircraft] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [fetchingAircraft, setFetchingAircraft] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
     aircraft: '',
+    aircraftId: '',
     routeFrom: '',
     routeTo: '',
     totalTime: '',
@@ -37,49 +42,65 @@ export default function NewFlightPage() {
   })
 
   useEffect(() => {
-    fetch('/api/aircraft')
-      .then(r => r.json())
-      .then(data => setAircraft(data || []))
-      .catch(console.error)
-  }, [])
+    Promise.all([
+      fetch('/api/logbook/aircraft').then(r => r.json()),
+      fetchLogbookEntries(100).then(data => data.entries || [])
+    ]).then(([aircraftData, entries]) => {
+      setMyAircraft(aircraftData.aircraft || [])
 
-  // Get unique aircraft from user's logbook entries
-  useEffect(() => {
-    fetchLogbookEntries(100)
-      .then(data => {
-        if (data.entries) {
-          const uniqueAircraft = [...new Set(data.entries.map((e: any) => e.aircraft).filter(Boolean))]
-          if (uniqueAircraft.length > 0) {
-            // Merge with aircraft from API
-            const aircraftSet = new Set([...aircraft.map((a: any) => a.tail_number || a.nNumber), ...uniqueAircraft])
-            // Already have them from form, but this is for autocomplete
-          }
-        }
-      })
-      .catch(console.error)
-  }, [aircraft])
+      const uniqueAircraft = [...new Set(entries.map((e: any) => e.aircraft).filter(Boolean))]
+      setRecentAircraft(uniqueAircraft.slice(0, 10))
+    }).catch(console.error)
+    .finally(() => setFetchingAircraft(false))
+  }, [])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target
-    setForm(prev => {
-      const updated = { ...prev, [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value }
-      
-      // Auto-calculate night time based on conditions
-      if (name === 'totalTime' && value) {
-        // Could add auto-fill logic here
+    setForm(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    }))
+
+    if (name === 'aircraft') {
+      setSelectedAircraft(null)
+      setForm(prev => ({ ...prev, aircraftId: '' }))
+    }
+  }
+
+  const handleAircraftSelect = (value: string) => {
+    if (!value) return
+    if (value.startsWith('saved:')) {
+      const id = value.replace('saved:', '')
+      const ac = myAircraft.find((a: any) => a.id === id)
+      if (ac) {
+        setSelectedAircraft(ac)
+        setForm(prev => ({
+          ...prev,
+          aircraft: ac.nNumber,
+          aircraftId: ac.id,
+        }))
       }
-      return updated
-    })
+      return
+    }
+    if (value.startsWith('recent:')) {
+      const n = value.replace('recent:', '')
+      setSelectedAircraft(null)
+      setForm(prev => ({ ...prev, aircraft: n, aircraftId: '' }))
+      return
+    }
+    setSelectedAircraft(null)
+    setForm(prev => ({ ...prev, aircraft: value, aircraftId: '' }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
-    
+
     try {
       const payload = {
         ...form,
+        aircraftId: form.aircraftId || undefined,
         totalTime: parseFloat(form.totalTime) || 0,
         picTime: parseFloat(form.picTime) || 0,
         sicTime: parseFloat(form.sicTime) || 0,
@@ -93,7 +114,7 @@ export default function NewFlightPage() {
         dayLandings: parseInt(form.dayLandings) || 0,
         nightLandings: parseInt(form.nightLandings) || 0,
       }
-      
+
       await createLogbookEntry(payload)
       router.push('/logbook/flights')
     } catch (err: any) {
@@ -139,13 +160,63 @@ export default function NewFlightPage() {
             {error}
           </div>
         )}
-        
+
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Basic Info */}
           <div className="bg-card border border-border rounded-xl p-6">
             <h2 className="font-bold text-foreground mb-4">Flight Details</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {field('Aircraft', 'aircraft', 'text', 'N12345')}
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
+                  Aircraft {myAircraft.length > 0 && <span className="text-primary">(Your aircraft in bold)</span>}
+                </label>
+                {fetchingAircraft ? (
+                  <div className="w-full h-9 flex items-center justify-center text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading...
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <select
+                      name="aircraft"
+                      value=""
+                      onChange={(e) => handleAircraftSelect(e.target.value)}
+                      className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm appearance-none"
+                    >
+                      <option value="">Select saved aircraft...</option>
+                      {myAircraft.length > 0 && (
+                        <optgroup label="Your Aircraft">
+                          {myAircraft.map((ac: any) => (
+                            <option key={ac.id} value={`saved:${ac.id}`}>
+                              {ac.nickname ? `${ac.nickname} (${ac.nNumber})` : ac.nNumber}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {recentAircraft.filter(n => !myAircraft.find(ac => ac.nNumber === n)).length > 0 && (
+                        <optgroup label="Recent">
+                          {recentAircraft
+                            .filter(n => !myAircraft.find(ac => ac.nNumber === n))
+                            .map(n => (
+                              <option key={n} value={`recent:${n}`}>{n}</option>
+                            ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+                )}
+                <input 
+                  name="aircraft"
+                  type="text"
+                  value={form.aircraft}
+                  onChange={handleChange}
+                  placeholder="N12345 or custom"
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary text-sm mt-2" 
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  <Link href="/logbook/aircraft" className="text-primary hover:underline">
+                    Manage your aircraft
+                  </Link>
+                </p>
+              </div>
               {field('Date', 'date', 'date', '')}
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Authority</label>
@@ -159,9 +230,45 @@ export default function NewFlightPage() {
               {field('To', 'routeTo', 'text', 'KBOS')}
               {field('Total Time', 'totalTime', 'number', '1.5')}
             </div>
+
+            {selectedAircraft && (
+              <div className="mt-4 p-4 rounded-lg bg-secondary/30 border border-border">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground mb-2">
+                  <Plane className="w-4 h-4 text-primary" />
+                  Aircraft Details (auto-filled)
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                  {selectedAircraft.categoryClass && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Category/Class</p>
+                      <p className="font-medium">{selectedAircraft.categoryClass}</p>
+                    </div>
+                  )}
+                  {selectedAircraft.engineType && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Engine Type</p>
+                      <p className="font-medium">{selectedAircraft.engineType}</p>
+                    </div>
+                  )}
+                  {selectedAircraft.model && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Model</p>
+                      <p className="font-medium">
+                        {selectedAircraft.model.manufacturer} {selectedAircraft.model.model}
+                      </p>
+                    </div>
+                  )}
+                  {selectedAircraft.notes && (
+                    <div className="md:col-span-3">
+                      <p className="text-xs text-muted-foreground">Notes</p>
+                      <p className="font-medium">{selectedAircraft.notes}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Time Fields */}
           <div className="bg-card border border-border rounded-xl p-6">
             <h2 className="font-bold text-foreground mb-4">Time Breakdown</h2>
             <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
@@ -177,7 +284,6 @@ export default function NewFlightPage() {
             </div>
           </div>
 
-          {/* Landings */}
           <div className="bg-card border border-border rounded-xl p-6">
             <h2 className="font-bold text-foreground mb-4">Landings & Approaches</h2>
             <div className="grid grid-cols-3 gap-4">
@@ -186,7 +292,6 @@ export default function NewFlightPage() {
             </div>
           </div>
 
-          {/* Options */}
           <div className="bg-card border border-border rounded-xl p-6">
             <h2 className="font-bold text-foreground mb-4">Options</h2>
             <div className="flex flex-wrap gap-4">
@@ -201,7 +306,6 @@ export default function NewFlightPage() {
             </div>
           </div>
 
-          {/* Remarks */}
           <div className="bg-card border border-border rounded-xl p-6">
             <h2 className="font-bold text-foreground mb-4">Remarks</h2>
             <textarea 
@@ -216,7 +320,8 @@ export default function NewFlightPage() {
 
           <div className="flex gap-3">
             <Button type="submit" disabled={loading} className="bg-primary hover:bg-primary/90">
-              {loading ? 'Saving...' : 'Log Flight'}
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Log Flight
             </Button>
             <Link href="/logbook/flights">
               <Button type="button" variant="outline">Cancel</Button>
