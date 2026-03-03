@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
 
 interface TrackPoint {
   lat: number;
@@ -8,6 +8,14 @@ interface TrackPoint {
   alt?: number;
   speed?: number;
   timestamp: string;
+}
+
+// Helper to get pilotProfileId from user session
+async function getPilotProfileId(userId: string) {
+  const pilotProfile = await prisma.pilotProfile.findUnique({
+    where: { userId },
+  });
+  return pilotProfile?.id || null;
 }
 
 // GET - Fetch user's flight tracks (list or single track with full data)
@@ -34,10 +42,15 @@ export async function GET(request: Request) {
       }, { status: 403 });
     }
 
+    const pilotProfileId = await getPilotProfileId(session.user.id);
+    if (!pilotProfileId) {
+      return NextResponse.json({ tracks: [] });
+    }
+
     // If requesting a specific track, return full data
     if (trackId) {
       const track = await prisma.flightTrack.findFirst({
-        where: { id: trackId, userId: session.user.id },
+        where: { id: trackId, pilotProfileId },
       });
 
       if (!track) {
@@ -49,7 +62,7 @@ export async function GET(request: Request) {
 
     // Otherwise return list of tracks
     const tracks = await prisma.flightTrack.findMany({
-      where: { userId: session.user.id },
+      where: { pilotProfileId },
       orderBy: { date: 'desc' },
       select: {
         id: true,
@@ -100,6 +113,13 @@ export async function POST(request: Request) {
       }, { status: 403 });
     }
 
+    // Get or create pilot profile
+    const pilotProfile = await prisma.pilotProfile.upsert({
+      where: { userId: session.user.id },
+      update: {},
+      create: { userId: session.user.id },
+    });
+
     const body = await request.json();
     
     const { name, date, aircraft, trackData } = body;
@@ -148,7 +168,7 @@ export async function POST(request: Request) {
 
     const track = await prisma.flightTrack.create({
       data: {
-        userId: session.user.id,
+        pilotProfileId: pilotProfile.id,
         name: name || 'Flight Track',
         date: date ? new Date(date) : new Date(),
         aircraft: aircraft || 'Unknown',
@@ -183,8 +203,13 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Track ID required' }, { status: 400 });
     }
 
+    const pilotProfileId = await getPilotProfileId(session.user.id);
+    if (!pilotProfileId) {
+      return NextResponse.json({ error: 'Pilot profile not found' }, { status: 404 });
+    }
+
     await prisma.flightTrack.deleteMany({
-      where: { id, userId: session.user.id },
+      where: { id, pilotProfileId },
     });
 
     return NextResponse.json({ message: 'Track deleted' });

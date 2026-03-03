@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth, prisma } from '@/lib/auth'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 import { sendQuoteStatusEmail } from '@/lib/email'
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -17,6 +18,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
     }
 
+    // Get the user's pilot profile to compare
+    const pilotProfile = await prisma.pilotProfile.findUnique({
+      where: { userId: session.user.id },
+    })
+
     const quote = await prisma.mechanicQuote.findUnique({
       where: { id },
       include: { maintenanceRequest: true, mechanic: true },
@@ -26,7 +32,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
     }
 
-    if (quote.maintenanceRequest.postedByUserId !== session.user.id) {
+    if (quote.maintenanceRequest.postedByPilotId !== pilotProfile?.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

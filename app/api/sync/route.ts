@@ -83,6 +83,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
+    // Get pilot profile for this user
+    const pilotProfile = await prisma.pilotProfile.findUnique({
+      where: { userId: user.id },
+      select: { id: true },
+    });
+
+    const pilotProfileId = pilotProfile?.id || null;
+
     const body: SyncRequest = await request.json();
     const { changes, userId } = body;
 
@@ -98,7 +106,7 @@ export async function POST(request: Request) {
 
     for (const change of changes) {
       try {
-        const result = await processChange(change, user.id);
+        const result = await processChange(change, user.id, pilotProfileId);
         
         if (result.conflict) {
           response.conflicts.push({
@@ -129,13 +137,14 @@ export async function POST(request: Request) {
 
 async function processChange(
   change: SyncChange,
-  userId: string
+  userId: string,
+  pilotProfileId: string | null
 ): Promise<{ conflict?: { type: 'modified' | 'deleted'; serverData: Record<string, unknown>; serverModifiedAt: string }; applied?: string }> {
   const { type, action, data, localLastSyncedAt, localId } = change;
 
   // If no last synced timestamp, just apply without conflict check
   if (!localLastSyncedAt) {
-    const applied = await applyChange(type, action, data, userId);
+    const applied = await applyChange(type, action, data, userId, pilotProfileId);
     return { applied };
   }
 
@@ -153,7 +162,7 @@ async function processChange(
   }
 
   // No conflict, apply the change
-  const applied = await applyChange(type, action, data, userId);
+  const applied = await applyChange(type, action, data, userId, pilotProfileId);
   return { applied };
 }
 
@@ -284,7 +293,8 @@ async function applyChange(
   type: string,
   action: 'create' | 'update' | 'delete',
   data: Record<string, unknown>,
-  userId: string
+  userId: string,
+  pilotProfileId: string | null
 ): Promise<string | undefined> {
   switch (type) {
     case 'flight_log': {
@@ -380,8 +390,8 @@ async function applyChange(
       if (action === 'create') {
         const booking = await prisma.booking.create({
           data: {
-            aircraftId: data.aircraftId as string,
-            userId,
+            clubAircraftId: data.aircraftId as string,
+            pilotProfileId: pilotProfileId,
             startTime: new Date(data.startTime as string),
             endTime: new Date(data.endTime as string),
             purpose: data.purpose as string | null,

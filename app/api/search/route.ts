@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { auth, prisma } from '@/lib/auth';
+import { auth } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -12,10 +13,20 @@ export async function GET(request: Request) {
   const session = await auth();
 
   try {
+    // Get pilotProfileId if user is logged in
+    let pilotProfileId = null;
+    if (session?.user?.id) {
+      const pilotProfile = await prisma.pilotProfile.findUnique({
+        where: { userId: session.user.id },
+        select: { id: true },
+      });
+      pilotProfileId = pilotProfile?.id || null;
+    }
+
     const [marketplace, pilots, flightPlans, documents] = await Promise.all([
       searchMarketplace(term),
       searchPilots(term),
-      session?.user?.id ? searchFlightPlans(term, session.user.id) : Promise.resolve([]),
+      pilotProfileId ? searchFlightPlans(term, pilotProfileId) : Promise.resolve([]),
       session?.user?.id ? searchDocuments(term, session.user.id) : Promise.resolve([]),
     ]);
 
@@ -108,11 +119,11 @@ async function searchPilots(term: string) {
   }
 }
 
-async function searchFlightPlans(term: string, userId: string) {
+async function searchFlightPlans(term: string, pilotProfileId: string) {
   const query = term.toLowerCase();
   const plans = await prisma.flightPlan.findMany({
     where: {
-      userId,
+      pilotProfileId,
       OR: [
         { name: { contains: query } },
         { route: { contains: query } },

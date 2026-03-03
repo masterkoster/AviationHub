@@ -113,7 +113,6 @@ export async function POST(request: Request) {
         safetyPilotName: body.safetyPilotName || null,
         groundTrainingReceived: body.groundTrainingReceived || 0,
         simTrainingReceived: body.simTrainingReceived || 0,
-        actualInstrumentTime: body.actualInstrumentTime || 0,
         simulatedInstrumentTime: body.simulatedInstrumentTime || 0,
         trainingDeviceId: body.trainingDeviceId || null,
         trainingDeviceLocation: body.trainingDeviceLocation || null,

@@ -6,8 +6,17 @@ export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
-  const aircraft = await prisma.aircraftProfile.findMany({
+  // Get pilot profile for the user
+  const pilotProfile = await prisma.pilotProfile.findUnique({
     where: { userId: session.user.id },
+  })
+
+  if (!pilotProfile) {
+    return NextResponse.json({ aircraft: [] })
+  }
+
+  const aircraft = await prisma.aircraftProfile.findMany({
+    where: { pilotProfileId: pilotProfile.id },
     orderBy: { createdAt: 'desc' },
   })
 
@@ -21,9 +30,16 @@ export async function POST(request: Request) {
   const body = await request.json()
   if (!body.nNumber) return NextResponse.json({ error: 'N-Number required' }, { status: 400 })
 
+  // Get or create pilot profile for the user
+  const pilotProfile = await prisma.pilotProfile.upsert({
+    where: { userId: session.user.id },
+    update: {},
+    create: { userId: session.user.id },
+  })
+
   const created = await prisma.aircraftProfile.create({
     data: {
-      userId: session.user.id,
+      pilotProfileId: pilotProfile.id,
       nNumber: body.nNumber,
       nickname: body.nickname || null,
       categoryClass: body.categoryClass || null,

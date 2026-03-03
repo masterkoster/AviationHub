@@ -115,6 +115,12 @@ export async function PUT(request: Request) {
       },
     });
 
+    // Get the pilot profile ID
+    const pilotProfile = await prisma.pilotProfile.findUnique({
+      where: { userId: user.id },
+      select: { id: true },
+    });
+
     await prisma.pilotMedical.upsert({
       where: { userId: user.id },
       update: {
@@ -172,17 +178,19 @@ export async function PUT(request: Request) {
       },
     });
 
-    await prisma.pilotLicense.deleteMany({ where: { userId: user.id } });
-    for (const license of licenses) {
-      await prisma.pilotLicense.create({
-        data: {
-          userId: user.id,
-          type: license.type || 'License',
-          number: license.number || null,
-          issueDate: license.issueDate ? new Date(license.issueDate) : null,
-          ratings: Array.isArray(license.ratings) ? JSON.stringify(license.ratings) : '[]',
-        },
-      });
+    await prisma.pilotLicense.deleteMany({ where: { pilotProfileId: pilotProfile?.id } });
+    if (pilotProfile?.id) {
+      for (const license of licenses) {
+        await prisma.pilotLicense.create({
+          data: {
+            pilotProfileId: pilotProfile.id,
+            type: license.type || 'License',
+            number: license.number || null,
+            issueDate: license.issueDate ? new Date(license.issueDate) : null,
+            ratings: Array.isArray(license.ratings) ? JSON.stringify(license.ratings) : '[]',
+          },
+        });
+      }
     }
 
     return NextResponse.json({ success: true });

@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
+
+// Helper to get pilotProfileId from user session
+async function getPilotProfileId(userId: string) {
+  const pilotProfile = await prisma.pilotProfile.findUnique({
+    where: { userId },
+  });
+  return pilotProfile?.id || null;
+}
 
 // GET - Fetch user's flight plans
 export async function GET() {
@@ -12,8 +20,13 @@ export async function GET() {
       return NextResponse.json({ flightPlans: [], message: 'Not authenticated' });
     }
 
+    const pilotProfileId = await getPilotProfileId(session.user.id);
+    if (!pilotProfileId) {
+      return NextResponse.json({ flightPlans: [] });
+    }
+
     const flightPlans = await prisma.flightPlan.findMany({
-      where: { userId: session.user.id },
+      where: { pilotProfileId },
       include: { waypoints: { orderBy: { sequence: 'asc' } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -47,6 +60,13 @@ export async function POST(request: Request) {
       }, { status: 403 });
     }
 
+    // Get or create pilot profile
+    const pilotProfile = await prisma.pilotProfile.upsert({
+      where: { userId: session.user.id },
+      update: {},
+      create: { userId: session.user.id },
+    });
+
     const body = await request.json();
     
     const {
@@ -73,7 +93,7 @@ export async function POST(request: Request) {
     // Check for duplicate name
     const duplicateName = await prisma.flightPlan.findFirst({
       where: { 
-        userId: session.user.id,
+        pilotProfileId: pilotProfile.id,
         name: planName
       },
     });
@@ -84,7 +104,7 @@ export async function POST(request: Request) {
     // Create flight plan with waypoints in a transaction
     const flightPlan = await prisma.flightPlan.create({
       data: {
-        userId: session.user.id,
+        pilotProfileId: pilotProfile.id,
         name: planName,
         callsign,
         aircraftType,
@@ -138,9 +158,14 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Flight plan ID required' }, { status: 400 });
     }
 
+    const pilotProfileId = await getPilotProfileId(session.user.id);
+    if (!pilotProfileId) {
+      return NextResponse.json({ error: 'Pilot profile not found' }, { status: 404 });
+    }
+
     // Only delete if it belongs to the user
     await prisma.flightPlan.deleteMany({
-      where: { id, userId: session.user.id },
+      where: { id, pilotProfileId },
     });
 
     return NextResponse.json({ message: 'Flight plan deleted' });
@@ -179,6 +204,11 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Flight plan ID required' }, { status: 400 });
     }
 
+    const pilotProfileId = await getPilotProfileId(session.user.id);
+    if (!pilotProfileId) {
+      return NextResponse.json({ error: 'Pilot profile not found' }, { status: 404 });
+    }
+
     const body = await request.json();
     
     const {
@@ -202,7 +232,7 @@ export async function PUT(request: Request) {
 
     // First check if the plan exists and belongs to the user
     const existingPlan = await prisma.flightPlan.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, pilotProfileId },
     });
     
     if (!existingPlan) {
@@ -213,7 +243,7 @@ export async function PUT(request: Request) {
     if (name && name !== existingPlan.name) {
       const duplicateName = await prisma.flightPlan.findFirst({
         where: { 
-          userId: session.user.id,
+          pilotProfileId,
           name: name,
           id: { not: id } // exclude current plan
         },
@@ -230,7 +260,7 @@ export async function PUT(request: Request) {
 
     // Then update the flight plan with new waypoints
     const flightPlan = await prisma.flightPlan.update({
-      where: { id, userId: session.user.id },
+      where: { id },
       data: {
         name: name || `Flight Plan ${new Date().toLocaleDateString()}`,
         callsign,

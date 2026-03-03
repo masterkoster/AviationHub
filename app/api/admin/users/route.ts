@@ -58,7 +58,7 @@ export async function GET(request: Request) {
             role: true,
             createdAt: true,
             updatedAt: true,
-            _count: { select: { flightPlans: true, memberships: true } },
+            _count: { select: { organizationMembers: true } },
           },
         }),
     ]);
@@ -102,8 +102,8 @@ export async function GET(request: Request) {
         role: u.role,
         createdAt: u.createdAt?.toISOString(),
         updatedAt: u.updatedAt?.toISOString(),
-        flightPlanCount: Number(u._count?.flightPlans || 0),
-        clubCount: Number(u._count?.memberships || 0),
+        flightPlanCount: 0, // User has no flightPlans relation
+        clubCount: Number(u._count?.organizationMembers || 0),
         status: 'active',
         hours: Number(hoursMap.get(u.id) || 0),
         club: groupNameByUser.get(u.id) || '—',

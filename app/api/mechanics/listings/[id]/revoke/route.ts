@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { auth, prisma } from '@/lib/auth'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -9,9 +10,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     const { id } = await params
+    
+    // Get the user's pilot profile to compare
+    const pilotProfile = await prisma.pilotProfile.findUnique({
+      where: { userId: session.user.id },
+    })
+
     const listing = await prisma.maintenanceRequest.findUnique({ where: { id } })
 
-    if (!listing || listing.postedByUserId !== session.user.id) {
+    if (!listing || listing.postedByPilotId !== pilotProfile?.id) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 

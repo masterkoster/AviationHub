@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { auth, prisma } from '@/lib/auth';
+import { auth } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
 
 export async function GET() {
   try {
@@ -40,28 +41,43 @@ export async function GET() {
     let onlineStatusMap: Record<string, { isOnline: boolean; lastSeenAt: Date | null }> = {};
     
     try {
-      // Get all presences for friends (both online and offline)
-      const allPresences = await prisma.userPresence.findMany({
+      // First get pilot profiles for friends
+      const pilotProfiles = await prisma.pilotProfile.findMany({
         where: { userId: { in: friendIds } },
         select: {
+          id: true,
           userId: true,
+        },
+      });
+
+      const pilotProfileIds = pilotProfiles.map(p => p.id);
+      const userIdByPilotProfile = new Map(pilotProfiles.map(p => [p.id, p.userId]));
+
+      // Get all presences for friends using pilotProfileId
+      const allPresences = await prisma.userPresence.findMany({
+        where: { pilotProfileId: { in: pilotProfileIds } },
+        select: {
+          pilotProfileId: true,
           isOnline: true,
           lastSeenAt: true,
         },
       });
 
       for (const p of allPresences) {
-        onlineStatusMap[p.userId] = {
-          isOnline: p.isOnline,
-          lastSeenAt: p.lastSeenAt,
-        };
+        const friendUserId = userIdByPilotProfile.get(p.pilotProfileId || '');
+        if (friendUserId) {
+          onlineStatusMap[friendUserId] = {
+            isOnline: p.isOnline,
+            lastSeenAt: p.lastSeenAt,
+          };
+        }
       }
     } catch (e) {
       // Table doesn't exist yet
       console.warn('UserPresence table not ready');
     }
 
-    // Get pilot profiles for friends
+    // Get pilot profiles for friends (home airport info)
     const profiles = await prisma.pilotProfile.findMany({
       where: { userId: { in: friendIds } },
       select: {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { auth, prisma } from '@/lib/auth'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 
 export async function GET() {
   try {
@@ -8,10 +9,19 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Get the user's pilot profile
+    const pilotProfile = await prisma.pilotProfile.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!pilotProfile) {
+      return NextResponse.json({ requests: [] })
+    }
+
     const requests = await prisma.mechanicFileRequest.findMany({
       where: {
         maintenanceRequest: {
-          postedByUserId: session.user.id,
+          postedByPilotId: pilotProfile.id,
         },
       },
       include: {

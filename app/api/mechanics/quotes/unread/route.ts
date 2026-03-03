@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { auth, prisma } from '@/lib/auth'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 
 export async function GET() {
   try {
@@ -9,6 +10,15 @@ export async function GET() {
     }
 
     if (!('mechanicQuote' in prisma) || !('maintenanceRequest' in prisma)) {
+      return NextResponse.json({ unread: 0 })
+    }
+
+    // Get the user's pilot profile
+    const pilotProfile = await prisma.pilotProfile.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!pilotProfile) {
       return NextResponse.json({ unread: 0 })
     }
 
@@ -22,7 +32,7 @@ export async function GET() {
     const count = await prisma.mechanicQuote.count({
       where: {
         maintenanceRequest: {
-          postedByUserId: session.user.id,
+          postedByPilotId: pilotProfile.id,
         },
         ...(lastViewed ? { createdAt: { gt: lastViewed } } : {}),
       },

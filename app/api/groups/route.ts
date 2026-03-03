@@ -21,64 +21,34 @@ export async function POST(request: Request) {
     const userId = users[0].id;
 
     const body = await request.json();
-    const { name, description, dryRate, wetRate, customRates } = body;
+    const { name } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    // Try using Prisma create with error handling
-    let group;
-    try {
-      group = await prisma.organization.create({
-        data: {
-          name,
-          description,
-          ownerId: userId,
-          dryRate: dryRate ? parseFloat(dryRate) : null,
-          wetRate: wetRate ? parseFloat(wetRate) : null,
-          customRates: customRates ? JSON.stringify(customRates) : null,
-        },
-      });
-    } catch (prismaError: any) {
-      console.error('Prisma error creating group:', prismaError);
-      // If Prisma fails, try raw SQL
-      const groupId = crypto.randomUUID();
-      await prisma.$executeRawUnsafe(`
-        INSERT INTO Organization (id, name, description, ownerId, dryRate, wetRate, customRates, createdAt, updatedAt)
-        VALUES ('${groupId}', '${name.replace(/'/g, "''")}', ${description ? "'" + description.replace(/'/g, "''") + "'" : 'NULL'}, '${userId}', ${dryRate ? parseFloat(dryRate) : 'NULL'}, ${wetRate ? parseFloat(wetRate) : 'NULL'}, ${customRates ? "'" + JSON.stringify(customRates).replace(/'/g, "''") + "'" : 'NULL'}, GETDATE(), GETDATE())
-      `);
-      const groups = await prisma.$queryRawUnsafe(`SELECT * FROM Organization WHERE id = '${groupId}'`) as any[];
-      group = { id: groups[0].id, name: groups[0].name, description: groups[0].description, ownerId: groups[0].ownerId };
-    }
+    // Create organization with only valid fields
+    const group = await prisma.organization.create({
+      data: {
+        name,
+        ownerId: userId,
+      },
+    });
 
     // Add creator as admin member
-    try {
-      await prisma.organizationMember.create({
-        data: {
-          userId: userId,
-          organizationId: group.id,
-          role: 'ADMIN',
-        },
-      });
-    } catch (prismaError: any) {
-      console.error('Prisma error adding member:', prismaError);
-      // Try raw SQL
-      const memberId = crypto.randomUUID();
-      await prisma.$executeRawUnsafe(`
-        INSERT INTO OrganizationMember (id, userId, organizationId, role, joinedAt)
-        VALUES ('${memberId}', '${userId}', '${group.id}', 'ADMIN', GETDATE())
-      `);
-    }
+    await prisma.organizationMember.create({
+      data: {
+        userId: userId,
+        organizationId: group.id,
+        role: 'ADMIN',
+      },
+    });
 
     return NextResponse.json({
       id: group.id,
       name: group.name,
-      description: group.description,
       ownerId: group.ownerId,
-      dryRate: group.dryRate ? Number(group.dryRate) : null,
-      wetRate: group.wetRate ? Number(group.wetRate) : null,
-      customRates: group.customRates,
+      type: group.type,
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
     });
@@ -107,22 +77,14 @@ export async function GET() {
     }
 
     const userId = users[0].id;
-    console.log('Fetching groups for user:', userId);
-    console.log('[User] email:', session.user.email);
 
-    // Use raw SQL - SQL Server doesn't support ? placeholders in $queryRawUnsafe
-    // userId is a UUID from auth, so string interpolation is safe
-      const memberships = await prisma.$queryRawUnsafe(`
-        SELECT gm.role, o.id, o.name, o.description, o.ownerId, o.dryRate, o.wetRate, o.customRates, o.createdAt, o.updatedAt
-        FROM OrganizationMember gm
-        JOIN Organization o ON gm.organizationId = o.id
-        WHERE gm.userId = '${userId}'
-      `) as any[];
-
-    console.log('Memberships SQL:', memberships);
-    console.log('Memberships count:', memberships?.length || 0);
-
-    console.log('Memberships found:', memberships.length);
+    // Use raw SQL to get organizations the user is a member of
+    const memberships = await prisma.$queryRawUnsafe(`
+      SELECT gm.role, o.id, o.name, o.type, o.ownerId, o.createdAt, o.updatedAt
+      FROM OrganizationMember gm
+      JOIN Organization o ON gm.organizationId = o.id
+      WHERE gm.userId = '${userId}'
+    `) as any[];
 
     // Now fetch aircraft for each group
     const groupIds = memberships.map((m: any) => m.id);
@@ -156,11 +118,8 @@ export async function GET() {
     const groups = memberships.map((m: any) => ({
       id: m.id,
       name: m.name,
-      description: m.description,
+      type: m.type,
       ownerId: m.ownerId,
-      dryRate: m.dryRate ? Number(m.dryRate) : null,
-      wetRate: m.wetRate ? Number(m.wetRate) : null,
-      customRates: m.customRates,
       createdAt: m.createdAt,
       updatedAt: m.updatedAt,
       role: m.role,

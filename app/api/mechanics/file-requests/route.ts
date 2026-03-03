@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { auth, prisma } from '@/lib/auth'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 
 export async function POST(request: Request) {
   try {
@@ -56,12 +57,17 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
     }
 
+    // Get the user's pilot profile to compare
+    const pilotProfile = await prisma.pilotProfile.findUnique({
+      where: { userId: session.user.id },
+    })
+
     const fileRequest = await prisma.mechanicFileRequest.findUnique({
       where: { id: requestId },
       include: { maintenanceRequest: true },
     })
 
-    if (!fileRequest || fileRequest.maintenanceRequest.postedByUserId !== session.user.id) {
+    if (!fileRequest || fileRequest.maintenanceRequest.postedByPilotId !== pilotProfile?.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

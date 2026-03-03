@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { auth, prisma } from '@/lib/auth';
+import { auth } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
 import { getOrCreatePilotProfile } from '@/lib/pilot-profile';
 
 export async function GET(request: Request) {
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
           allowTailNumber: !!allowTailNumber,
           aircraftSnapshot: aircraftSnapshot ? JSON.stringify(aircraftSnapshot) : null,
           logbookSnapshot: JSON.stringify({ entries: logbookEntries, totalEntries: logbookEntries.length }),
-          postedByUserId: user.id,
+          postedByPilotId: profile.id,
           postedByName: isAnonymous ? null : user.name,
           postedByEmail: isAnonymous ? null : user.email,
         },

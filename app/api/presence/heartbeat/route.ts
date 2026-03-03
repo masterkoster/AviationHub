@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { auth, prisma } from '@/lib/auth';
+import { auth } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
 
 export async function POST() {
   try {
@@ -8,19 +9,24 @@ export async function POST() {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const userId = session.user.id;
+    // Get or create pilot profile
+    const pilotProfile = await prisma.pilotProfile.upsert({
+      where: { userId: session.user.id },
+      update: {},
+      create: { userId: session.user.id },
+    });
 
-    // Try to upsert presence using Prisma
+    // Try to upsert presence using pilotProfileId
     // This will fail gracefully if the table doesn't exist yet
     try {
       await prisma.userPresence.upsert({
-        where: { userId },
+        where: { pilotProfileId: pilotProfile.id },
         update: {
           isOnline: true,
           lastSeenAt: new Date(),
         },
         create: {
-          userId,
+          pilotProfileId: pilotProfile.id,
           isOnline: true,
           lastSeenAt: new Date(),
         },

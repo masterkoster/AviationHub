@@ -11,8 +11,28 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     
+    // Get pilot profile for the user
+    const pilotProfile = await prisma.pilotProfile.findUnique({
+      where: { userId: session.user.id },
+      select: { id: true },
+    })
+
+    if (!pilotProfile) {
+      return NextResponse.json({
+        aircraftRate: 0,
+        instructorRate: 0,
+        checkrideFee: 0,
+        examFees: 0,
+        medicalFee: 0,
+        monthlyDues: 0,
+        equipmentCost: 0,
+        flightsPerMonth: 0,
+        avgFlightHours: 0,
+      })
+    }
+
     const financials = await prisma.trainingFinancials.findUnique({
-      where: { userId: session.user.id }
+      where: { pilotProfileId: pilotProfile.id }
     })
     
     return NextResponse.json(financials || {
@@ -41,6 +61,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     
+    // Get or create pilot profile
+    const pilotProfile = await prisma.pilotProfile.upsert({
+      where: { userId: session.user.id },
+      update: {},
+      create: { userId: session.user.id },
+    })
+
     const body = await request.json()
     const { 
       aircraftRate, 
@@ -55,7 +82,7 @@ export async function POST(request: NextRequest) {
     } = body
     
     const financials = await prisma.trainingFinancials.upsert({
-      where: { userId: session.user.id },
+      where: { pilotProfileId: pilotProfile.id },
       update: {
         aircraftRate: aircraftRate ? parseFloat(aircraftRate) : 0,
         instructorRate: instructorRate ? parseFloat(instructorRate) : 0,
@@ -68,7 +95,7 @@ export async function POST(request: NextRequest) {
         avgFlightHours: avgFlightHours ? parseFloat(avgFlightHours) : 0,
       },
       create: {
-        userId: session.user.id,
+        pilotProfileId: pilotProfile.id,
         aircraftRate: aircraftRate ? parseFloat(aircraftRate) : 0,
         instructorRate: instructorRate ? parseFloat(instructorRate) : 0,
         checkrideFee: checkrideFee ? parseFloat(checkrideFee) : 0,

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { auth, prisma } from '@/lib/auth'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import { getOrCreatePilotProfile } from '@/lib/pilot-profile'
 
 export async function GET() {
   try {
@@ -77,6 +79,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Title, description, and category required' }, { status: 400 })
     }
 
+    // Get or create pilot profile
+    const pilotProfile = await getOrCreatePilotProfile(session.user.id)
+
     const listing = await prisma.maintenanceRequest.create({
       data: {
         title,
@@ -95,11 +100,11 @@ export async function POST(request: Request) {
         locationLng: typeof locationLng === 'number' ? locationLng : null,
         locationPrivacy: locationPrivacy ?? 'CITY',
         source: source || 'manual',
-        groupId: groupId ?? null,
+        organizationId: groupId ?? null,
         visibility: 'MECHANIC',
         requestedWork: requestedWork ?? null,
         anonymous: typeof anonymous === 'boolean' ? anonymous : true,
-        postedByUserId: session.user.id,
+        postedByPilotId: pilotProfile.id,
         postedByName: anonymous ? null : session.user.name || null,
         postedByEmail: anonymous ? null : session.user.email || null,
       },
