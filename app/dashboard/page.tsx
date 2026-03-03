@@ -79,35 +79,7 @@ const WIDGET_INFO: Record<WidgetType, { name: string; description: string }> = {
 
 // Flight hours data is computed from logbook entries
 
-// Demo currency - NOT IMPLEMENTED - needs new table
-const currencyItems = [
-  { id: 1, type: "Medical Certificate", class: "Class 2", expiryDate: "Dec 15, 2026", daysRemaining: 297, status: "ok" },
-  { id: 2, type: "Flight Review", requirement: "BFR", expiryDate: "May 8, 2026", daysRemaining: 77, status: "warning" },
-  { id: 3, type: "Night Currency", requirement: "3 T/O & Landings", expiryDate: "Apr 2, 2026", daysRemaining: 41, status: "warning" },
-  { id: 4, type: "IFR Currency", requirement: "6 Approaches", expiryDate: "Aug 22, 2026", daysRemaining: 183, status: "ok" },
-]
-
-// Demo maintenance - CONNECT TO UserAircraft table
-const maintenanceItems = [
-  { id: 1, item: "100-Hour Inspection", aircraft: "N12345", maintenanceType: "CLUB", dueDate: "Mar 15, 2026", hoursRemaining: 8.5, status: "warning" },
-  { id: 2, item: "Annual Inspection", aircraft: "N12345", maintenanceType: "CLUB", dueDate: "Jun 20, 2026", hoursRemaining: 98.2, status: "ok" },
-  { id: 3, item: "Oil Change", aircraft: "N12345", maintenanceType: "CLUB", dueDate: "Mar 1, 2026", hoursRemaining: 2.3, status: "urgent" },
-  { id: 4, item: "ELT Battery", aircraft: "N111AA", maintenanceType: "PERSONAL", dueDate: "Aug 10, 2026", hoursRemaining: 156.0, status: "ok" },
-]
-
-// Upcoming lessons/flights - CONNECT TO FlightPlan table
-const upcomingFlights = [
-  { id: 1, type: "lesson", title: "IFR Training - Approaches", instructor: "John Smith, CFI-I", date: "Feb 23, 2026", time: "14:00", aircraft: "N12345" },
-  { id: 2, type: "flight", title: "Cross Country - KBOS to KALB", date: "Feb 25, 2026", time: "09:00", aircraft: "N12345" },
-  { id: 3, type: "lesson", title: "Commercial Maneuvers", instructor: "Sarah Johnson, CFI", date: "Feb 28, 2026", time: "10:30", aircraft: "N12345" },
-]
-
-// Saved flight plans - CONNECT TO FlightPlan table
-const savedFlightPlans = [
-  { id: 1, name: "Weekend Getaway - KBOS to KMVY", distance: 68, duration: "0:45", route: "Direct", lastUpdated: "2 days ago" },
-  { id: 2, name: "Cross Country - KBOS to KALB", distance: 143, duration: "1:15", route: "V3 ALB", lastUpdated: "1 week ago" },
-  { id: 3, name: "Practice Area - KBOS Local", distance: 25, duration: "1:30", route: "Local", lastUpdated: "3 days ago" },
-]
+// Currency data loaded from /api/logbook/currency/progress
 
 export default function PilotDashboard() {
   const { data: session, status } = useSession()
@@ -126,9 +98,9 @@ export default function PilotDashboard() {
   ])
 
   // Modal/selection state
-  const [selectedFlightPlan, setSelectedFlightPlan] = useState<typeof savedFlightPlans[0] | null>(null)
-  const [selectedMaintenanceItem, setSelectedMaintenanceItem] = useState<typeof maintenanceItems[0] | null>(null)
-  const [selectedCurrencyItem, setSelectedCurrencyItem] = useState<typeof currencyItems[0] | null>(null)
+  const [selectedFlightPlan, setSelectedFlightPlan] = useState<any>(null)
+  const [selectedMaintenanceItem, setSelectedMaintenanceItem] = useState<any>(null)
+  const [selectedCurrencyItem, setSelectedCurrencyItem] = useState<any>(null)
   const [showFlightComplete, setShowFlightComplete] = useState(false)
   const [activeFlight, setActiveFlight] = useState<{id: string; aircraftId: string; aircraftName: string; userId: string; userName: string; hobbsStart?: number} | null>(null)
   const [showDemoNotice, setShowDemoNotice] = useState(true)
@@ -164,6 +136,13 @@ export default function PilotDashboard() {
   const [mechanicUnread, setMechanicUnread] = useState(0)
   const [showMechanicNotice, setShowMechanicNotice] = useState(false)
   const [lastMechanicUnread, setLastMechanicUnread] = useState(0)
+
+  const [currencyItems, setCurrencyItems] = useState<any[]>([])
+  const [currencyLoading, setCurrencyLoading] = useState(false)
+  const [currencyError, setCurrencyError] = useState<string | null>(null)
+  const [savedFlightPlans, setSavedFlightPlans] = useState<any[]>([])
+  const [flightPlansLoading, setFlightPlansLoading] = useState(false)
+  const [flightPlansError, setFlightPlansError] = useState<string | null>(null)
 
   const flightHoursData = logbookEntries.reduce((acc: any[], entry: any) => {
     const date = entry?.date ? new Date(entry.date) : null
@@ -412,6 +391,88 @@ export default function PilotDashboard() {
     }
 
     loadMaintenance()
+    return () => {
+      cancelled = true
+    }
+  }, [session?.user?.id])
+
+  useEffect(() => {
+    if (!session?.user?.id) return
+    let cancelled = false
+
+    async function loadCurrency() {
+      try {
+        setCurrencyLoading(true)
+        setCurrencyError(null)
+        const res = await fetch('/api/logbook/currency/progress')
+        if (!res.ok) throw new Error('Failed to load currency')
+        const data = await res.json()
+        if (cancelled) return
+        const items = (data?.progress || []).map((rule: any, idx: number) => {
+          const nextDue = rule.nextDueAt ? new Date(rule.nextDueAt) : null
+          const daysRemaining = nextDue ? Math.ceil((nextDue.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null
+          const status = rule.status === 'expired' ? 'expired' : rule.status === 'expiring' ? 'warning' : 'ok'
+          return {
+            id: rule.code || idx,
+            type: rule.name,
+            requirement: rule.progress?.map((p: any) => `${p.completed}/${p.required} ${p.unit}`).join(', '),
+            expiryDate: nextDue ? nextDue.toLocaleDateString() : 'N/A',
+            daysRemaining,
+            status,
+            authority: rule.authority,
+          }
+        })
+        setCurrencyItems(items)
+      } catch (error) {
+        console.error('Failed to load currency', error)
+        if (!cancelled) setCurrencyError('Failed to load currency')
+      } finally {
+        if (!cancelled) setCurrencyLoading(false)
+      }
+    }
+
+    loadCurrency()
+    return () => {
+      cancelled = true
+    }
+  }, [session?.user?.id])
+
+  useEffect(() => {
+    if (!session?.user?.id) return
+    let cancelled = false
+
+    async function loadFlightPlans() {
+      try {
+        setFlightPlansLoading(true)
+        setFlightPlansError(null)
+        const res = await fetch('/api/flight-plans')
+        if (!res.ok) throw new Error('Failed to load flight plans')
+        const data = await res.json()
+        if (cancelled) return
+        const plans = Array.isArray(data?.flightPlans) ? data.flightPlans : []
+        const mapped = plans.slice(0, 5).map((plan: any) => {
+          const route = plan.route || [plan.departureIcao, plan.arrivalIcao].filter(Boolean).join(' → ')
+          const distance = plan.distanceNm || plan.distance || null
+          const duration = plan.estimatedTime || plan.duration || '—'
+          return {
+            id: plan.id,
+            name: plan.name || 'Flight Plan',
+            distance,
+            duration,
+            route: route || 'Direct',
+            lastUpdated: plan.updatedAt ? new Date(plan.updatedAt).toLocaleDateString() : '—',
+          }
+        })
+        setSavedFlightPlans(mapped)
+      } catch (error) {
+        console.error('Failed to load flight plans', error)
+        if (!cancelled) setFlightPlansError('Failed to load flight plans')
+      } finally {
+        if (!cancelled) setFlightPlansLoading(false)
+      }
+    }
+
+    loadFlightPlans()
     return () => {
       cancelled = true
     }
@@ -1427,7 +1488,11 @@ export default function PilotDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle>Currency & Licenses</CardTitle>
-                    <CardDescription>Keep your credentials current</CardDescription>
+                    <CardDescription>
+                      Keep your credentials current
+                      {currencyError && <span className="ml-2 text-destructive">{currencyError}</span>}
+                      {currencyLoading && !currencyError && <span className="ml-2 text-muted-foreground">Loading…</span>}
+                    </CardDescription>
                   </div>
                   <Button size="sm" variant="outline" onClick={() => router.push('/profile')}>
                     <FileText className="mr-1 h-4 w-4" />
@@ -1437,7 +1502,9 @@ export default function PilotDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {currencyItems.map((item, index) => (
+                  {currencyItems.length === 0 && !currencyLoading ? (
+                    <div className="text-xs text-muted-foreground">No currency data available</div>
+                  ) : currencyItems.map((item, index) => (
                     <div key={item.id}>
                       <div className="space-y-2 rounded-lg border border-border p-3">
                         <div className="flex items-start justify-between">
@@ -1445,10 +1512,10 @@ export default function PilotDashboard() {
                             <div className="flex items-center gap-2">
                               <p className="text-sm font-medium">{item.type}</p>
                               <Badge 
-                                variant={item.status === 'warning' ? 'default' : 'secondary'}
+                                variant={item.status === 'warning' ? 'default' : item.status === 'expired' ? 'destructive' : 'secondary'}
                                 className="text-xs"
                               >
-                                {item.status === 'warning' ? 'Expiring Soon' : 'Current'}
+                                {item.status === 'expired' ? 'Expired' : item.status === 'warning' ? 'Expiring Soon' : 'Current'}
                               </Badge>
                             </div>
                             {item.class && <p className="mt-1 text-xs text-muted-foreground">{item.class}</p>}
@@ -1456,7 +1523,10 @@ export default function PilotDashboard() {
                           </div>
                         </div>
                         <div className="flex items-center justify-between">
-                          <p className="text-xs text-muted-foreground">Expires: {item.expiryDate} ({item.daysRemaining} days)</p>
+                          <p className="text-xs text-muted-foreground">
+                            Expires: {item.expiryDate}
+                            {typeof item.daysRemaining === 'number' ? ` (${item.daysRemaining} days)` : ''}
+                          </p>
                           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => router.push('/profile')}>
                             Renew
                             <ArrowRight className="ml-1 h-3 w-3" />
@@ -1473,38 +1543,44 @@ export default function PilotDashboard() {
           </div>
 
           {/* Saved Flight Plans */}
-          {isWidgetVisible('flight-plans') && (
-          <Card>
-            <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Saved Flight Plans</CardTitle>
-                    <CardDescription>Quick access to your routes</CardDescription>
-                  </div>
-                  <Button size="sm" variant="default" onClick={() => router.push('/modules/fuel-saver')}>
-                    <Plus className="mr-1 h-4 w-4" />
-                    New Plan
-                  </Button>
-                </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {savedFlightPlans.map((plan) => (
-                  <div key={plan.id} className="flex items-center justify-between rounded-lg border border-border p-4 transition-colors hover:bg-muted/50">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-1 rounded-lg bg-primary/10 p-2">
-                        <Navigation className="h-5 w-5 text-primary" />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium leading-none">{plan.name}</p>
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                          <span>{plan.distance} nm</span>
-                          <span>{plan.duration}</span>
-                          <span>{plan.route}</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">Updated {plan.lastUpdated}</p>
-                      </div>
+            {isWidgetVisible('flight-plans') && (
+            <Card>
+              <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Saved Flight Plans</CardTitle>
+                      <CardDescription>
+                        Quick access to your routes
+                        {flightPlansError && <span className="ml-2 text-destructive">{flightPlansError}</span>}
+                        {flightPlansLoading && !flightPlansError && <span className="ml-2 text-muted-foreground">Loading…</span>}
+                      </CardDescription>
                     </div>
+                    <Button size="sm" variant="default" onClick={() => router.push('/modules/fuel-saver')}>
+                      <Plus className="mr-1 h-4 w-4" />
+                      New Plan
+                    </Button>
+                  </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {savedFlightPlans.length === 0 && !flightPlansLoading ? (
+                    <div className="text-xs text-muted-foreground">No saved flight plans</div>
+                  ) : savedFlightPlans.map((plan) => (
+                    <div key={plan.id} className="flex items-center justify-between rounded-lg border border-border p-4 transition-colors hover:bg-muted/50">
+                      <div className="flex items-start gap-3">
+                        <div className="mt-1 rounded-lg bg-primary/10 p-2">
+                          <Navigation className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium leading-none">{plan.name}</p>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span>{plan.distance ? `${plan.distance} nm` : '—'}</span>
+                            <span>{plan.duration || '—'}</span>
+                            <span>{plan.route || '—'}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Updated {plan.lastUpdated}</p>
+                        </div>
+                      </div>
                     <div className="flex items-center gap-2">
                       <Button size="sm" variant="ghost" onClick={() => router.push(`/modules/fuel-saver/view/${plan.id}`)}>
                         <Eye className="h-4 w-4" />
