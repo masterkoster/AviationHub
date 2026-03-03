@@ -103,7 +103,6 @@ export default function PilotDashboard() {
   const [selectedCurrencyItem, setSelectedCurrencyItem] = useState<any>(null)
   const [showFlightComplete, setShowFlightComplete] = useState(false)
   const [activeFlight, setActiveFlight] = useState<{id: string; aircraftId: string; aircraftName: string; userId: string; userName: string; hobbsStart?: number} | null>(null)
-  const [showDemoNotice, setShowDemoNotice] = useState(true)
   const [scheduledWindow, setScheduledWindow] = useState<'7' | '30' | 'all'>('7')
   const [scheduledFlights, setScheduledFlights] = useState<any[]>([])
   const [isScheduledLoading, setIsScheduledLoading] = useState(false)
@@ -193,7 +192,6 @@ export default function PilotDashboard() {
 
         if (!adminGroup || cancelled) return
         setGroupId(adminGroup.id)
-        setShowDemoNotice(false)
       } catch (error) {
         console.error('Failed to load groups for dashboard', error)
       }
@@ -680,16 +678,6 @@ export default function PilotDashboard() {
 
   const isWidgetVisible = (widget: WidgetType) => visibleWidgets.includes(widget)
 
-  // Demo notice - shows what data needs real implementation
-  const DemoNotice = () => (
-    <div className="mb-4 rounded-lg bg-amber-500/10 border border-amber-500/30 px-4 py-3 text-sm">
-      <strong className="text-amber-600">Demo Data Notice:</strong>
-      <span className="text-amber-600/80 ml-2">
-        This dashboard shows demo data. To connect: LogbookEntry, FlightPlan, UserAircraft tables need API routes. 
-        Currency/credentials need new table. Weather needs METAR integration.
-      </span>
-    </div>
-  )
 
   if (status === 'loading') {
     return (
@@ -801,9 +789,6 @@ export default function PilotDashboard() {
               </CardContent>
             </Card>
           )}
-
-          {/* Demo Data Notice */}
-          {showDemoNotice && <DemoNotice />}
 
           {/* Customize Mode Panel */}
           {customizeMode && (
@@ -982,9 +967,9 @@ export default function PilotDashboard() {
           )}
 
           {/* Alerts & Important Items */}
-          {isWidgetVisible('quick-alerts') && (
-          <div className="grid gap-4 lg:grid-cols-3">
-            {maintenanceItems.length > 0 && (
+            {isWidgetVisible('quick-alerts') && (
+            <div className="grid gap-4 lg:grid-cols-3">
+              {maintenanceItems.length > 0 && (
             <Card className="border-destructive/50 bg-destructive/5">
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
@@ -1010,9 +995,9 @@ export default function PilotDashboard() {
                     <p className="text-xs text-destructive">{maintenanceError}</p>
                   ) : (
                     <>
-                      <p className="text-sm font-medium">{maintenanceItems[0]?.description || 'Maintenance needed'}</p>
+                      <p className="text-sm font-medium">{maintenanceItems[0]?.description || maintenanceItems[0]?.item || 'Maintenance needed'}</p>
                       <p className="text-xs text-muted-foreground">
-                        {maintenanceItems[0]?.nNumber || 'Aircraft'}
+                        {maintenanceItems[0]?.nNumber || maintenanceItems[0]?.aircraft || 'Aircraft'}
                       </p>
                     </>
                   )}
