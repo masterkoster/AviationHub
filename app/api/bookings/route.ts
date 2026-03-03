@@ -5,19 +5,19 @@ import { prisma } from '@/lib/prisma';
 export async function GET(request: Request) {
   try {
     const session = await auth();
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userRow = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    // Get pilot profile for the user
+    const pilotProfile = await prisma.pilotProfile.findUnique({
+      where: { userId: session.user.id },
+      select: { id: true },
+    });
 
-    if (!userRow || userRow.length === 0) {
-      return NextResponse.json({ error: '[User] not found' }, { status: 404 });
+    if (!pilotProfile) {
+      return NextResponse.json({ bookings: [] });
     }
-
-    const userId = userRow[0].id;
 
     const { searchParams } = new URL(request.url);
     const daysParam = searchParams.get('days') || '7';
@@ -26,67 +26,71 @@ export async function GET(request: Request) {
       ? null
       : new Date(now.getTime() + Number(daysParam) * 24 * 60 * 60 * 1000);
 
-    const startFilter = now.toISOString();
-    const endFilter = windowEnd ? windowEnd.toISOString() : null;
+    // Build the date filter
+    const dateFilter: any = { gte: now };
+    if (windowEnd) {
+      dateFilter.lte = windowEnd;
+    }
 
-    const bookings = await prisma.$queryRawUnsafe(`
-      SELECT 
-        b.id, b.aircraftId, b.userId, b.startTime, b.endTime, b.purpose, b.createdAt, b.updatedAt,
-        a.nNumber, a.customName, a.nickname, a.make, a.model, a.groupId as aircraftGroupId,
-        g.name as groupName,
-        u.name as userName, u.email as userEmail
-      FROM Booking b
-      JOIN ClubAircraft a ON b.aircraftId = a.id
-      JOIN [User] u ON b.userId = u.id
-      JOIN FlyingGroup g ON a.groupId = g.id
-      JOIN GroupMember gm ON gm.groupId = g.id AND gm.userId = '${userId}'
-      WHERE b.userId = '${userId}'
-        AND b.startTime >= '${startFilter}'
-        ${endFilter ? `AND b.startTime <= '${endFilter}'` : ''}
-      ORDER BY b.startTime ASC
-    `) as any[];
+    // Get club bookings using Prisma
+    const clubBookings = await prisma.booking.findMany({
+      where: {
+        pilotProfileId: pilotProfile.id,
+        startTime: dateFilter,
+      },
+      include: {
+        clubAircraft: true,
+        organization: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { startTime: 'asc' },
+    });
 
-    const formattedBookings = (bookings || []).map((b: any) => ({
+    const formattedBookings = clubBookings.map((b) => ({
       id: b.id,
-      aircraftId: b.aircraftId,
-      userId: b.userId,
+      aircraftId: b.clubAircraftId,
+      pilotProfileId: b.pilotProfileId,
       startTime: b.startTime,
       endTime: b.endTime,
       purpose: b.purpose,
       createdAt: b.createdAt,
       updatedAt: b.updatedAt,
-      groupId: b.aircraftGroupId,
-      groupName: b.groupName,
+      groupId: b.organizationId,
+      groupName: b.organization?.name,
       aircraft: {
-        id: b.aircraftId,
-        nNumber: b.nNumber,
-        customName: b.customName,
-        nickname: b.nickname,
-        make: b.make,
-        model: b.model,
-        groupId: b.aircraftGroupId,
-      },
-      user: {
-        id: b.userId,
-        name: b.userName,
-        email: b.userEmail,
+        id: b.clubAircraft?.id,
+        nNumber: b.clubAircraft?.nNumber,
+        customName: b.clubAircraft?.customName,
+        nickname: b.clubAircraft?.nickname,
+        make: b.clubAircraft?.make,
+        model: b.clubAircraft?.model,
+        groupId: b.organizationId,
       },
       source: 'club',
     }));
 
-    const personalRows = await prisma.$queryRawUnsafe(`
-      SELECT 
-        pb.id, pb.userId, pb.userAircraftId, pb.startTime, pb.endTime, pb.purpose, pb.createdAt, pb.updatedAt,
-        ua.nNumber, ua.nickname
-      FROM PersonalBooking pb
-      JOIN UserAircraft ua ON pb.userAircraftId = ua.id
-      WHERE pb.userId = '${userId}'
-        AND pb.startTime >= '${startFilter}'
-        ${endFilter ? `AND pb.startTime <= '${endFilter}'` : ''}
-      ORDER BY pb.startTime ASC
-    `) as any[];
+    // Get personal bookings
+    const personalBookings = await prisma.personalBooking.findMany({
+      where: {
+        userId: session.user.id,
+        startTime: dateFilter,
+      },
+      orderBy: { startTime: 'asc' },
+    });
 
-    const personalBookings = (personalRows || []).map((b: any) => ({
+    // Get user aircraft for personal bookings
+    const userAircraftIds = personalBookings.map(b => b.userAircraftId).filter(Boolean);
+    const userAircraftMap = new Map();
+    if (userAircraftIds.length > 0) {
+      const userAircraftList = await prisma.userAircraft.findMany({
+        where: { id: { in: userAircraftIds } },
+        select: { id: true, nNumber: true, nickname: true },
+      });
+      userAircraftList.forEach(ua => userAircraftMap.set(ua.id, ua));
+    }
+
+    const personalFormatted = personalBookings.map((b) => ({
       id: b.id,
       userId: b.userId,
       userAircraftId: b.userAircraftId,
@@ -95,15 +99,11 @@ export async function GET(request: Request) {
       purpose: b.purpose,
       createdAt: b.createdAt,
       updatedAt: b.updatedAt,
-      aircraft: {
-        id: b.userAircraftId,
-        nNumber: b.nNumber,
-        nickname: b.nickname,
-      },
+      aircraft: userAircraftMap.get(b.userAircraftId) || null,
       source: 'personal',
     }));
 
-    return NextResponse.json({ bookings: [...formattedBookings, ...personalBookings] });
+    return NextResponse.json({ bookings: [...formattedBookings, ...personalFormatted] });
   } catch (error) {
     console.error('Error fetching bookings:', error);
     return NextResponse.json({ error: 'Failed to fetch bookings' }, { status: 500 });
