@@ -897,18 +897,24 @@ export default function PilotDashboard() {
                     <Wind className="h-4 w-4" />
                     Winds
                   </div>
-                  <div className="space-y-1">
-                    <div className="text-2xl font-bold">
-                      {homeWeatherLoading
-                        ? '—'
-                        : homeWeather?.windDir && homeWeather?.windSpeed
-                          ? `${homeWeather.windDir}° @ ${homeWeather.windSpeed}kt`
-                          : homeWeatherError ? '—' : 'No wind data'}
+                    <div className="space-y-1">
+                      <div className="text-2xl font-bold">
+                        {homeWeatherLoading
+                          ? '—'
+                          : homeWeather?.windSpeed === 0
+                            ? 'Calm'
+                            : homeWeather?.windDir && homeWeather?.windSpeed
+                              ? `${homeWeather.windDir}° @ ${homeWeather.windSpeed}kt`
+                              : homeWeatherError ? '—' : 'No wind data'}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {homeWeather?.windGust
+                          ? `Gusting to ${homeWeather.windGust}kt`
+                          : homeWeather?.windSpeed
+                            ? `${homeWeather.windSpeed}kt steady`
+                            : ' '}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {homeWeather?.windGust ? `Gusting to ${homeWeather.windGust}kt` : ' '}
-                    </p>
-                  </div>
                 </div>
                 
                 <div className="space-y-2">
