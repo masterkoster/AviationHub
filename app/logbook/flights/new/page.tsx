@@ -15,6 +15,12 @@ export default function NewFlightPage() {
   const [loading, setLoading] = useState(false)
   const [fetchingAircraft, setFetchingAircraft] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [airportQueryFrom, setAirportQueryFrom] = useState('')
+  const [airportQueryTo, setAirportQueryTo] = useState('')
+  const [airportResultsFrom, setAirportResultsFrom] = useState<any[]>([])
+  const [airportResultsTo, setAirportResultsTo] = useState<any[]>([])
+  const [airportLoadingFrom, setAirportLoadingFrom] = useState(false)
+  const [airportLoadingTo, setAirportLoadingTo] = useState(false)
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
     aircraft: '',
@@ -53,6 +59,38 @@ export default function NewFlightPage() {
     }).catch(console.error)
     .finally(() => setFetchingAircraft(false))
   }, [])
+
+  useEffect(() => {
+    const q = airportQueryFrom.trim()
+    if (q.length < 2) {
+      setAirportResultsFrom([])
+      return
+    }
+    const controller = new AbortController()
+    setAirportLoadingFrom(true)
+    fetch(`/api/airports?q=${encodeURIComponent(q)}&limit=8`, { signal: controller.signal })
+      .then(r => r.json())
+      .then(data => setAirportResultsFrom(data.airports || []))
+      .catch(() => {})
+      .finally(() => setAirportLoadingFrom(false))
+    return () => controller.abort()
+  }, [airportQueryFrom])
+
+  useEffect(() => {
+    const q = airportQueryTo.trim()
+    if (q.length < 2) {
+      setAirportResultsTo([])
+      return
+    }
+    const controller = new AbortController()
+    setAirportLoadingTo(true)
+    fetch(`/api/airports?q=${encodeURIComponent(q)}&limit=8`, { signal: controller.signal })
+      .then(r => r.json())
+      .then(data => setAirportResultsTo(data.airports || []))
+      .catch(() => {})
+      .finally(() => setAirportLoadingTo(false))
+    return () => controller.abort()
+  }, [airportQueryTo])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target
@@ -98,6 +136,25 @@ export default function NewFlightPage() {
     setError(null)
 
     try {
+      const hoursTotal = [
+        form.totalTime,
+        form.picTime,
+        form.sicTime,
+        form.soloTime,
+        form.dualGiven,
+        form.dualReceived,
+        form.nightTime,
+        form.instrumentTime,
+        form.simulatedInstrumentTime,
+        form.crossCountryTime,
+      ].reduce((sum, val) => sum + (parseFloat(val) || 0), 0)
+
+      if (!form.isPending && hoursTotal <= 0) {
+        setError('Enter at least one time value or mark as pending.')
+        setLoading(false)
+        return
+      }
+
       const payload = {
         ...form,
         aircraftId: form.aircraftId || undefined,
@@ -113,6 +170,7 @@ export default function NewFlightPage() {
         crossCountryTime: parseFloat(form.crossCountryTime) || 0,
         dayLandings: parseInt(form.dayLandings) || 0,
         nightLandings: parseInt(form.nightLandings) || 0,
+        isPending: hoursTotal <= 0 ? true : form.isPending,
       }
 
       await createLogbookEntry(payload)
@@ -226,8 +284,76 @@ export default function NewFlightPage() {
                   <option value="BOTH">Both</option>
                 </select>
               </div>
-              {field('From', 'routeFrom', 'text', 'KJFK')}
-              {field('To', 'routeTo', 'text', 'KBOS')}
+              <div className="relative">
+                <label className="block text-xs font-medium text-muted-foreground mb-1">From</label>
+                <input
+                  name="routeFrom"
+                  value={form.routeFrom}
+                  onChange={(e) => {
+                    handleChange(e)
+                    setAirportQueryFrom(e.target.value)
+                  }}
+                  placeholder="KJFK"
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary text-sm"
+                />
+                {airportLoadingFrom && (
+                  <div className="absolute right-2 top-2 text-xs text-muted-foreground">Loading...</div>
+                )}
+                {airportResultsFrom.length > 0 && (
+                  <div className="absolute z-50 mt-1 w-full bg-card border border-border rounded-lg shadow">
+                    {airportResultsFrom.map((a) => (
+                      <button
+                        key={a.icao}
+                        type="button"
+                        onClick={() => {
+                          setForm(prev => ({ ...prev, routeFrom: a.icao }))
+                          setAirportQueryFrom('')
+                          setAirportResultsFrom([])
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-secondary/60 text-sm"
+                      >
+                        <div className="font-medium">{a.icao} {a.iata ? `(${a.iata})` : ''}</div>
+                        <div className="text-xs text-muted-foreground">{a.name} — {a.city}, {a.state}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <label className="block text-xs font-medium text-muted-foreground mb-1">To</label>
+                <input
+                  name="routeTo"
+                  value={form.routeTo}
+                  onChange={(e) => {
+                    handleChange(e)
+                    setAirportQueryTo(e.target.value)
+                  }}
+                  placeholder="KBOS"
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary text-sm"
+                />
+                {airportLoadingTo && (
+                  <div className="absolute right-2 top-2 text-xs text-muted-foreground">Loading...</div>
+                )}
+                {airportResultsTo.length > 0 && (
+                  <div className="absolute z-50 mt-1 w-full bg-card border border-border rounded-lg shadow">
+                    {airportResultsTo.map((a) => (
+                      <button
+                        key={a.icao}
+                        type="button"
+                        onClick={() => {
+                          setForm(prev => ({ ...prev, routeTo: a.icao }))
+                          setAirportQueryTo('')
+                          setAirportResultsTo([])
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-secondary/60 text-sm"
+                      >
+                        <div className="font-medium">{a.icao} {a.iata ? `(${a.iata})` : ''}</div>
+                        <div className="text-xs text-muted-foreground">{a.name} — {a.city}, {a.state}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               {field('Total Time', 'totalTime', 'number', '1.5')}
             </div>
 

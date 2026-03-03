@@ -9,12 +9,24 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
   const profile = await getOrCreatePilotProfile(session.user.id)
+  if (!profile.displayId) {
+    const displayId = `LOG-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
+    await prisma.pilotProfile.update({
+      where: { id: profile.id },
+      data: { displayId },
+    })
+  }
   const links = await prisma.logbookSharingLink.findMany({
     where: { pilotProfileId: profile.id },
     orderBy: { createdAt: 'desc' },
   })
 
-  return NextResponse.json({ links })
+  const refreshed = await prisma.pilotProfile.findUnique({
+    where: { id: profile.id },
+    select: { displayId: true },
+  })
+
+  return NextResponse.json({ links, displayId: refreshed?.displayId || profile.displayId })
 }
 
 export async function POST(request: Request) {
@@ -25,6 +37,12 @@ export async function POST(request: Request) {
   const token = crypto.randomBytes(24).toString('hex')
 
   const profile = await getOrCreatePilotProfile(session.user.id)
+  if (!profile.displayId) {
+    await prisma.pilotProfile.update({
+      where: { id: profile.id },
+      data: { displayId: `LOG-${crypto.randomBytes(4).toString('hex').toUpperCase()}` },
+    })
+  }
   const link = await prisma.logbookSharingLink.create({
     data: {
       pilotProfileId: profile.id,

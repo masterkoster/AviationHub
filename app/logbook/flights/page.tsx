@@ -6,7 +6,8 @@ import useSWR from 'swr'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
-import { Plus, Search, Filter, Plane, Trash2, RotateCcw, X } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Plus, Search, Filter, Plane, Trash2, RotateCcw, X, Pencil } from 'lucide-react'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
@@ -25,6 +26,21 @@ export default function FlightsPage() {
   const [selectedEntry, setSelectedEntry] = useState<any>(null)
   const [voidReason, setVoidReason] = useState('')
   const [voiding, setVoiding] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editEntry, setEditEntry] = useState<any>(null)
+  const [editForm, setEditForm] = useState<any>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [airportQueryFrom, setAirportQueryFrom] = useState('')
+  const [airportQueryTo, setAirportQueryTo] = useState('')
+  const [airportResultsFrom, setAirportResultsFrom] = useState<any[]>([])
+  const [airportResultsTo, setAirportResultsTo] = useState<any[]>([])
+  const [airportLoadingFrom, setAirportLoadingFrom] = useState(false)
+  const [airportLoadingTo, setAirportLoadingTo] = useState(false)
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false)
+  const [historyEntry, setHistoryEntry] = useState<any>(null)
+  const [historyItems, setHistoryItems] = useState<any[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   // Void entry handler
   const handleVoid = async () => {
@@ -80,11 +96,167 @@ export default function FlightsPage() {
     setVoidDialogOpen(true)
   }
 
+  const openEditDialog = (entry: any) => {
+    setEditEntry(entry)
+    setEditError(null)
+    setEditForm({
+      date: entry.date ? new Date(entry.date).toISOString().split('T')[0] : '',
+      aircraft: entry.aircraft || '',
+      routeFrom: entry.routeFrom || '',
+      routeTo: entry.routeTo || '',
+      totalTime: entry.totalTime?.toString() ?? '0',
+      picTime: entry.picTime?.toString() ?? '0',
+      sicTime: entry.sicTime?.toString() ?? '0',
+      soloTime: entry.soloTime?.toString() ?? '0',
+      dualGiven: entry.dualGiven?.toString() ?? '0',
+      dualReceived: entry.dualReceived?.toString() ?? '0',
+      nightTime: entry.nightTime?.toString() ?? '0',
+      instrumentTime: entry.instrumentTime?.toString() ?? '0',
+      simulatedInstrumentTime: entry.simulatedInstrumentTime?.toString() ?? '0',
+      crossCountryTime: entry.crossCountryTime?.toString() ?? '0',
+      dayLandings: entry.dayLandings?.toString() ?? '0',
+      nightLandings: entry.nightLandings?.toString() ?? '0',
+      authority: entry.authority || 'FAA',
+      isPending: !!entry.isPending,
+      isSimulator: !!entry.isSimulator,
+      remarks: entry.remarks || '',
+    })
+    setEditDialogOpen(true)
+  }
+
+  const openHistoryDialog = async (entry: any) => {
+    setHistoryEntry(entry)
+    setHistoryItems([])
+    setHistoryLoading(true)
+    setHistoryDialogOpen(true)
+    try {
+      const res = await fetch(`/api/logbook/history?entryId=${entry.id}&limit=100`)
+      const data = await res.json()
+      setHistoryItems(data.history || [])
+    } catch (err) {
+      console.error('Failed to load history', err)
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target
+    setEditForm((prev: any) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    }))
+  }
+
+  const handleEditSave = async () => {
+    if (!editEntry || !editForm) return
+    setSavingEdit(true)
+    setEditError(null)
+    try {
+      const hoursTotal = [
+        editForm.totalTime,
+        editForm.picTime,
+        editForm.sicTime,
+        editForm.soloTime,
+        editForm.dualGiven,
+        editForm.dualReceived,
+        editForm.nightTime,
+        editForm.instrumentTime,
+        editForm.simulatedInstrumentTime,
+        editForm.crossCountryTime,
+      ].reduce((sum, val) => sum + (parseFloat(val) || 0), 0)
+
+      if (!editForm.isPending && hoursTotal <= 0) {
+        setEditError('Enter at least one time value or mark as pending.')
+        setSavingEdit(false)
+        return
+      }
+
+      const payload = {
+        id: editEntry.id,
+        date: editForm.date,
+        aircraft: editForm.aircraft,
+        routeFrom: editForm.routeFrom,
+        routeTo: editForm.routeTo,
+        totalTime: parseFloat(editForm.totalTime) || 0,
+        picTime: parseFloat(editForm.picTime) || 0,
+        sicTime: parseFloat(editForm.sicTime) || 0,
+        soloTime: parseFloat(editForm.soloTime) || 0,
+        dualGiven: parseFloat(editForm.dualGiven) || 0,
+        dualReceived: parseFloat(editForm.dualReceived) || 0,
+        nightTime: parseFloat(editForm.nightTime) || 0,
+        instrumentTime: parseFloat(editForm.instrumentTime) || 0,
+        simulatedInstrumentTime: parseFloat(editForm.simulatedInstrumentTime) || 0,
+        crossCountryTime: parseFloat(editForm.crossCountryTime) || 0,
+        dayLandings: parseInt(editForm.dayLandings) || 0,
+        nightLandings: parseInt(editForm.nightLandings) || 0,
+        authority: editForm.authority,
+        isPending: hoursTotal <= 0 ? true : !!editForm.isPending,
+        isSimulator: !!editForm.isSimulator,
+        remarks: editForm.remarks,
+      }
+
+      const res = await fetch('/api/logbook', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to update entry')
+      }
+
+      const updated = await res.json()
+      const updatedEntry = updated.entry || payload
+      setEntries(prev => prev.map(e => e.id === editEntry.id ? { ...e, ...updatedEntry } : e))
+      setEditDialogOpen(false)
+      setEditEntry(null)
+      setEditForm(null)
+    } catch (err: any) {
+      setEditError(err.message || 'Failed to update entry')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   useEffect(() => {
     if (entriesData?.entries) {
       setEntries(entriesData.entries)
     }
   }, [entriesData])
+
+  useEffect(() => {
+    const q = airportQueryFrom.trim()
+    if (q.length < 2) {
+      setAirportResultsFrom([])
+      return
+    }
+    const controller = new AbortController()
+    setAirportLoadingFrom(true)
+    fetch(`/api/airports?q=${encodeURIComponent(q)}&limit=8`, { signal: controller.signal })
+      .then(r => r.json())
+      .then(data => setAirportResultsFrom(data.airports || []))
+      .catch(() => {})
+      .finally(() => setAirportLoadingFrom(false))
+    return () => controller.abort()
+  }, [airportQueryFrom])
+
+  useEffect(() => {
+    const q = airportQueryTo.trim()
+    if (q.length < 2) {
+      setAirportResultsTo([])
+      return
+    }
+    const controller = new AbortController()
+    setAirportLoadingTo(true)
+    fetch(`/api/airports?q=${encodeURIComponent(q)}&limit=8`, { signal: controller.signal })
+      .then(r => r.json())
+      .then(data => setAirportResultsTo(data.airports || []))
+      .catch(() => {})
+      .finally(() => setAirportLoadingTo(false))
+    return () => controller.abort()
+  }, [airportQueryTo])
 
   const filtered = useMemo(() => {
     if (!entries) return []
@@ -280,6 +452,24 @@ export default function FlightsPage() {
                     {entry.instrumentTime > 0 && <Badge variant="outline">Instrument</Badge>}
                   </div>
                   <div className="mt-2 flex justify-end gap-1">
+                    {!entry.isVoided && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEditDialog(entry)}
+                        className="text-xs"
+                      >
+                        <Pencil className="w-3 h-3 mr-1" /> Edit
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openHistoryDialog(entry)}
+                      className="text-xs"
+                    >
+                      <Search className="w-3 h-3 mr-1" /> Audit
+                    </Button>
                     {entry.isVoided ? (
                       <Button 
                         variant="ghost" 
@@ -338,6 +528,246 @@ export default function FlightsPage() {
               disabled={!voidReason.trim() || voiding}
             >
               {voiding ? 'Voiding...' : 'Void Entry'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Entry Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit Flight Entry</DialogTitle>
+            <DialogDescription>
+              Changes are recorded in the audit trail for compliance.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editError && (
+            <div className="p-3 bg-destructive/10 border border-destructive rounded-lg text-destructive text-sm">
+              {editError}
+            </div>
+          )}
+
+          {editForm && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 py-2">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Aircraft</label>
+                <input
+                  name="aircraft"
+                  value={editForm.aircraft}
+                  onChange={handleEditChange}
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Date</label>
+                <input
+                  name="date"
+                  type="date"
+                  value={editForm.date}
+                  onChange={handleEditChange}
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Authority</label>
+                <select
+                  name="authority"
+                  value={editForm.authority}
+                  onChange={handleEditChange}
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                >
+                  <option value="FAA">FAA</option>
+                  <option value="EASA">EASA</option>
+                  <option value="BOTH">Both</option>
+                </select>
+              </div>
+              <div className="relative">
+                <label className="block text-xs font-medium text-muted-foreground mb-1">From</label>
+                <input
+                  name="routeFrom"
+                  value={editForm.routeFrom}
+                  onChange={(e) => {
+                    handleEditChange(e)
+                    setAirportQueryFrom(e.target.value)
+                  }}
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                />
+                {airportLoadingFrom && (
+                  <div className="absolute right-2 top-2 text-xs text-muted-foreground">Loading...</div>
+                )}
+                {airportResultsFrom.length > 0 && (
+                  <div className="absolute z-50 mt-1 w-full bg-card border border-border rounded-lg shadow">
+                    {airportResultsFrom.map((a) => (
+                      <button
+                        key={a.icao}
+                        type="button"
+                        onClick={() => {
+                          setEditForm((prev: any) => ({ ...prev, routeFrom: a.icao }))
+                          setAirportQueryFrom('')
+                          setAirportResultsFrom([])
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-secondary/60 text-sm"
+                      >
+                        <div className="font-medium">{a.icao} {a.iata ? `(${a.iata})` : ''}</div>
+                        <div className="text-xs text-muted-foreground">{a.name} — {a.city}, {a.state}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <label className="block text-xs font-medium text-muted-foreground mb-1">To</label>
+                <input
+                  name="routeTo"
+                  value={editForm.routeTo}
+                  onChange={(e) => {
+                    handleEditChange(e)
+                    setAirportQueryTo(e.target.value)
+                  }}
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                />
+                {airportLoadingTo && (
+                  <div className="absolute right-2 top-2 text-xs text-muted-foreground">Loading...</div>
+                )}
+                {airportResultsTo.length > 0 && (
+                  <div className="absolute z-50 mt-1 w-full bg-card border border-border rounded-lg shadow">
+                    {airportResultsTo.map((a) => (
+                      <button
+                        key={a.icao}
+                        type="button"
+                        onClick={() => {
+                          setEditForm((prev: any) => ({ ...prev, routeTo: a.icao }))
+                          setAirportQueryTo('')
+                          setAirportResultsTo([])
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-secondary/60 text-sm"
+                      >
+                        <div className="font-medium">{a.icao} {a.iata ? `(${a.iata})` : ''}</div>
+                        <div className="text-xs text-muted-foreground">{a.name} — {a.city}, {a.state}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Total Time</label>
+                <input
+                  name="totalTime"
+                  type="number"
+                  step="0.1"
+                  value={editForm.totalTime}
+                  onChange={handleEditChange}
+                  className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                />
+              </div>
+
+              {[
+                { label: 'PIC', name: 'picTime' },
+                { label: 'SIC', name: 'sicTime' },
+                { label: 'Solo', name: 'soloTime' },
+                { label: 'Dual Given', name: 'dualGiven' },
+                { label: 'Dual Received', name: 'dualReceived' },
+                { label: 'Night', name: 'nightTime' },
+                { label: 'Instrument', name: 'instrumentTime' },
+                { label: 'Simulated', name: 'simulatedInstrumentTime' },
+                { label: 'X-Country', name: 'crossCountryTime' },
+                { label: 'Day Landings', name: 'dayLandings', step: '1' },
+                { label: 'Night Landings', name: 'nightLandings', step: '1' },
+              ].map((f) => (
+                <div key={f.name}>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{f.label}</label>
+                  <input
+                    name={f.name}
+                    type="number"
+                    step={f.step || '0.1'}
+                    value={editForm[f.name]}
+                    onChange={handleEditChange}
+                    className="w-full h-9 px-3 rounded-lg bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-primary text-sm"
+                  />
+                </div>
+              ))}
+
+              <div className="md:col-span-3">
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Remarks</label>
+                <textarea
+                  name="remarks"
+                  value={editForm.remarks}
+                  onChange={handleEditChange}
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-lg bg-secondary/60 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary text-sm resize-none"
+                />
+              </div>
+
+              <div className="md:col-span-3 flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="isPending" checked={editForm.isPending} onChange={handleEditChange} className="h-4 w-4" />
+                  Mark as Pending
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="isSimulator" checked={editForm.isSimulator} onChange={handleEditChange} className="h-4 w-4" />
+                  Simulator/FTD
+                </label>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditSave} disabled={savingEdit}>
+              {savingEdit ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Audit History Dialog */}
+      <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Audit History</DialogTitle>
+            <DialogDescription>
+              All changes for this entry are recorded here.
+            </DialogDescription>
+          </DialogHeader>
+
+          {historyLoading ? (
+            <div className="py-6 text-center text-muted-foreground">Loading history...</div>
+          ) : historyItems.length === 0 ? (
+            <div className="py-6 text-center text-muted-foreground">No history found.</div>
+          ) : (
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+              {historyItems.map((h: any) => (
+                <div key={h.id} className="border border-border rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase">
+                      {h.action}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(h.changedAt).toLocaleString()}
+                    </span>
+                  </div>
+                  {h.fieldName && (
+                    <div className="mt-2 text-sm">
+                      <p className="text-muted-foreground">Field: {h.fieldName}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Old: {h.oldValue || '(empty)'}</p>
+                      <p className="text-xs text-muted-foreground">New: {h.newValue || '(empty)'}</p>
+                    </div>
+                  )}
+                  {h.reason && (
+                    <p className="text-xs text-destructive mt-2">Reason: {h.reason}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHistoryDialogOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

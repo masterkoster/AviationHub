@@ -196,6 +196,25 @@ export async function POST(request: Request) {
     }
 
     // Handle create new entry
+    const isPending = !!body.isPending;
+    const hoursTotal = [
+      body.totalTime,
+      body.picTime,
+      body.sicTime,
+      body.soloTime,
+      body.dualGiven,
+      body.dualReceived,
+      body.nightTime,
+      body.instrumentTime,
+      body.simulatedInstrumentTime,
+      body.crossCountryTime,
+    ].reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+
+    const shouldBePending = hoursTotal <= 0;
+    if (!isPending && shouldBePending) {
+      return NextResponse.json({ error: 'Enter at least one time value or mark as pending.' }, { status: 400 });
+    }
+
     const entry = await prisma.logbookEntry.create({
       data: {
         pilotProfileId: profile.id,
@@ -216,7 +235,7 @@ export async function POST(request: Request) {
         dayLandings: body.dayLandings || 0,
         nightLandings: body.nightLandings || 0,
         authority: body.authority || 'FAA',
-        isPending: !!body.isPending,
+        isPending: shouldBePending ? true : isPending,
         isNight: (body.nightTime || 0) > 0,
         isCrossCountry: (body.crossCountryTime || 0) > 0,
         isSolo: (body.soloTime || 0) > 0,
@@ -312,6 +331,30 @@ export async function PUT(request: Request) {
     }
     if (updates.dualReceived !== undefined) {
       updateData.isDual = updates.dualReceived > 0;
+    }
+
+    const hoursTotal = [
+      updates.totalTime ?? existing.totalTime,
+      updates.picTime ?? existing.picTime,
+      updates.sicTime ?? existing.sicTime,
+      updates.soloTime ?? existing.soloTime,
+      updates.dualGiven ?? existing.dualGiven,
+      updates.dualReceived ?? existing.dualReceived,
+      updates.nightTime ?? existing.nightTime,
+      updates.instrumentTime ?? existing.instrumentTime,
+      updates.simulatedInstrumentTime ?? existing.simulatedInstrumentTime,
+      updates.crossCountryTime ?? existing.crossCountryTime,
+    ].reduce((sum, val) => sum + (parseFloat(val as any) || 0), 0);
+
+    const pendingAfterEdit = hoursTotal <= 0;
+    if (!updates.isPending && existing.isPending === false && pendingAfterEdit) {
+      return NextResponse.json({ error: 'Enter at least one time value or mark as pending.' }, { status: 400 });
+    }
+
+    if (pendingAfterEdit) {
+      updateData.isPending = true;
+    } else if (updates.isPending !== undefined) {
+      updateData.isPending = !!updates.isPending;
     }
 
     const entry = await prisma.logbookEntry.update({

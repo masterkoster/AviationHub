@@ -229,6 +229,7 @@ model AircraftInquiry {
 model PilotProfile {
   id                   String   @id @default(cuid()) @db.NVarChar(36)
   userId               String   @unique @db.NVarChar(36)
+  displayId            String?  @unique @db.NVarChar(20)
   organizationMemberId String?  @db.NVarChar(36)
   homeAirport          String?  @db.NVarChar(10)
   homeAirportName      String?  @db.NVarChar(200)
