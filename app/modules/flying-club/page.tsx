@@ -55,6 +55,7 @@ import BookingCalendar from "@/components/club/BookingCalendar"
 import CheckoutPanel from "@/components/club/CheckoutPanel"
 import MemberList from "@/components/club/MemberList"
 import BillingRunButton from "@/components/club/BillingRunButton"
+import { FlightScheduler } from "@/components/scheduler/FlightScheduler"
 
 // Types
 interface GroupAircraft {
@@ -258,6 +259,7 @@ export default function FlyingClubPage() {
   const [showAddAircraftModal, setShowAddAircraftModal] = useState(false)
   const [showNewBookingModal, setShowNewBookingModal] = useState(false)
   const [showQuickBookingModal, setShowQuickBookingModal] = useState(false)
+  const [schedulerAircraftId, setSchedulerAircraftId] = useState('')
   const [showReportIssueModal, setShowReportIssueModal] = useState(false)
   const [showLogFlightModal, setShowLogFlightModal] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -1428,6 +1430,7 @@ export default function FlyingClubPage() {
                             const startIso = now.toISOString().slice(0, 16)
                             const endIso = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 16)
                             setBookingAircraftId(aircraft.id)
+                            setSchedulerAircraftId(aircraft.id)
                             setBookingStartTime(startIso)
                             setBookingEndTime(endIso)
                             setBookingPurpose('')
@@ -2204,68 +2207,23 @@ export default function FlyingClubPage() {
 
       {/* Quick Booking Modal (from aircraft tab) */}
       <Dialog open={showQuickBookingModal} onOpenChange={(open) => { setShowQuickBookingModal(open); if (!open) resetBookingForm() }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Quick Booking</DialogTitle>
-            <DialogDescription>Book this aircraft quickly.</DialogDescription>
+            <DialogTitle>Schedule a Flight</DialogTitle>
+            <DialogDescription>Book this club aircraft.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="bookingAircraftQuick">Aircraft *</Label>
-              <select
-                id="bookingAircraftQuick"
-                value={bookingAircraftId}
-                onChange={(e) => setBookingAircraftId(e.target.value)}
-                className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm"
-              >
-                <option value="">Select aircraft...</option>
-                {displayAircraft.filter(a => a.status === 'Available').map(aircraft => (
-                  <option key={aircraft.id} value={aircraft.id}>
-                    {aircraft.nNumber} - {aircraft.make} {aircraft.model}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="startTimeQuick">Start *</Label>
-                <Input
-                  id="startTimeQuick"
-                  type="datetime-local"
-                  value={bookingStartTime}
-                  onChange={(e) => setBookingStartTime(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="endTimeQuick">End *</Label>
-                <Input
-                  id="endTimeQuick"
-                  type="datetime-local"
-                  value={bookingEndTime}
-                  onChange={(e) => setBookingEndTime(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="purposeQuick">Purpose</Label>
-              <Input
-                id="purposeQuick"
-                value={bookingPurpose}
-                onChange={(e) => setBookingPurpose(e.target.value)}
-                placeholder="e.g., Cross country, Pattern work"
-              />
-            </div>
-            {formError && (
-              <p className="text-sm text-destructive">{formError}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowQuickBookingModal(false)}>Cancel</Button>
-            <Button onClick={handleCreateBooking} disabled={formLoading}>
-              {formLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Book
-            </Button>
-          </DialogFooter>
+          <FlightScheduler
+            initialMode="club"
+            initialGroupId={selectedView}
+            initialAircraftId={schedulerAircraftId}
+            lockMode
+            lockGroup
+            hideModeToggle
+            onSuccess={() => {
+              setShowQuickBookingModal(false)
+              setScheduledBookings(bookings)
+            }}
+          />
         </DialogContent>
       </Dialog>
       

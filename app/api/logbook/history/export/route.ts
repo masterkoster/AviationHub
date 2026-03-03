@@ -13,30 +13,36 @@ function toCsv(rows: Array<Record<string, string | number | null>>) {
 }
 
 function buildPdf(rows: Array<Record<string, string | number | null>>, title: string) {
-  const doc = new PDFDocument({ margin: 40 })
-  const chunks: Buffer[] = []
-  doc.on('data', (c: Buffer) => chunks.push(c))
+  return new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40 })
+    const chunks: Buffer[] = []
 
-  doc.fontSize(16).text(title)
-  doc.moveDown()
-  doc.fontSize(10)
-
-  rows.forEach((r, i) => {
-    doc.text(`${i + 1}. ${r.action} | ${r.changedAt} | ${r.fieldName || ''}`)
-    if (r.oldValue || r.newValue) {
-      doc.text(`   Old: ${r.oldValue || ''}`)
-      doc.text(`   New: ${r.newValue || ''}`)
-    }
-    if (r.reason) {
-      doc.text(`   Reason: ${r.reason}`)
-    }
-    doc.text(`   Entry: ${r.entryDate} | ${r.aircraft} | ${r.route}`)
-    doc.moveDown(0.5)
-  })
-
-  doc.end()
-  return new Promise<Buffer>((resolve) => {
+    doc.on('data', (c: Buffer) => chunks.push(c))
     doc.on('end', () => resolve(Buffer.concat(chunks)))
+    doc.on('error', reject)
+
+    doc.fontSize(16).text(title)
+    doc.moveDown()
+    doc.fontSize(10)
+
+    if (rows.length === 0) {
+      doc.text('No audit history found for the selected range.')
+    } else {
+      rows.forEach((r, i) => {
+        doc.text(`${i + 1}. ${r.action} | ${r.changedAt} | ${r.fieldName || ''}`)
+        if (r.oldValue || r.newValue) {
+          doc.text(`   Old: ${r.oldValue || ''}`)
+          doc.text(`   New: ${r.newValue || ''}`)
+        }
+        if (r.reason) {
+          doc.text(`   Reason: ${r.reason}`)
+        }
+        doc.text(`   Entry: ${r.entryDate} | ${r.aircraft} | ${r.route}`)
+        doc.moveDown(0.5)
+      })
+    }
+
+    doc.end()
   })
 }
 
@@ -98,14 +104,19 @@ export async function GET(request: Request) {
   })
 
   if (format === 'pdf') {
-    const title = `Logbook Audit Report${entryId ? ` (${entryId})` : ''}`
-    const pdf = await buildPdf(rows, title)
-    return new NextResponse(new Uint8Array(pdf), {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="logbook_audit_${Date.now()}.pdf"`,
-      }
-    })
+    try {
+      const title = `Logbook Audit Report${entryId ? ` (${entryId})` : ''}`
+      const pdf = await buildPdf(rows, title)
+      return new NextResponse(new Uint8Array(pdf), {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="logbook_audit_${Date.now()}.pdf"`,
+        }
+      })
+    } catch (error) {
+      console.error('Failed to build audit PDF', error)
+      return NextResponse.json({ error: 'Failed to generate PDF' }, { status: 500 })
+    }
   }
 
   const csv = toCsv(rows)

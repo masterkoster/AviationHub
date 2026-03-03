@@ -112,6 +112,7 @@ export default function PilotDashboard() {
   const [showNextFlightModal, setShowNextFlightModal] = useState(false)
   const [showSelectScheduledModal, setShowSelectScheduledModal] = useState(false)
   const [selectedScheduledFlightId, setSelectedScheduledFlightId] = useState<string>('')
+  const [showNextFlightDestination, setShowNextFlightDestination] = useState(false)
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false)
   const [showLogbookModal, setShowLogbookModal] = useState(false)
   const [maintenanceItems, setMaintenanceItems] = useState<any[]>([])
@@ -1000,7 +1001,7 @@ export default function PilotDashboard() {
                     <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowNextFlightModal(true)}>
                       <Search className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => router.push('/modules/flying-club?tab=scheduled')}>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowNextFlightDestination(true)}>
                       <ExternalLink className="h-4 w-4" />
                     </Button>
                   </div>
@@ -1366,25 +1367,58 @@ export default function PilotDashboard() {
                   <p className="text-sm text-muted-foreground">Loading logbook…</p>
                 ) : logbookError ? (
                   <p className="text-sm text-destructive">{logbookError}</p>
-                ) : logbookEntries.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No logbook entries yet.</p>
-                ) : (
-                  logbookEntries.slice(0, 5).map((entry) => (
-                    <div key={entry.id} className="rounded-md border border-border p-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium">
-                            {entry.aircraft || 'Flight'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(entry.date).toLocaleDateString()} • {Number(entry.totalTime || 0).toFixed(1)} hrs
-                          </p>
+                  ) : logbookEntries.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No logbook entries yet.</p>
+                  ) : (
+                    logbookEntries.slice(0, 5).map((entry) => (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        onClick={() => {
+                          setShowLogbookModal(false)
+                          router.push('/modules/logbook')
+                        }}
+                        className="w-full rounded-md border border-border p-3 text-left transition-colors hover:bg-muted/50"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium">
+                              {entry.aircraft || 'Flight'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(entry.date).toLocaleDateString()} • {Number(entry.totalTime || 0).toFixed(1)} hrs
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="text-[10px]">Logbook</Badge>
                         </div>
-                        <Badge variant="outline" className="text-[10px]">Logbook</Badge>
-                      </div>
-                    </div>
-                  ))
-                )}
+                      </button>
+                    ))
+                  )}
+                </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showNextFlightDestination} onOpenChange={setShowNextFlightDestination}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Open Schedule</DialogTitle>
+                <DialogDescription>Choose where you want to view your schedule.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <Button className="w-full justify-between" onClick={() => {
+                  setShowNextFlightDestination(false)
+                  router.push('/modules/flying-club?tab=scheduled')
+                }}>
+                  Flying Club
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+                <Button className="w-full justify-between" variant="outline" onClick={() => {
+                  setShowNextFlightDestination(false)
+                  router.push('/modules/logbook')
+                }}>
+                  Personal Logbook
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
               </div>
             </DialogContent>
           </Dialog>

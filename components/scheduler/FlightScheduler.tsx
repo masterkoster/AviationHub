@@ -36,15 +36,33 @@ type UserAircraft = {
   nickname?: string | null;
 };
 
-export function FlightScheduler({ onSuccess }: { onSuccess?: () => void }) {
+type FlightSchedulerProps = {
+  onSuccess?: () => void;
+  initialMode?: "personal" | "club";
+  initialGroupId?: string;
+  initialAircraftId?: string;
+  lockMode?: boolean;
+  lockGroup?: boolean;
+  hideModeToggle?: boolean;
+};
+
+export function FlightScheduler({
+  onSuccess,
+  initialMode = "personal",
+  initialGroupId = "",
+  initialAircraftId = "",
+  lockMode = false,
+  lockGroup = false,
+  hideModeToggle = false,
+}: FlightSchedulerProps) {
   const { data: session } = useSession();
-  const [mode, setMode] = useState<"personal" | "club">("personal");
+  const [mode, setMode] = useState<"personal" | "club">(initialMode);
   const [groups, setGroups] = useState<Group[]>([]);
   const [personalAircraft, setPersonalAircraft] = useState<UserAircraft[]>([]);
   const [clubBookings, setClubBookings] = useState<Booking[]>([]);
   const [personalBookings, setPersonalBookings] = useState<Booking[]>([]);
-  const [groupId, setGroupId] = useState<string>("");
-  const [aircraftId, setAircraftId] = useState<string>("");
+  const [groupId, setGroupId] = useState<string>(initialGroupId);
+  const [aircraftId, setAircraftId] = useState<string>(initialAircraftId);
   const [startTime, setStartTime] = useState<string>("");
   const [endTime, setEndTime] = useState<string>("");
   const [purpose, setPurpose] = useState<string>("");
@@ -52,7 +70,20 @@ export function FlightScheduler({ onSuccess }: { onSuccess?: () => void }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!session?.user?.id) return;
+    if (lockMode) setMode(initialMode);
+  }, [lockMode, initialMode]);
+
+  useEffect(() => {
+    if (initialGroupId) setGroupId(initialGroupId);
+  }, [initialGroupId]);
+
+  useEffect(() => {
+    if (initialAircraftId) setAircraftId(initialAircraftId);
+  }, [initialAircraftId]);
+
+  useEffect(() => {
+    const sessionKey = session?.user?.id ?? session?.user?.email;
+    if (!sessionKey) return;
     let cancelled = false;
 
     async function loadBaseData() {
@@ -80,7 +111,7 @@ export function FlightScheduler({ onSuccess }: { onSuccess?: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, session?.user?.email]);
 
   useEffect(() => {
     if (mode !== "club" || !groupId) return;
@@ -201,27 +232,29 @@ export function FlightScheduler({ onSuccess }: { onSuccess?: () => void }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant={mode === "personal" ? "default" : "outline"}
-          onClick={() => setMode("personal")}
-        >
-          Personal
-        </Button>
-        <Button
-          size="sm"
-          variant={mode === "club" ? "default" : "outline"}
-          onClick={() => setMode("club")}
-        >
-          Flying Club
-        </Button>
-        <Badge variant="outline" className="ml-auto text-xs">
-          {mode === "personal" ? "Personal" : "Club"}
-        </Badge>
-      </div>
+      {!hideModeToggle && (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={mode === "personal" ? "default" : "outline"}
+            onClick={() => setMode("personal")}
+          >
+            Personal
+          </Button>
+          <Button
+            size="sm"
+            variant={mode === "club" ? "default" : "outline"}
+            onClick={() => setMode("club")}
+          >
+            Flying Club
+          </Button>
+          <Badge variant="outline" className="ml-auto text-xs">
+            {mode === "personal" ? "Personal" : "Club"}
+          </Badge>
+        </div>
+      )}
 
-      {mode === "club" && (
+      {mode === "club" && !lockGroup && (
         <div className="space-y-2">
           <Label>Flying Club</Label>
           <select
