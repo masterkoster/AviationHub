@@ -901,17 +901,17 @@ export default function PilotDashboard() {
                       <div className="text-2xl font-bold">
                         {homeWeatherLoading
                           ? '—'
-                          : homeWeather?.windSpeed === 0
+                          : (homeWeather?.wspd === 0 || homeWeather?.windSpeed === 0)
                             ? 'Calm'
-                            : homeWeather?.windDir && homeWeather?.windSpeed
-                              ? `${homeWeather.windDir}° @ ${homeWeather.windSpeed}kt`
+                            : (homeWeather?.wdir && (homeWeather?.wspd ?? homeWeather?.windSpeed))
+                              ? `${homeWeather.wdir}° @ ${(homeWeather.wspd ?? homeWeather.windSpeed)}kt`
                               : homeWeatherError ? '—' : 'No wind data'}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {homeWeather?.windGust
-                          ? `Gusting to ${homeWeather.windGust}kt`
-                          : homeWeather?.windSpeed
-                            ? `${homeWeather.windSpeed}kt steady`
+                        {homeWeather?.wgst
+                          ? `Gusting to ${homeWeather.wgst}kt`
+                          : (homeWeather?.wspd ?? homeWeather?.windSpeed)
+                            ? `${(homeWeather.wspd ?? homeWeather.windSpeed)}kt steady`
                             : ' '}
                       </p>
                     </div>
