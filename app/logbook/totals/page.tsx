@@ -2,7 +2,8 @@
 
 import useSWR from 'swr'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { BookOpen, Clock, Sunset, Gauge, MapPin, Sun, Moon, Plane } from 'lucide-react'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { BookOpen, Clock, Sunset, Gauge, MapPin, Sun, Moon, Plane, HelpCircle } from 'lucide-react'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
@@ -38,28 +39,28 @@ export default function TotalsPage() {
   const totalLandings = totals.dayLandings + totals.nightLandings
 
   const statCards = [
-    { label: 'Total Time', value: formatHours(totals.totalTime), icon: Clock, color: 'text-blue-500' },
-    { label: 'PIC Time', value: formatHours(totals.picTime), icon: Plane, color: 'text-green-500' },
-    { label: 'SIC Time', value: formatHours(totals.sicTime), icon: Plane, color: 'text-purple-500' },
-    { label: 'Solo Time', value: formatHours(totals.soloTime), icon: Plane, color: 'text-orange-500' },
-    { label: 'Dual Received', value: formatHours(totals.dualReceived), icon: BookOpen, color: 'text-cyan-500' },
-    { label: 'Dual Given', value: formatHours(totals.dualGiven), icon: BookOpen, color: 'text-indigo-500' },
-    { label: 'Night Time', value: formatHours(totals.nightTime), icon: Moon, color: 'text-indigo-400' },
-    { label: 'Instrument Time', value: formatHours(totals.instrumentTime), icon: Gauge, color: 'text-red-500' },
-    { label: 'Simulated Instrument', value: formatHours(totals.simulatedInstrumentTime), icon: Gauge, color: 'text-pink-500' },
-    { label: 'Cross Country', value: formatHours(totals.crossCountryTime), icon: MapPin, color: 'text-teal-500' },
+    { label: 'Total Time', value: formatHours(totals.totalTime), icon: Clock, color: 'text-blue-500', description: 'Total flight time across all flights' },
+    { label: 'PIC Time', value: formatHours(totals.picTime), icon: Plane, color: 'text-green-500', description: 'Pilot in Command - time serving as the pilot in command' },
+    { label: 'SIC Time', value: formatHours(totals.sicTime), icon: Plane, color: 'text-purple-500', description: 'Second in Command - time serving as co-pilot' },
+    { label: 'Solo Time', value: formatHours(totals.soloTime), icon: Plane, color: 'text-orange-500', description: 'Time flown as pilot-in-command without an instructor on board' },
+    { label: 'Dual Received', value: formatHours(totals.dualReceived), icon: BookOpen, color: 'text-cyan-500', description: 'Time received from an instructor (training)' },
+    { label: 'Dual Given', value: formatHours(totals.dualGiven), icon: BookOpen, color: 'text-indigo-500', description: 'Time given as flight instructor' },
+    { label: 'Night Time', value: formatHours(totals.nightTime), icon: Moon, color: 'text-indigo-400', description: 'Flight time during darkness (after sunset to sunrise)' },
+    { label: 'Instrument Time', value: formatHours(totals.instrumentTime), icon: Gauge, color: 'text-red-500', description: 'Actual instrument flight time in IMC' },
+    { label: 'Simulated Instrument', value: formatHours(totals.simulatedInstrumentTime), icon: Gauge, color: 'text-pink-500', description: 'Simulated instrument time (hood/charts) while with a safety pilot' },
+    { label: 'Cross Country', value: formatHours(totals.crossCountryTime), icon: MapPin, color: 'text-teal-500', description: 'Flight over 50nm from origin, including point-to-point' },
   ]
 
   const landingStats = [
-    { label: 'Day Landings', value: totals.dayLandings, icon: Sun },
-    { label: 'Night Landings', value: totals.nightLandings, icon: Moon },
-    { label: 'Total Landings', value: totalLandings, icon: Plane },
+    { label: 'Day Landings', value: totals.dayLandings, icon: Sun, description: 'Landings performed during daylight hours' },
+    { label: 'Night Landings', value: totals.nightLandings, icon: Moon, description: 'Landings performed during darkness' },
+    { label: 'Total Landings', value: totalLandings, icon: Plane, description: 'Combined day and night landings' },
   ]
 
   const approachStats = [
-    { label: 'Approaches', value: totals.approaches, icon: MapPin },
-    { label: 'Holds', value: totals.holds, icon: Gauge },
-    { label: 'Intercepts', value: totals.intercepts, icon: Gauge },
+    { label: 'Approaches', value: totals.approaches, icon: MapPin, description: 'Instrument approaches completed' },
+    { label: 'Holds', value: totals.holds, icon: Gauge, description: 'Holding procedures performed' },
+    { label: 'Intercepts', value: totals.intercepts, icon: Gauge, description: 'Localizer/GS intercepts performed' },
   ]
 
   return (
@@ -100,15 +101,23 @@ export default function TotalsPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                  {statCards.map(({ label, value, icon: Icon, color }) => (
-                    <div key={label} className="bg-secondary/30 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Icon className={`w-4 h-4 ${color}`} />
-                        <p className="text-xs text-muted-foreground">{label}</p>
-                      </div>
-                      <p className="text-2xl font-bold">{value}</p>
-                      <p className="text-xs text-muted-foreground">hours</p>
-                    </div>
+                  {statCards.map(({ label, value, icon: Icon, color, description }) => (
+                    <Tooltip key={label}>
+                      <TooltipTrigger asChild>
+                        <div className="bg-secondary/30 rounded-lg p-4 cursor-help">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Icon className={`w-4 h-4 ${color}`} />
+                            <p className="text-xs text-muted-foreground">{label}</p>
+                            <HelpCircle className="w-3 h-3 text-muted-foreground/50" />
+                          </div>
+                          <p className="text-2xl font-bold">{value}</p>
+                          <p className="text-xs text-muted-foreground">hours</p>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{description}</p>
+                      </TooltipContent>
+                    </Tooltip>
                   ))}
                 </div>
               </CardContent>
@@ -124,14 +133,22 @@ export default function TotalsPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-3 gap-4">
-                  {landingStats.map(({ label, value, icon: Icon }) => (
-                    <div key={label} className="bg-secondary/30 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Icon className="w-4 h-4 text-amber-500" />
-                        <p className="text-xs text-muted-foreground">{label}</p>
-                      </div>
-                      <p className="text-2xl font-bold">{value}</p>
-                    </div>
+                  {landingStats.map(({ label, value, icon: Icon, description }) => (
+                    <Tooltip key={label}>
+                      <TooltipTrigger asChild>
+                        <div className="bg-secondary/30 rounded-lg p-4 cursor-help">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Icon className="w-4 h-4 text-amber-500" />
+                            <p className="text-xs text-muted-foreground">{label}</p>
+                            <HelpCircle className="w-3 h-3 text-muted-foreground/50" />
+                          </div>
+                          <p className="text-2xl font-bold">{value}</p>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{description}</p>
+                      </TooltipContent>
+                    </Tooltip>
                   ))}
                 </div>
               </CardContent>
@@ -147,14 +164,22 @@ export default function TotalsPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-3 gap-4">
-                  {approachStats.map(({ label, value, icon: Icon }) => (
-                    <div key={label} className="bg-secondary/30 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Icon className="w-4 h-4 text-sky-500" />
-                        <p className="text-xs text-muted-foreground">{label}</p>
-                      </div>
-                      <p className="text-2xl font-bold">{value}</p>
-                    </div>
+                  {approachStats.map(({ label, value, icon: Icon, description }) => (
+                    <Tooltip key={label}>
+                      <TooltipTrigger asChild>
+                        <div className="bg-secondary/30 rounded-lg p-4 cursor-help">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Icon className="w-4 h-4 text-sky-500" />
+                            <p className="text-xs text-muted-foreground">{label}</p>
+                            <HelpCircle className="w-3 h-3 text-muted-foreground/50" />
+                          </div>
+                          <p className="text-2xl font-bold">{value}</p>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{description}</p>
+                      </TooltipContent>
+                    </Tooltip>
                   ))}
                 </div>
               </CardContent>
@@ -164,4 +189,8 @@ export default function TotalsPage() {
       </div>
     </div>
   )
+}
+
+function formatHours(val: number): string {
+  return val.toFixed(1)
 }
