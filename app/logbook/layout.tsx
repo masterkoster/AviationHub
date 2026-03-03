@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/logbook/totals', label: 'Totals', icon: BarChart2 },
   { href: '/logbook/currency', label: 'Currency', icon: ShieldCheck },
   { href: '/logbook/analysis', label: 'Analysis', icon: TrendingUp },
+  { href: '/logbook/share', label: 'Share Logbook', icon: Upload },
   { href: '/logbook/download', label: 'Download', icon: Download },
   { href: '/logbook/import', label: 'Import', icon: Upload },
   { href: '/logbook/starting-totals', label: 'Starting Totals', icon: Clock },
