@@ -639,6 +639,12 @@ model LogbookEntry {
   studentId    String? @db.NVarChar(36)
   isPending    Boolean @default(false)
 
+  // Void tracking (aviation compliance)
+  isVoided    Boolean  @default(false)
+  voidedAt    DateTime?
+  voidedBy    String?  @db.NVarChar(36)
+  voidReason  String?  @db.NVarChar(500)
+
   // Link to flight plan if applicable
   flightPlanId String? @db.NVarChar(36)
   routeId      String? @db.NVarChar(36)
@@ -664,6 +670,23 @@ model LogbookEntry {
   @@index([routeFrom])
   @@index([routeTo])
   @@map("LogbookEntry")
+}
+
+// Audit trail for logbook entries (aviation compliance)
+model LogbookEntryHistory {
+  id          String   @id @default(uuid()) @db.NVarChar(36)
+  entryId     String   @db.NVarChar(36)
+  action      String   @db.NVarChar(20) // CREATED, UPDATED, VOIDED, UNVOIDED
+  fieldName   String?  @db.NVarChar(50) // which field changed (null for void actions)
+  oldValue    String?  @db.NVarChar(Max)
+  newValue    String?  @db.NVarChar(Max)
+  changedBy   String   @db.NVarChar(36)
+  reason      String?  @db.NVarChar(500) // Required for void
+  changedAt   DateTime @default(now())
+
+  @@index([entryId])
+  @@index([changedAt])
+  @@map("LogbookEntryHistory")
 }
 
 model AircraftModel {

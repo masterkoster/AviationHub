@@ -21,6 +21,8 @@ import {
   refreshCurrency,
   savePreferences as savePreferencesApi,
   saveStartingTotals as saveStartingTotalsApi,
+  voidLogbookEntry,
+  unvoidLogbookEntry,
 } from '@/lib/logbook/api'
 import { LogbookHeader } from '@/app/logbook/components/LogbookHeader'
 import { LogbookSummaryCards } from '@/app/logbook/components/LogbookSummaryCards'
@@ -90,6 +92,8 @@ function LogbookContent() {
   })
 
   const [filters, setFilters] = useState({ year: 'all', aircraft: 'all', search: '' })
+  const [showVoided, setShowVoided] = useState(false)
+  const [voidingId, setVoidingId] = useState<string | null>(null)
   const [currencyProgress, setCurrencyProgress] = useState<any[]>([])
   const [openDialog, setOpenDialog] = useState<null | 'add' | 'import' | 'starting-totals' | 'print'>(null)
   const [preferences, setPreferences] = useState<LogbookPreferences>({
@@ -146,7 +150,7 @@ function LogbookContent() {
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchLogbookEntries(50)
+      const data = await fetchLogbookEntries(50, null, showVoided)
       setEntries(Array.isArray(data.entries) ? data.entries : [])
       setNextCursor(data.nextCursor ?? null)
     } catch (err) {
@@ -155,6 +159,11 @@ function LogbookContent() {
       setLoading(false)
     }
   }
+
+  // Reload entries when showVoided changes
+  useEffect(() => {
+    loadEntries()
+  }, [showVoided])
 
   const getFieldErrors = () => {
     const nextErrors: Record<string, string> = {}
@@ -314,6 +323,30 @@ function LogbookContent() {
 
   const isSaveDisabled = () => Object.keys(getFieldErrors()).length > 0
 
+  const handleVoidEntry = async (id: string, reason: string) => {
+    setVoidingId(id)
+    try {
+      await voidLogbookEntry(id, reason)
+      await loadEntries()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to void entry')
+    } finally {
+      setVoidingId(null)
+    }
+  }
+
+  const handleUnvoidEntry = async (id: string) => {
+    setVoidingId(id)
+    try {
+      await unvoidLogbookEntry(id)
+      await loadEntries()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to restore entry')
+    } finally {
+      setVoidingId(null)
+    }
+  }
+
   const saveStartingTotals = async (totals: StartingTotals) => {
     await saveStartingTotalsApi(totals)
     await loadStartingTotals()
@@ -443,7 +476,7 @@ function LogbookContent() {
                 <CardTitle>Search</CardTitle>
                 <CardDescription>Filter logbook entries.</CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-3">
+              <CardContent className="grid gap-3 md:grid-cols-4">
                 <Input placeholder="Search" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
                 <select className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={filters.year} onChange={(e) => setFilters({ ...filters, year: e.target.value })}>
                   <option value="all">All Years</option>
@@ -453,6 +486,15 @@ function LogbookContent() {
                   <option value="all">All Aircraft</option>
                   {uniqueAircraft.map((a) => <option key={a} value={a}>{a}</option>)}
                 </select>
+                <label className="flex items-center gap-2 text-sm">
+                  <input 
+                    type="checkbox" 
+                    checked={showVoided} 
+                    onChange={(e) => setShowVoided(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  Show voided
+                </label>
               </CardContent>
             </Card>
 
@@ -464,22 +506,53 @@ function LogbookContent() {
                 {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
                 {!loading && filteredEntries.length === 0 && <p className="text-sm text-muted-foreground">No entries.</p>}
                 {filteredEntries.map((entry) => (
-                  <Card key={entry.id}>
+                  <Card key={entry.id} className={entry.isVoided ? 'opacity-60 border-dashed' : ''}>
                     <CardContent className="pt-6">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <p className="text-lg font-semibold">{entry.aircraft}</p>
+                          <div className="flex items-center gap-2">
+                            <p className={`text-lg font-semibold ${entry.isVoided ? 'line-through text-muted-foreground' : ''}`}>{entry.aircraft}</p>
+                            {entry.isVoided && <Badge variant="destructive">VOIDED</Badge>}
+                          </div>
                           <p className="text-sm text-muted-foreground">{entry.routeFrom} → {entry.routeTo}</p>
                           <p className="text-xs text-muted-foreground mt-1">{new Date(entry.date).toLocaleDateString()}</p>
+                          {entry.isVoided && entry.voidReason && (
+                            <p className="text-xs text-destructive mt-1">Void reason: {entry.voidReason}</p>
+                          )}
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-semibold">{formatHours(entry.totalTime)} hrs</p>
+                          <p className={`text-2xl font-semibold ${entry.isVoided ? 'line-through text-muted-foreground' : ''}`}>{formatHours(entry.totalTime)} hrs</p>
                           <div className="mt-2 flex flex-wrap justify-end gap-2">
                             {entry.authority && <Badge variant="secondary">{entry.authority}</Badge>}
                             {entry.isPending && <Badge variant="outline">Pending</Badge>}
                             {entry.nightTime > 0 && <Badge variant="outline">Night</Badge>}
                             {entry.instrumentTime > 0 && <Badge variant="outline">Instrument</Badge>}
                           </div>
+                          {!entry.isVoided && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="mt-2 text-destructive hover:text-destructive"
+                              onClick={() => {
+                                const reason = prompt('Enter reason for voiding this entry:')
+                                if (reason) handleVoidEntry(entry.id, reason)
+                              }}
+                              disabled={voidingId === entry.id}
+                            >
+                              {voidingId === entry.id ? 'Voiding...' : 'Void Entry'}
+                            </Button>
+                          )}
+                          {entry.isVoided && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="mt-2"
+                              onClick={() => handleUnvoidEntry(entry.id)}
+                              disabled={voidingId === entry.id}
+                            >
+                              {voidingId === entry.id ? 'Restoring...' : 'Restore Entry'}
+                            </Button>
+                          )}
                         </div>
                       </div>
                       {entry.remarks && <p className="text-sm text-muted-foreground mt-3">{entry.remarks}</p>}

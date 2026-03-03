@@ -3,6 +3,36 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { getOrCreatePilotProfile } from '@/lib/pilot-profile';
 
+// Helper to record history
+async function recordHistory(
+  entryId: string,
+  action: 'CREATED' | 'UPDATED' | 'VOIDED' | 'UNVOIDED',
+  userId: string,
+  fieldName?: string,
+  oldValue?: string,
+  newValue?: string,
+  reason?: string
+) {
+  await prisma.logbookEntryHistory.create({
+    data: {
+      entryId,
+      action,
+      fieldName: fieldName || null,
+      oldValue: oldValue || null,
+      newValue: newValue || null,
+      changedBy: userId,
+      reason: reason || null,
+    },
+  });
+}
+
+// Helper to format value for storage
+function formatValueForStorage(value: any): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
 // GET - Fetch user's logbook entries
 export async function GET(request: Request) {
   try {
@@ -32,9 +62,16 @@ export async function GET(request: Request) {
     const limitParam = Number(searchParams.get('limit'));
     const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 50;
     const cursor = searchParams.get('cursor');
+    const includeVoided = searchParams.get('includeVoided') === 'true';
+
+    // Default: exclude voided entries
+    const where: any = { pilotProfileId: profile.id };
+    if (!includeVoided) {
+      where.isVoided = false;
+    }
 
     const entries = await prisma.logbookEntry.findMany({
-      where: { pilotProfileId: profile.id },
+      where,
       orderBy: [{ date: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -51,7 +88,7 @@ export async function GET(request: Request) {
   }
 }
 
-// POST - Create new logbook entry
+// POST - Create new logbook entry OR void/delete existing
 export async function POST(request: Request) {
   try {
     const session = await auth();
@@ -83,7 +120,82 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const profile = await getOrCreatePilotProfile(session.user.id);
-    
+
+    // Handle void action
+    if (body.action === 'void') {
+      const { id, reason } = body;
+      if (!id) {
+        return NextResponse.json({ error: 'Entry ID required' }, { status: 400 });
+      }
+      if (!reason) {
+        return NextResponse.json({ error: 'Reason required for voiding' }, { status: 400 });
+      }
+
+      // Get existing entry to verify ownership and capture old values
+      const existing = await prisma.logbookEntry.findFirst({
+        where: { id, pilotProfileId: profile.id },
+      });
+
+      if (!existing) {
+        return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+      }
+
+      // Update entry to voided
+      const entry = await prisma.logbookEntry.update({
+        where: { id },
+        data: {
+          isVoided: true,
+          voidedAt: new Date(),
+          voidedBy: session.user.id,
+          voidReason: reason,
+        },
+      });
+
+      // Record history
+      await recordHistory(
+        id,
+        'VOIDED',
+        session.user.id,
+        undefined,
+        undefined,
+        undefined,
+        reason
+      );
+
+      return NextResponse.json({ entry, message: 'Entry voided' });
+    }
+
+    // Handle unvoid action
+    if (body.action === 'unvoid') {
+      const { id } = body;
+      if (!id) {
+        return NextResponse.json({ error: 'Entry ID required' }, { status: 400 });
+      }
+
+      const existing = await prisma.logbookEntry.findFirst({
+        where: { id, pilotProfileId: profile.id },
+      });
+
+      if (!existing) {
+        return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+      }
+
+      const entry = await prisma.logbookEntry.update({
+        where: { id },
+        data: {
+          isVoided: false,
+          voidedAt: null,
+          voidedBy: null,
+          voidReason: null,
+        },
+      });
+
+      await recordHistory(id, 'UNVOIDED', session.user.id);
+
+      return NextResponse.json({ entry, message: 'Entry restored' });
+    }
+
+    // Handle create new entry
     const entry = await prisma.logbookEntry.create({
       data: {
         pilotProfileId: profile.id,
@@ -123,6 +235,9 @@ export async function POST(request: Request) {
       },
     });
 
+    // Record creation in history
+    await recordHistory(entry.id, 'CREATED', session.user.id);
+
     return NextResponse.json({ entry, message: 'Entry saved' });
   } catch (error) {
     console.error('Error creating logbook entry:', error);
@@ -130,8 +245,8 @@ export async function POST(request: Request) {
   }
 }
 
-// DELETE - Delete a logbook entry
-export async function DELETE(request: Request) {
+// PUT - Update a logbook entry
+export async function PUT(request: Request) {
   try {
     const session = await auth();
     
@@ -139,22 +254,100 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { tier: true, role: true }
+    });
+
+    const isAdmin = user?.role === 'admin' || user?.role === 'owner';
+    if (!isAdmin && user?.tier !== 'proplus') {
+      return NextResponse.json({ 
+        error: 'Pro+ subscription required',
+        code: 'PROPLUS_REQUIRED'
+      }, { status: 403 });
+    }
+
+    const profile = await getOrCreatePilotProfile(session.user.id);
+    const body = await request.json();
+    const { id, ...updates } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Entry ID required' }, { status: 400 });
     }
 
-    const profile = await getOrCreatePilotProfile(session.user.id);
-
-    await prisma.logbookEntry.deleteMany({
+    // Get existing entry to capture old values
+    const existing = await prisma.logbookEntry.findFirst({
       where: { id, pilotProfileId: profile.id },
     });
 
-    return NextResponse.json({ message: 'Entry deleted' });
+    if (!existing) {
+      return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+    }
+
+    // Build update data
+    const updateData: any = {};
+    const fieldsToTrack = [
+      'date', 'aircraft', 'routeFrom', 'routeTo', 'totalTime', 'picTime', 'sicTime',
+      'soloTime', 'dualGiven', 'dualReceived', 'nightTime', 'instrumentTime',
+      'crossCountryTime', 'dayLandings', 'nightLandings', 'authority', 'isPending',
+      'remarks', 'instructor', 'isNight', 'isCrossCountry', 'isSolo', 'isDual'
+    ];
+
+    for (const field of fieldsToTrack) {
+      if (updates[field] !== undefined) {
+        updateData[field] = updates[field];
+      }
+    }
+
+    // Recalculate boolean fields
+    if (updates.nightTime !== undefined) {
+      updateData.isNight = updates.nightTime > 0;
+    }
+    if (updates.crossCountryTime !== undefined) {
+      updateData.isCrossCountry = updates.crossCountryTime > 0;
+    }
+    if (updates.soloTime !== undefined) {
+      updateData.isSolo = updates.soloTime > 0;
+    }
+    if (updates.dualReceived !== undefined) {
+      updateData.isDual = updates.dualReceived > 0;
+    }
+
+    const entry = await prisma.logbookEntry.update({
+      where: { id },
+      data: updateData,
+    });
+
+    // Record history for each changed field
+    for (const field of fieldsToTrack) {
+      if (updates[field] !== undefined) {
+        const oldValue = formatValueForStorage(existing[field as keyof typeof existing]);
+        const newValue = formatValueForStorage(updates[field]);
+        
+        if (oldValue !== newValue) {
+          await recordHistory(
+            id,
+            'UPDATED',
+            session.user.id,
+            field,
+            oldValue,
+            newValue
+          );
+        }
+      }
+    }
+
+    return NextResponse.json({ entry, message: 'Entry updated' });
   } catch (error) {
-    console.error('Error deleting logbook entry:', error);
-    return NextResponse.json({ error: 'Failed to delete entry' }, { status: 500 });
+    console.error('Error updating logbook entry:', error);
+    return NextResponse.json({ error: 'Failed to update entry' }, { status: 500 });
   }
+}
+
+// DELETE - Legacy support - returns error suggesting void instead
+export async function DELETE(request: Request) {
+  return NextResponse.json({ 
+    error: 'Use POST with action=void to void an entry instead of deleting',
+    hint: 'Send POST to /api/logbook with { action: "void", id: "...", reason: "..." }'
+  }, { status: 400 });
 }

@@ -20,6 +20,11 @@ export type LogbookEntry = {
   remarks?: string | null
   authority?: Authority
   isPending?: boolean
+  // Void tracking (aviation compliance)
+  isVoided?: boolean
+  voidedAt?: string | null
+  voidedBy?: string | null
+  voidReason?: string | null
 }
 
 export type StartingTotals = {

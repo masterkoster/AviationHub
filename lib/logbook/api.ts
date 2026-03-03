@@ -20,14 +20,37 @@ async function postJson<T>(url: string, body?: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export function fetchLogbookEntries(limit = 50, cursor?: string | null) {
+export function fetchLogbookEntries(limit = 50, cursor?: string | null, includeVoided = false) {
   const qs = new URLSearchParams({ limit: String(limit) })
   if (cursor) qs.set('cursor', cursor)
+  if (includeVoided) qs.set('includeVoided', 'true')
   return getJson<PaginatedEntriesResponse>(`/api/logbook?${qs.toString()}`)
 }
 
 export function createLogbookEntry(payload: Record<string, unknown>) {
   return postJson<{ entry: LogbookEntry; message: string }>('/api/logbook', payload)
+}
+
+export function voidLogbookEntry(id: string, reason: string) {
+  return postJson<{ entry: LogbookEntry; message: string }>('/api/logbook', { 
+    action: 'void', 
+    id, 
+    reason 
+  })
+}
+
+export function unvoidLogbookEntry(id: string) {
+  return postJson<{ entry: LogbookEntry; message: string }>('/api/logbook', { 
+    action: 'unvoid', 
+    id 
+  })
+}
+
+export function updateLogbookEntry(id: string, payload: Record<string, unknown>) {
+  return postJson<{ entry: LogbookEntry; message: string }>('/api/logbook', { 
+    id, 
+    ...payload 
+  })
 }
 
 export function fetchStartingTotals() {
