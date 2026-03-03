@@ -319,6 +319,14 @@ export async function PUT(request: Request) {
       }
     }
 
+    if (updates.date !== undefined) {
+      const parsedDate = new Date(updates.date);
+      if (Number.isNaN(parsedDate.getTime())) {
+        return NextResponse.json({ error: 'Invalid date value' }, { status: 400 });
+      }
+      updateData.date = parsedDate;
+    }
+
     // Recalculate boolean fields
     if (updates.nightTime !== undefined) {
       updateData.isNight = updates.nightTime > 0;
@@ -357,10 +365,26 @@ export async function PUT(request: Request) {
       updateData.isPending = !!updates.isPending;
     }
 
-    const entry = await prisma.logbookEntry.update({
-      where: { id },
-      data: updateData,
-    });
+    let entry
+    try {
+      entry = await prisma.logbookEntry.update({
+        where: { id },
+        data: updateData,
+      });
+    } catch (updateError) {
+      console.error('Logbook update failed', {
+        entryId: id,
+        pilotProfileId: profile.id,
+        updateKeys: Object.keys(updateData),
+        updatePreview: {
+          date: updateData.date,
+          aircraft: updateData.aircraft,
+          routeFrom: updateData.routeFrom,
+          routeTo: updateData.routeTo,
+        },
+      });
+      throw updateError
+    }
 
     // Record history for each changed field
     for (const field of fieldsToTrack) {
