@@ -22,6 +22,14 @@ type GroupAircraft = {
   model?: string | null;
 };
 
+type Instructor = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  certificateNumber?: string | null;
+  certificateType?: string | null;
+};
+
 type Booking = {
   id: string;
   aircraftId?: string;
@@ -61,8 +69,10 @@ export function FlightScheduler({
   const [personalAircraft, setPersonalAircraft] = useState<UserAircraft[]>([]);
   const [clubBookings, setClubBookings] = useState<Booking[]>([]);
   const [personalBookings, setPersonalBookings] = useState<Booking[]>([]);
+  const [clubInstructors, setClubInstructors] = useState<Instructor[]>([]);
   const [groupId, setGroupId] = useState<string>(initialGroupId);
   const [aircraftId, setAircraftId] = useState<string>(initialAircraftId);
+  const [instructorId, setInstructorId] = useState<string>('');
   const [startTime, setStartTime] = useState<string>("");
   const [endTime, setEndTime] = useState<string>("");
   const [purpose, setPurpose] = useState<string>("");
@@ -119,10 +129,20 @@ export function FlightScheduler({
 
     async function loadClubBookings() {
       try {
-        const res = await fetch(`/api/groups/${groupId}/bookings`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setClubBookings(Array.isArray(data) ? data : data.bookings || []);
+        const [bookingsRes, instructorsRes] = await Promise.all([
+          fetch(`/api/groups/${groupId}/bookings`),
+          fetch(`/api/groups/${groupId}/instructors`),
+        ]);
+
+        if (bookingsRes.ok) {
+          const data = await bookingsRes.json();
+          if (!cancelled) setClubBookings(Array.isArray(data) ? data : data.bookings || []);
+        }
+
+        if (instructorsRes.ok) {
+          const data = await instructorsRes.json();
+          if (!cancelled) setClubInstructors(data.instructors || []);
+        }
       } catch (err) {
         console.error("Failed to load club bookings", err);
       }
@@ -205,7 +225,7 @@ export function FlightScheduler({
       const endpoint = mode === "personal" ? "/api/personal-bookings" : `/api/groups/${groupId}/bookings`;
       const payload = mode === "personal"
         ? { userAircraftId: aircraftId, startTime, endTime, purpose: purpose || null }
-        : { aircraftId, startTime, endTime, purpose: purpose || null };
+        : { aircraftId, startTime, endTime, purpose: purpose || null, instructorId: instructorId || null };
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -220,6 +240,7 @@ export function FlightScheduler({
 
       setPurpose("");
       setAircraftId("");
+      setInstructorId("");
       setStartTime("");
       setEndTime("");
       if (onSuccess) onSuccess();
@@ -263,11 +284,30 @@ export function FlightScheduler({
             onChange={(e) => {
               setGroupId(e.target.value);
               setAircraftId("");
+              setInstructorId("");
             }}
           >
             <option value="">Select a club...</option>
             {groups.map((group) => (
               <option key={group.id} value={group.id}>{group.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {mode === "club" && (
+        <div className="space-y-2">
+          <Label>Instructor (optional)</Label>
+          <select
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            value={instructorId}
+            onChange={(e) => setInstructorId(e.target.value)}
+          >
+            <option value="">No instructor</option>
+            {clubInstructors.map((ins) => (
+              <option key={ins.id} value={ins.id}>
+                {ins.name || ins.email} {ins.certificateType ? `(${ins.certificateType})` : ''}
+              </option>
             ))}
           </select>
         </div>

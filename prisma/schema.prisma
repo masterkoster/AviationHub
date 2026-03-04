@@ -97,6 +97,7 @@ model User {
   documents                   Document[]
   errorReports                ErrorReport[]
   logbookEntriesAsInstructor  LogbookEntry[]            @relation("LogbookEntryInstructor")
+  bookingsAsInstructor        Booking[]                @relation("BookingInstructor")
   logbookEntriesAsStudent     LogbookEntry[]            @relation("LogbookEntryStudent")
   pilotProfile                PilotProfile?
   userContact                 UserContact?
@@ -1321,6 +1322,7 @@ model Booking {
   organizationId String?   @db.NVarChar(36)
   clubAircraftId String?   @db.NVarChar(36)
   pilotProfileId String?   @db.NVarChar(36)
+  instructorId   String?   @db.NVarChar(36)
   startTime      DateTime
   endTime        DateTime
   purpose        String?   @db.NVarChar(500)
@@ -1330,10 +1332,12 @@ model Booking {
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   clubAircraft ClubAircraft? @relation(fields: [clubAircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  instructor   User?         @relation("BookingInstructor", fields: [instructorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([organizationId, startTime])
   @@index([clubAircraftId, startTime])
   @@index([pilotProfileId, startTime])
+  @@index([instructorId, startTime])
   @@map("Booking")
 }
 

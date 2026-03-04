@@ -43,12 +43,14 @@ export async function GET(request: Request, { params }: RouteParams) {
     // Get bookings using raw SQL
     const bookings = await prisma.$queryRawUnsafe(`
       SELECT 
-        b.id, b.aircraftId, b.userId, b.startTime, b.endTime, b.purpose, b.createdAt, b.updatedAt,
+        b.id, b.aircraftId, b.userId, b.instructorId, b.startTime, b.endTime, b.purpose, b.createdAt, b.updatedAt,
         a.nNumber, a.customName, a.nickname, a.make, a.model, a.groupId as aircraftGroupId,
-        u.name as userName, u.email as userEmail
+        u.name as userName, u.email as userEmail,
+        i.name as instructorName, i.email as instructorEmail
       FROM Booking b
       JOIN ClubAircraft a ON b.aircraftId = a.id
       JOIN [User] u ON b.userId = u.id
+      LEFT JOIN [User] i ON b.instructorId = i.id
       WHERE a.groupId = '${groupId}'
       ORDER BY b.startTime ASC
     `) as any[];
@@ -57,6 +59,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       id: b.id,
       aircraftId: b.aircraftId,
       userId: b.userId,
+      instructorId: b.instructorId,
       startTime: b.startTime,
       endTime: b.endTime,
       purpose: b.purpose,
@@ -76,6 +79,11 @@ export async function GET(request: Request, { params }: RouteParams) {
         name: b.userName,
         email: b.userEmail,
       },
+      instructor: b.instructorId ? {
+        id: b.instructorId,
+        name: b.instructorName,
+        email: b.instructorEmail,
+      } : null,
     }));
 
     return NextResponse.json(formattedBookings);
@@ -119,7 +127,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const body = await request.json();
-    const { aircraftId, startTime, endTime, purpose } = body;
+    const { aircraftId, startTime, endTime, purpose, instructorId } = body;
 
     // Verify aircraft belongs to group
     const aircraftList = await prisma.$queryRawUnsafe(`
@@ -160,15 +168,28 @@ export async function POST(request: Request, { params }: RouteParams) {
     // Create booking using raw SQL
     const bookingId = crypto.randomUUID();
     await prisma.$executeRawUnsafe(`
-      INSERT INTO Booking (id, aircraftId, userId, startTime, endTime, purpose, createdAt, updatedAt)
-      VALUES ('${bookingId}', '${aircraftId}', '${userId}', '${startDate}', '${endDate}', ${purpose ? "'" + purpose.replace(/'/g, "''") + "'" : 'NULL'}, GETDATE(), GETDATE())
+      INSERT INTO Booking (id, aircraftId, userId, instructorId, startTime, endTime, purpose, createdAt, updatedAt)
+      VALUES (
+        '${bookingId}',
+        '${aircraftId}',
+        '${userId}',
+        ${instructorId ? "'" + instructorId + "'" : 'NULL'},
+        '${startDate}',
+        '${endDate}',
+        ${purpose ? "'" + purpose.replace(/'/g, "''") + "'" : 'NULL'},
+        GETDATE(),
+        GETDATE()
+      )
     `);
 
     // Fetch created booking
     const bookings = await prisma.$queryRawUnsafe(`
-      SELECT b.*, a.nNumber, a.customName, a.nickname, a.make, a.model
+      SELECT b.*, a.nNumber, a.customName, a.nickname, a.make, a.model, u.name as userName, u.email as userEmail,
+        i.name as instructorName, i.email as instructorEmail
       FROM Booking b
       JOIN ClubAircraft a ON b.aircraftId = a.id
+      JOIN [User] u ON b.userId = u.id
+      LEFT JOIN [User] i ON b.instructorId = i.id
       WHERE b.id = '${bookingId}'
     `) as any[];
 
@@ -195,6 +216,11 @@ export async function POST(request: Request, { params }: RouteParams) {
         name: b.userName,
         email: b.userEmail,
       },
+      instructor: b.instructorId ? {
+        id: b.instructorId,
+        name: b.instructorName,
+        email: b.instructorEmail,
+      } : null,
     });
   } catch (error) {
     console.error('Error creating booking:', error);
