@@ -1,8 +1,0 @@
-{
-  "IsEncrypted": false,
-  "Values": {
-    "FUNCTIONS_WORKER_RUNTIME": "python",
-    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
-    "SQLAZURECONNSTR_AIRCRAFT_DB": "Driver={ODBC Driver 18 for SQL Server};Server=tcp:your-server.database.windows.net,1433;Database=your-database;Uid=USERNAME;Pwd=PASSWORD;Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
-  }
-}
