@@ -52,6 +52,100 @@
   border-color: var(--border);
 }
 
+/* ===== Auth modal animations ===== */
+@keyframes auth-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes auth-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes auth-field-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auth-plane-drift {
+  0% {
+    transform: translate(-10%, 60%) rotate(-8deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.9;
+  }
+  85% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(120%, -40%) rotate(-8deg);
+    opacity: 0;
+  }
+}
+
+@keyframes auth-orb-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(0, -18px) scale(1.05); }
+}
+
+@keyframes auth-grid-pan {
+  from { background-position: 0 0; }
+  to { background-position: 44px 44px; }
+}
+
+.auth-backdrop {
+  animation: auth-backdrop-in 0.25s ease forwards;
+}
+
+.auth-modal {
+  animation: auth-modal-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.auth-field {
+  animation: auth-field-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-plane {
+  animation: auth-plane-drift 9s ease-in-out infinite;
+}
+
+.auth-orb {
+  animation: auth-orb-float 7s ease-in-out infinite;
+}
+
+.auth-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--primary-foreground) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--primary-foreground) 12%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  animation: auth-grid-pan 18s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-backdrop,
+  .auth-modal,
+  .auth-field,
+  .auth-plane,
+  .auth-orb,
+  .auth-grid {
+    animation: none;
+  }
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

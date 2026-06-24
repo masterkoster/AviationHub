@@ -16,8 +16,11 @@
 
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
+type AuthMode = 'login' | 'signup';
+
 interface AuthModalContextType {
   isOpen: boolean;
+  initialMode: AuthMode;
   openLoginModal: (redirectTo?: string) => void;
   openSignupModal: (redirectTo?: string) => void;
   closeModal: () => void;
@@ -28,14 +31,17 @@ const AuthModalContext = createContext<AuthModalContextType | undefined>(undefin
 
 export function AuthModalProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [initialMode, setInitialMode] = useState<AuthMode>('login');
   const [redirectTo, setRedirectTo] = useState<string | undefined>();
 
   const openLoginModal = useCallback((redirect?: string) => {
+    setInitialMode('login');
     setRedirectTo(redirect);
     setIsOpen(true);
   }, []);
 
   const openSignupModal = useCallback((redirect?: string) => {
+    setInitialMode('signup');
     setRedirectTo(redirect);
     setIsOpen(true);
   }, []);
@@ -46,7 +52,7 @@ export function AuthModalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthModalContext.Provider value={{ isOpen, openLoginModal, openSignupModal, closeModal, redirectTo }}>
+    <AuthModalContext.Provider value={{ isOpen, initialMode, openLoginModal, openSignupModal, closeModal, redirectTo }}>
       {children}
     </AuthModalContext.Provider>
   );

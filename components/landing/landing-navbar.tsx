@@ -4,6 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { Plane, Menu, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useAuthModal } from "@/app/components/AuthModalContext"
 
 const navLinks = [
   { label: "Modules", href: "#modules" },
@@ -14,6 +15,7 @@ const navLinks = [
 
 export function LandingNavbar() {
   const [open, setOpen] = useState(false)
+  const { openLoginModal, openSignupModal } = useAuthModal()
 
   return (
     <header className="fixed top-0 z-50 w-full border-b border-border/50 bg-background/60 backdrop-blur-2xl">
@@ -41,10 +43,19 @@ export function LandingNavbar() {
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
-          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground"
+            onClick={() => openLoginModal()}
+          >
             Log in
           </Button>
-          <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
+          <Button
+            size="sm"
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={() => openSignupModal()}
+          >
             Start Free
           </Button>
         </div>
@@ -74,10 +85,25 @@ export function LandingNavbar() {
               </a>
             ))}
             <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
-              <Button variant="ghost" size="sm" className="justify-start text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="justify-start text-muted-foreground"
+                onClick={() => {
+                  setOpen(false)
+                  openLoginModal()
+                }}
+              >
                 Log in
               </Button>
-              <Button size="sm" className="bg-primary text-primary-foreground">
+              <Button
+                size="sm"
+                className="bg-primary text-primary-foreground"
+                onClick={() => {
+                  setOpen(false)
+                  openSignupModal()
+                }}
+              >
                 Start Free
               </Button>
             </div>

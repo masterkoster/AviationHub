@@ -4,6 +4,7 @@ import { useState } from "react"
 import Image from "next/image"
 import { ArrowRight, Fuel, Calculator, Users, GraduationCap, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useAuthModal } from "@/app/components/AuthModalContext"
 
 const tools = [
   { icon: Fuel, label: "Fuel Prices", value: "fuel" },
@@ -34,6 +35,7 @@ const demoOutputs: Record<string, { title: string; lines: string[] }> = {
 export function HeroSection() {
   const [active, setActive] = useState("fuel")
   const demo = demoOutputs[active]
+  const { openSignupModal } = useAuthModal()
 
   return (
     <section className="relative flex min-h-[100svh] items-center overflow-hidden">
@@ -75,6 +77,7 @@ export function HeroSection() {
             <Button
               size="lg"
               className="h-12 gap-2 rounded-xl bg-primary px-8 text-primary-foreground hover:bg-primary/90"
+              onClick={() => openSignupModal()}
             >
               Create Free Account
               <ArrowRight className="h-4 w-4" />
