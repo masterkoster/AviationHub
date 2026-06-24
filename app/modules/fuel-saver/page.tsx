@@ -18,7 +18,7 @@ import PerformanceSettingsPanel, { PerformanceSettings, DEFAULT_SETTINGS } from 
 import AuthModal from './AuthModal';
 import UpgradeModal from './UpgradeModal';
 import TierExplainerModal from './TierExplainerModal';
-import VerificationBanner from '../../components/VerificationBanner';
+import VerificationBanner from '../components/VerificationBanner';
 
 // Types
 export interface Airport {
@@ -149,34 +149,19 @@ async function getFuelPrice(icao: string): Promise<FuelPrice | undefined> {
   
   // Try API
   try {
-    const res = await fetch(`/api/fuel?icao=${icao}`);
+    const res = await fetch(`/api/fuel-price?icao=${icao.toUpperCase()}`);
     if (res.ok) {
       const data = await res.json();
-      // New API format returns prices array with average
-      if (data.prices && data.prices.length > 0) {
-        const llPrice = data.prices.find((p: any) => p.fuelType === '100LL');
-        const jetPrice = data.prices.find((p: any) => p.fuelType === 'JetA');
-        
-        const fp: FuelPrice = {
-          icao: data.icao,
-          price100ll: llPrice?.price || null,
-          priceJetA: jetPrice?.price || null,
-          lastUpdated: data.scrapedAt || '',
-          source: 'airnav',
-          sourceUrl: llPrice?.sourceUrl || '',
-          lastReported: llPrice?.lastReported || ''
-        };
-        fuelPriceCache[icao] = fp;
-        return fp;
-      }
       // Fallback to old format
-      if (data.price100ll) {
+      if (typeof data?.price100ll === 'number' || typeof data?.priceJetA === 'number') {
         const fp: FuelPrice = {
           icao: data.icao,
-          price100ll: data.price100ll,
-          priceJetA: data.priceJetA,
-          lastUpdated: data.lastUpdated || '',
-          source: data.source
+          price100ll: data.price100ll ?? null,
+          priceJetA: data.priceJetA ?? null,
+          lastUpdated: data.updatedAt || data.lastReported || '',
+          source: data.source,
+          sourceUrl: data.sourceUrl,
+          lastReported: data.lastReported
         };
         fuelPriceCache[icao] = fp;
         return fp;
@@ -880,7 +865,7 @@ function FuelSaverContent() {
       .catch(console.error);
   }, [allUSAirportsLoaded]);
   
-  // Fetch airports when map bounds change - with caching
+  // Fetch airports when map bounds change - with caching (capped at 5000)
   useEffect(() => {
     if (!mapLoaded) return;
     
@@ -893,11 +878,15 @@ function FuelSaverContent() {
         );
         const data = await res.json();
         if (data.airports && data.airports.length > 0) {
-          // Merge with cached airports (avoid duplicates)
+          // Merge with cached airports (avoid duplicates), cap at 5000
           setCachedAirports(prev => {
             const existing = new Set(prev.map(a => a.icao));
             const newOnes = data.airports.filter((a: Airport) => !existing.has(a.icao));
-            const allAirports = [...prev, ...newOnes];
+            let allAirports = [...prev, ...newOnes];
+            // Cap at 5000 - trim oldest if exceeded
+            if (allAirports.length > 5000) {
+              allAirports = allAirports.slice(allAirports.length - 5000);
+            }
             // Show airports in current view
             const inView = allAirports.filter(a => 
               a.latitude >= mapBounds.minLat - 2 && 
@@ -920,16 +909,25 @@ function FuelSaverContent() {
     fetchAirports();
   }, [mapBounds, showAllAirports, mapLoaded]);
 
-  // Fetch fuel prices for waypoints
+  // Fetch fuel prices for waypoints (parallel)
   useEffect(() => {
     const fetchPrices = async () => {
-      for (const wp of waypoints) {
-        if (!fuelPrices[wp.icao]) {
-          const price = await getFuelPrice(wp.icao);
-          if (price) {
-            setFuelPrices(prev => ({ ...prev, [wp.icao]: price }));
-          }
+      const uncached = waypoints.filter(wp => !fuelPrices[wp.icao]);
+      if (uncached.length === 0) return;
+      
+      const results = await Promise.allSettled(
+        uncached.map(wp => getFuelPrice(wp.icao))
+      );
+      
+      const newPrices: Record<string, FuelPrice> = {};
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled' && result.value) {
+          newPrices[uncached[i].icao] = result.value;
         }
+      });
+      
+      if (Object.keys(newPrices).length > 0) {
+        setFuelPrices(prev => ({ ...prev, ...newPrices }));
       }
     };
     if (waypoints.length > 0) {
@@ -2016,7 +2014,7 @@ function FuelSaverContent() {
         <div className="flex items-center justify-between h-8">
           <div className="flex items-center gap-3">
             <h1 className="text-base font-bold">Flight Planner</h1>
-            <div className="flex items-center gap-1 text-sm">
+            <div className="flex items-center gap-1 text-sm mb-2">
               <a href="/modules/fuel-saver" className="px-2 py-0.5 rounded bg-primary/10 text-primary font-medium text-xs">Fuel Map</a>
               <a href="/modules/fuel-saver/airport-lookup" className="px-2 py-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground text-xs">Airport Lookup</a>
               <a href="/modules/fuel-saver/favorites" className="px-2 py-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground text-xs">Favorites</a>

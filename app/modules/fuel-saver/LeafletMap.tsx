@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MapContainer, TileLayer, Popup, Polyline, CircleMarker, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -195,7 +195,7 @@ function inferStateFromCoords(lat: number, lon: number): string | null {
   return null;
 }
 
-function AirportPopup({ airport, onAddToRoute, onViewStateInfo }: { airport: Airport; onAddToRoute: () => void; onViewStateInfo?: (stateCode: string) => void }) {
+const AirportPopup = React.memo(function AirportPopup({ airport, onAddToRoute, onViewStateInfo }: { airport: Airport; onAddToRoute: () => void; onViewStateInfo?: (stateCode: string) => void }) {
   const [details, setDetails] = useState<AirportDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -522,7 +522,7 @@ function AirportPopup({ airport, onAddToRoute, onViewStateInfo }: { airport: Air
       </button>
     </div>
   );
-}
+});
 
 export default function LeafletMap({ 
   airports, 
@@ -562,9 +562,21 @@ export default function LeafletMap({
     dark: { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attribution: '&copy; CartoDB' }
   };
   
-  // Filter out seaplanes automatically
+  // Pre-compute stable pathOptions per airport type to avoid new objects on every render
+  const markerPathOptions = useMemo(() => ({
+    large_airport: { color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.7, weight: 1 },
+    medium_airport: { color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 0.7, weight: 1 },
+    small_airport: { color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.7, weight: 1 },
+    default: { color: '#6b7280', fillColor: '#6b7280', fillOpacity: 0.7, weight: 1 },
+  }), []);
+
+  // Stable onMapReady callback
+  const handleMapReady = useCallback((map: L.Map) => {
+    mapRef.current = map;
+  }, []);
   const filteredAirports = useMemo(() => {
-    return airports.filter(a => a.type !== 'seaplane_base');
+    const filtered = airports.filter(a => a.type !== 'seaplane_base');
+    return filtered.length > 400 ? filtered.slice(0, 400) : filtered;
   }, [airports]);
   
   // Calculate marker size based on zoom - smaller airports stay small when zoomed out
@@ -715,7 +727,7 @@ export default function LeafletMap({
         url={baseLayers[baseLayer].url}
       />
       
-      <MapEventHandler onBoundsChange={handleBoundsChange} onMapReady={(map) => { mapRef.current = map; }} />
+      <MapEventHandler onBoundsChange={handleBoundsChange} onMapReady={handleMapReady} />
       
       {/* Airport markers - filtered and zoom-based sizing */}
       {filteredAirports.map(airport => (
@@ -723,12 +735,7 @@ export default function LeafletMap({
           key={airport.icao}
           center={[airport.latitude, airport.longitude]}
           radius={getMarkerRadius(airport.type)}
-          pathOptions={{
-            color: getMarkerColor(airport.type),
-            fillColor: getMarkerColor(airport.type),
-            fillOpacity: 0.7,
-            weight: 1
-          }}
+          pathOptions={markerPathOptions[airport.type as keyof typeof markerPathOptions] || markerPathOptions.default}
         >
           <Popup>
             <AirportPopup airport={airport} onAddToRoute={() => onAirportClick(airport)} onViewStateInfo={onViewStateInfo} />

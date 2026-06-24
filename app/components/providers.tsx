@@ -4,7 +4,7 @@ import { SessionProvider } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { GlobalNav } from "@/components/global-nav";
+import { GlobalNav, NAV_HEIGHT } from "@/components/global-nav";
 import { ModuleNav } from "./module-nav";
 import { AuthModalProvider } from "./AuthModalContext";
 import LoginModal from "./LoginModal";
@@ -19,6 +19,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const isHomePage = pathname === "/";
   const currentModule = pathname ? getModuleByPath(pathname) : undefined;
   const [showConflicts, setShowConflicts] = useState(false);
+
+  // Check if current page has a sub-nav (marketplace, fuel-saver)
+  const hasSubNav = pathname.startsWith("/marketplace") || pathname.startsWith("/fuel-saver");
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -37,7 +40,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             {!isHomePage && currentModule && currentModule.menu && currentModule.menu.length > 0 && (
               <ModuleNav module={currentModule} />
             )}
-            <div className={isHomePage ? "" : "pt-16"}>
+            <div className={isHomePage ? "" : ""} style={isHomePage ? undefined : { paddingTop: NAV_HEIGHT + (hasSubNav ? 40 : 0) }}>
               {children}
             </div>
             <OfflineBanner onSyncNow={() => setShowConflicts(true)} />

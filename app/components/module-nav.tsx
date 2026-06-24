@@ -16,7 +16,7 @@ export function ModuleNav({ module }: ModuleNavProps) {
   const pathname = usePathname();
 
   return (
-    <div className="sticky top-16 z-40 mt-16 border-b border-border bg-background/80 backdrop-blur-xl">
+    <div className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-3 lg:px-8">
         <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
           <span className="text-muted-foreground/70">{module.icon}</span>

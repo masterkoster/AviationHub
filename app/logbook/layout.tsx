@@ -40,7 +40,7 @@ export default function LogbookLayout({ children }: { children: React.ReactNode 
     <div className="min-h-screen bg-background flex">
       {/* Sidebar */}
       <aside className={`
-        fixed lg:sticky top-0 left-0 h-screen z-50 
+        fixed lg:sticky top-[44px] left-0 h-[calc(100vh-44px)] z-40 
         flex flex-col bg-card border-r border-border
         transition-all duration-300
         ${mobileOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full lg:translate-x-0'}

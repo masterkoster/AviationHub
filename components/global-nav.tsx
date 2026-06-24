@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from "react"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import { signOut, useSession } from "next-auth/react"
 import Link from "next/link"
 import {
@@ -18,6 +18,9 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/theme-toggle"
+
+// GlobalNav height constants (h-11 = 44px top bar)
+export const NAV_HEIGHT = 44
 
 type NavItem = {
   label: string
@@ -91,40 +94,35 @@ type SubNavConfig = {
 
 const SUB_NAV: SubNavConfig = {
   "/marketplace": [
-    { label: "Browse Listings", href: "/marketplace" },
-    { label: "Sell Aircraft", href: "/marketplace" },
-    { label: "Saved Listings", href: "/marketplace" },
-    { label: "My Listings", href: "/marketplace" },
+    { label: "Browse", href: "/marketplace?tab=browse" },
+    { label: "Sell", href: "/marketplace?tab=sell" },
+    { label: "Saved", href: "/marketplace?tab=saved" },
+    { label: "My Listings", href: "/marketplace?tab=my-listings" },
   ],
   "/fuel-saver": [
-    { label: "Route Planner", href: "/fuel-saver" },
-    { label: "Saved Plans", href: "/fuel-saver" },
-    { label: "Trip Finder", href: "/fuel-saver" },
-    { label: "Weather", href: "/fuel-saver" },
+    { label: "Route Planner", href: "/fuel-saver?tab=route" },
+    { label: "Saved Plans", href: "/fuel-saver?tab=saved" },
+    { label: "Trip Finder", href: "/fuel-saver?tab=trip" },
+    { label: "Weather", href: "/fuel-saver?tab=weather" },
   ],
 }
 
 export function GlobalNav() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { data: session, status } = useSession()
   const [openMenu, setOpenMenu] = useState<string | null>(null)
-  const [activeSubNav, setActiveSubNav] = useState<string>("Browse Listings")
   const [searchOpen, setSearchOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
-  // Get user initials from session
   const userName = session?.user?.name || session?.user?.username || "User"
   const userEmail = session?.user?.email || ""
   const userInitials = userName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
   const isAdmin = session?.user?.role === "admin" || session?.user?.role === "owner"
 
-  // Find the matching sub-nav for current path
-  const subNavKey = Object.keys(SUB_NAV).find(key => pathname.startsWith(key) && key !== "/" 
-    ? true 
-    : key === pathname
-  ) ?? "/"
+  const subNavKey = Object.keys(SUB_NAV).find(key => pathname.startsWith(key)) ?? "/"
   const subNavItems = SUB_NAV[subNavKey] ?? []
 
   useEffect(() => {
@@ -147,9 +145,8 @@ export function GlobalNav() {
 
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex flex-col">
-      {/* ── Top bar ─────────────────────────────────────────── */}
+      {/* Top bar */}
       <div className="flex h-11 items-center gap-0 border-b border-white/10 bg-[oklch(0.14_0_0)] px-4">
-        {/* Logo */}
         <Link href="/" className="mr-6 flex items-center gap-2 shrink-0">
           <div className="flex h-6 w-6 items-center justify-center rounded bg-primary">
             <Plane className="h-3.5 w-3.5 text-primary-foreground" />
@@ -157,7 +154,6 @@ export function GlobalNav() {
           <span className="text-sm font-semibold text-white">AviationHub</span>
         </Link>
 
-        {/* Module nav */}
         <nav ref={menuRef} className="flex h-full items-stretch">
           {NAV_ITEMS.map((item) => {
             const active = item.href ? isActive(item.href) : item.children?.some(c => isActive(c.href))
@@ -190,7 +186,6 @@ export function GlobalNav() {
                   </Link>
                 )}
 
-                {/* Dropdown */}
                 {item.children && openMenu === item.label && (
                   <div className="absolute left-0 top-full z-50 mt-px w-56 rounded-b-lg border border-white/10 bg-[oklch(0.16_0_0)] py-1 shadow-xl">
                     {item.children.map((child) => (
@@ -213,12 +208,9 @@ export function GlobalNav() {
           })}
         </nav>
 
-        {/* Right controls */}
         <div className="ml-auto flex items-center gap-1">
-          {/* Theme toggle */}
           <ThemeToggle />
 
-          {/* Search */}
           {searchOpen ? (
             <div className="flex items-center gap-2">
               <input
@@ -240,18 +232,15 @@ export function GlobalNav() {
             </button>
           )}
 
-          {/* Notifications */}
           <Link href="/messages" className="relative flex h-7 w-7 items-center justify-center rounded text-white/50 hover:bg-white/10 hover:text-white">
             <Bell className="h-3.5 w-3.5" />
             <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-destructive" />
           </Link>
 
-          {/* Help */}
           <Link href="/support" className="flex h-7 w-7 items-center justify-center rounded text-white/50 hover:bg-white/10 hover:text-white">
             <HelpCircle className="h-3.5 w-3.5" />
           </Link>
 
-          {/* User avatar - show session user or login button */}
           {status === "loading" ? (
             <div className="h-7 w-7 rounded-full bg-primary/20 animate-pulse" />
           ) : session ? (
@@ -272,7 +261,7 @@ export function GlobalNav() {
                   <Link href="/profile" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-2.5 px-4 py-2 text-xs text-white/70 hover:bg-white/5 hover:text-white">
                     <User className="h-3.5 w-3.5" /> Profile
                   </Link>
-                  <Link href="/profile" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-2.5 px-4 py-2 text-xs text-white/70 hover:bg-white/5 hover:text-white">
+                  <Link href="/settings" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-2.5 px-4 py-2 text-xs text-white/70 hover:bg-white/5 hover:text-white">
                     <Settings className="h-3.5 w-3.5" /> Settings
                   </Link>
                   {isAdmin && (
@@ -299,16 +288,19 @@ export function GlobalNav() {
         </div>
       </div>
 
-      {/* ── Secondary tab bar ────────────────────────────────── */}
+      {/* Secondary tab bar */}
       {subNavItems.length > 0 && (
         <div className="flex h-10 items-stretch gap-0 border-b border-border bg-card px-4">
           <div className="flex items-stretch overflow-x-auto">
             {subNavItems.map((item) => {
-              const isActiveSubItem = activeSubNav === item.label
+              const itemUrl = new URL(item.href, window.location.origin)
+              const itemTab = itemUrl.searchParams.get('tab')
+              const currentTab = searchParams.get('tab')
+              const isActiveSubItem = itemTab ? currentTab === itemTab : pathname === itemUrl.pathname
               return (
-                <button
+                <Link
                   key={item.label}
-                  onClick={() => setActiveSubNav(item.label)}
+                  href={item.href}
                   className={cn(
                     "flex h-full shrink-0 items-center px-4 text-xs font-medium transition-colors border-b-2",
                     isActiveSubItem
@@ -317,7 +309,7 @@ export function GlobalNav() {
                   )}
                 >
                   {item.label}
-                </button>
+                </Link>
               )
             })}
           </div>
