@@ -161,9 +161,9 @@ export default function DesktopDashboard() {
         cloudApi.getAircraft(),
       ])
 
-      setTotals(totalsRes?.totals || null)
-      setRecentFlights(Array.isArray(logbookRes) ? logbookRes : [])
-      setAircraft(Array.isArray(aircraftRes) ? aircraftRes : [])
+      setTotals((totalsRes?.totals as Totals) || null)
+      setRecentFlights((Array.isArray(logbookRes) ? logbookRes : []) as Flight[])
+      setAircraft(Array.isArray(aircraftRes) ? (aircraftRes as Aircraft[]) : [])
       setCurrencyCount(Array.isArray(currencyRes) ? currencyRes.length : 0)
     } catch (e) {
       console.error('Dashboard load error (cloud):', e)

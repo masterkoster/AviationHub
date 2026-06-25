@@ -5,8 +5,9 @@ import { prisma } from '@/lib/prisma'
 export const dynamic = 'force-dynamic'
 
 // PUT - Update aircraft
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -16,13 +17,13 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
     const aircraft = await prisma.aircraftProfile.findFirst({
-      where: { id: params.id, pilotProfileId: profile.id },
+      where: { id, pilotProfileId: profile.id },
     })
     if (!aircraft) return NextResponse.json({ error: 'Aircraft not found' }, { status: 404 })
 
     const body = await request.json()
     const updated = await prisma.aircraftProfile.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         nNumber: body.nNumber?.toUpperCase() ?? undefined,
         nickname: body.nickname ?? undefined,
@@ -39,8 +40,9 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 }
 
 // DELETE - Remove aircraft
-export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -50,11 +52,11 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
     if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
     const aircraft = await prisma.aircraftProfile.findFirst({
-      where: { id: params.id, pilotProfileId: profile.id },
+      where: { id, pilotProfileId: profile.id },
     })
     if (!aircraft) return NextResponse.json({ error: 'Aircraft not found' }, { status: 404 })
 
-    await prisma.aircraftProfile.delete({ where: { id: params.id } })
+    await prisma.aircraftProfile.delete({ where: { id } })
 
     return NextResponse.json({ ok: true })
   } catch (error) {

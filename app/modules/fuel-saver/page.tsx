@@ -18,7 +18,7 @@ import PerformanceSettingsPanel, { PerformanceSettings, DEFAULT_SETTINGS } from 
 import AuthModal from './AuthModal';
 import UpgradeModal from './UpgradeModal';
 import TierExplainerModal from './TierExplainerModal';
-import VerificationBanner from '../components/VerificationBanner';
+import VerificationBanner from '../../components/VerificationBanner';
 
 // Types
 export interface Airport {

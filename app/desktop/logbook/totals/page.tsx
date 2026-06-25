@@ -20,7 +20,7 @@ export default function DesktopTotalsPage() {
       }
       if (status === 'authenticated') {
         const t = await cloudApi.getTotals()
-        if (!cancelled) setTotals(t.totals || null)
+        if (!cancelled) setTotals((t.totals as unknown as LocalTotals) || null)
       }
     }
     load()

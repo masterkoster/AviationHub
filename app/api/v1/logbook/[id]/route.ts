@@ -14,8 +14,9 @@ const INT_FIELDS = ['dayLandings', 'nightLandings', 'landingsFullStop', 'approac
 const BOOL_FIELDS = ['isSimulator', 'isPending', 'isCrossCountry', 'isNight', 'isDay', 'isSolo', 'isDual', 'requiresSafetyPilot']
 
 // GET - Single entry
-export async function GET(_request: Request, { params }: { params: { id: string } }) {
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -23,7 +24,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
     const entry = await prisma.logbookEntry.findFirst({
       where: {
-        id: params.id,
+        id,
         pilotProfile: { userId: session.user.id },
       },
     })
@@ -40,8 +41,9 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 }
 
 // PUT - Update entry (accepts all fields pass-through)
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -49,7 +51,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
     const existing = await prisma.logbookEntry.findFirst({
       where: {
-        id: params.id,
+        id,
         pilotProfile: { userId: session.user.id },
       },
     })
@@ -94,7 +96,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     const entry = await prisma.logbookEntry.update({
-      where: { id: params.id },
+      where: { id },
       data,
     })
 
@@ -105,7 +107,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       const newVal = String(value ?? '')
       if (oldVal !== newVal) {
         await prisma.logbookEntryHistory.create({
-          data: { entryId: params.id, action: 'UPDATED', fieldName: key, oldValue: oldVal, newValue: newVal, changedBy: session.user.id },
+          data: { entryId: id, action: 'UPDATED', fieldName: key, oldValue: oldVal, newValue: newVal, changedBy: session.user.id },
         })
       }
     }

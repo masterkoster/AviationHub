@@ -47,7 +47,7 @@ export default function DesktopLogbookPage() {
 
         if (status === 'authenticated') {
           const cloud = await cloudApi.getLogbook(200)
-          if (!cancelled) setRows(Array.isArray(cloud) ? cloud : [])
+          if (!cancelled) setRows((Array.isArray(cloud) ? cloud : []) as FlightRow[])
           return
         }
 
