@@ -7,7 +7,7 @@ import { BookOpen, Loader2 } from 'lucide-react'
 
 export default function V1LoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -19,7 +19,7 @@ export default function V1LoginPage() {
 
     const res = await signIn('credentials', {
       redirect: false,
-      email,
+      username,
       password,
     })
 
@@ -47,18 +47,18 @@ export default function V1LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="email" className="block text-sm font-medium mb-1.5">
-              Email
+            <label htmlFor="username" className="block text-sm font-medium mb-1.5">
+              Username or Email
             </label>
             <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               required
               autoFocus
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-              placeholder="you@email.com"
+              placeholder="Username or email"
             />
           </div>
 
@@ -90,6 +90,13 @@ export default function V1LoginPage() {
             Sign In
           </button>
         </form>
+
+        <p className="text-center text-xs text-muted-foreground">
+          Don&apos;t have an account?{' '}
+          <a href="/v1/signup" className="underline hover:text-foreground">
+            Create one
+          </a>
+        </p>
 
         <p className="text-center text-xs text-muted-foreground">
           <a href="/" className="underline hover:text-foreground">

@@ -1,0 +1,16 @@
+export {
+  getLocalAircraftStats,
+  getLocalRecentFlights,
+  getLocalTotals,
+  listLocalAircraftOptions,
+  resolveLocalLogbookUserId,
+  createLocalFlight,
+  markLocalFlightSynced,
+  markLocalFlightSyncFailed,
+  type LocalAircraftStat,
+  type LocalAircraftOption,
+  type LocalFlight,
+  type LocalTotals,
+  type NewLocalFlightInput,
+  type ResolveLocalUserOptions,
+} from '@/apps/desktop/src/lib/local-logbook'

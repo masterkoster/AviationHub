@@ -1,4 +1,31 @@
 @import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+/* Force popup visuals to match legacy Leaflet look */
+.maplibregl-popup-content {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border-radius: 8px !important;
+  padding: 12px !important;
+}
+
+.maplibregl-popup-tip {
+  border-top-color: #ffffff !important;
+}
+
+.planner-input {
+  width: 100%;
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+  outline: none;
+}
+
+.planner-input:focus {
+  box-shadow: 0 0 0 2px hsl(var(--ring));
+}
 
 :root {
   /* Light theme */
@@ -80,6 +107,25 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
+}
+
+/* ---- Hide Next.js dev overlays inside the desktop shell ---- */
+/* Suppresses the Vercel-style "deployment temporarily paused" banner,
+   build indicator, error overlay, and HMR toast that leak through the
+   Tauri webview during development. These only appear in dev mode. */
+nextjs-portal { display: none !important; visibility: hidden !important; }
+nextjs-dev-tools-panel { display: none !important; }
+[data-nextjs-build-indicator],
+[data-nextjs-build-indicator-container],
+[data-nextjs-dialog-overlay],
+[data-nextjs-dialog],
+[data-nextjs-toast],
+[data-nextjs-toast-region],
+[data-nextjs-segment-explorer],
+[data-nextjs-segment-explorer-container] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 /* Custom scrollbar */

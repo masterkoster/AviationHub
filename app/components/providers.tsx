@@ -17,6 +17,9 @@ import { ThemeProvider } from "@/components/theme-provider";
 export function Providers({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isHomePage = pathname === "/";
+  const isV1 = pathname.startsWith("/v1");
+  const isDesktop = pathname.startsWith("/desktop");
+  const isLandingPage = pathname === "/";
   const currentModule = pathname ? getModuleByPath(pathname) : undefined;
   const [showConflicts, setShowConflicts] = useState(false);
 
@@ -36,21 +39,21 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         <AuthModalProvider>
           <>
-            <GlobalNav />
-            {!isHomePage && currentModule && currentModule.menu && currentModule.menu.length > 0 && (
+            {!isV1 && !isDesktop && !isLandingPage && <GlobalNav />}
+            {!isHomePage && !isV1 && !isDesktop && !isLandingPage && currentModule && currentModule.menu && currentModule.menu.length > 0 && (
               <ModuleNav module={currentModule} />
             )}
-            <div className={isHomePage ? "" : ""} style={isHomePage ? undefined : { paddingTop: NAV_HEIGHT + (hasSubNav ? 40 : 0) }}>
+            <div className={isHomePage || isV1 || isDesktop || isLandingPage ? "" : ""} style={isHomePage || isV1 || isDesktop || isLandingPage ? undefined : { paddingTop: NAV_HEIGHT + (hasSubNav ? 40 : 0) }}>
               {children}
             </div>
-            <OfflineBanner onSyncNow={() => setShowConflicts(true)} />
+            {!isV1 && !isDesktop && !isLandingPage && <OfflineBanner onSyncNow={() => setShowConflicts(true)} />}
             <ConflictModal
               isOpen={showConflicts}
               onClose={() => setShowConflicts(false)}
               onResolved={() => {}}
             />
-            <LoginModal />
-            <ChatWidget />
+            {!isV1 && !isDesktop && !isLandingPage && <LoginModal />}
+            {!isV1 && !isDesktop && !isLandingPage && <ChatWidget />}
           </>
         </AuthModalProvider>
       </ThemeProvider>

@@ -30,7 +30,7 @@ export default function V1Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const { data: session } = useSession()
 
-  if (pathname === '/v1/login') {
+  if (pathname === '/v1/login' || pathname === '/v1/signup') {
     return <>{children}</>
   }
 

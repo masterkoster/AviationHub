@@ -1,5 +1,5 @@
-import LandingPageClient from './components/landing-page-client';
+import V1LandingPage from './components/v1-landing-page';
 
 export default function LandingPage() {
-  return <LandingPageClient />;
+  return <V1LandingPage />;
 }
