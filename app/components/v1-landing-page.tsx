@@ -63,7 +63,7 @@ const desktopFeatures = [
   },
 ]
 
-const GITHUB_RELEASE_URL = 'https://github.com/yourusername/aviationhub/releases/latest'
+const GITHUB_RELEASE_URL = 'https://github.com/masterkoster/aviationhub/releases/latest'
 
 export default function V1LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -436,7 +436,7 @@ export default function V1LandingPage() {
             </div>
             <div className="flex items-center gap-4">
               <a
-                href="https://github.com/yourusername/aviationhub"
+                href="https://github.com/masterkoster/aviationhub"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs text-muted-foreground hover:text-foreground"

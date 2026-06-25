@@ -2,7 +2,7 @@
 
 > A modern pilot logbook and flight planner for Windows.
 
-[![Desktop Boundary](https://github.com/yourusername/aviationhub/actions/workflows/desktop-boundary.yml/badge.svg)](https://github.com/yourusername/aviationhub/actions/workflows/desktop-boundary.yml)
+[![Desktop Boundary](https://github.com/masterkoster/aviationhub/actions/workflows/desktop-boundary.yml/badge.svg)](https://github.com/masterkoster/aviationhub/actions/workflows/desktop-boundary.yml)
 
 ---
 
@@ -20,7 +20,7 @@
 
 ## Download
 
-[![Download Latest](https://img.shields.io/badge/Download-Latest%20Release-blue)](https://github.com/yourusername/aviationhub/releases/latest)
+[![Download Latest](https://img.shields.io/badge/Download-Latest%20Release-blue)](https://github.com/masterkoster/aviationhub/releases/latest)
 
 ### System Requirements
 - Windows 10 or later
@@ -29,7 +29,7 @@
 - ~200MB disk space
 
 ### Installation
-1. Download the latest NSIS installer from [Releases](https://github.com/yourusername/aviationhub/releases/latest)
+1. Download the latest NSIS installer from [Releases](https://github.com/masterkoster/aviationhub/releases/latest)
 2. Run the `.exe` file
 3. If Windows SmartScreen appears, click **More info** → **Run anyway**
 4. Follow the setup wizard
