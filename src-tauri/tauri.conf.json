@@ -56,6 +56,14 @@
   "plugins": {
     "sql": {
       "default": "sqlite:aviationhub.db"
+    },
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "endpoints": [
+        "https://github.com/yourusername/aviationhub/releases/latest/download/update.json"
+      ],
+      "pubkey": ""
     }
   }
 }

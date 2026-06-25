@@ -6,6 +6,7 @@ import { TitleBar } from './title-bar'
 import { DesktopSidebar } from './desktop-sidebar'
 import { CommandPalette } from './command-palette'
 import { Toaster } from '@/components/ui/toaster'
+import { UpdateBanner } from './update-banner'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { clearActiveUserOnStartup } from '@/desktop/lib/setup'
 import { useShortcuts, type ShortcutEntry } from '@/desktop/hooks/use-shortcuts'
@@ -121,6 +122,7 @@ export function DesktopShell({ children }: { children: ReactNode }) {
         <main className="flex-1 overflow-y-auto">{children}</main>
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
         <Toaster />
+        <UpdateBanner />
       </div>
     )
   }
@@ -149,6 +151,7 @@ export function DesktopShell({ children }: { children: ReactNode }) {
       </div>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <Toaster />
+      <UpdateBanner />
     </div>
   )
 }
