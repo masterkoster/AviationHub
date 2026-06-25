@@ -7,6 +7,8 @@ import { DesktopSidebar } from './desktop-sidebar'
 import { CommandPalette } from './command-palette'
 import { Toaster } from '@/components/ui/toaster'
 import { UpdateBanner } from './update-banner'
+import { AnalyticsConsentModal } from './analytics-consent-modal'
+import { useAnalytics } from '@/desktop/hooks/use-analytics'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { clearActiveUserOnStartup } from '@/desktop/lib/setup'
 import { useShortcuts, type ShortcutEntry } from '@/desktop/hooks/use-shortcuts'
@@ -62,6 +64,9 @@ export function DesktopShell({ children }: { children: ReactNode }) {
   }, [router, paletteOpen])
 
   useShortcuts(shortcuts)
+
+  // Anonymous opt-in analytics (Tauri only, consent-based)
+  useAnalytics()
 
   // Clear active user on first mount so users always see account selection
   // (PS4/Xbox style — no auto-login from previous session)
@@ -123,6 +128,7 @@ export function DesktopShell({ children }: { children: ReactNode }) {
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
         <Toaster />
         <UpdateBanner />
+        <AnalyticsConsentModal />
       </div>
     )
   }
@@ -152,6 +158,7 @@ export function DesktopShell({ children }: { children: ReactNode }) {
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <Toaster />
       <UpdateBanner />
+      <AnalyticsConsentModal />
     </div>
   )
 }

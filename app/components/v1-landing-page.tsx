@@ -443,6 +443,9 @@ export default function V1LandingPage() {
               >
                 GitHub
               </a>
+              <Link href="/v1/privacy" className="text-xs text-muted-foreground hover:text-foreground">
+                Privacy
+              </Link>
               <Link href="/v1/login" className="text-xs text-muted-foreground hover:text-foreground">
                 Sign In (Web)
               </Link>
