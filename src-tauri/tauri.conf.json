@@ -61,7 +61,7 @@
       "active": true,
       "dialog": false,
       "endpoints": [
-        "https://github.com/masterkoster/aviationhub/releases/latest/download/update.json"
+        "https://github.com/masterkoster/next-dashboard/releases/latest/download/update.json"
       ],
       "pubkey": ""
     }
