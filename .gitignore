@@ -35,6 +35,12 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# desktop dev logs
+dev-desktop.log
+
+# accidental artifacts
+C
+
 # vercel
 .vercel
 
