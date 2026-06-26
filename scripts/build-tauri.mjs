@@ -102,6 +102,9 @@ await new Promise((resolve, reject) => {
   poll()
 })
 
+// Server is ready — unref so Node.js can exit even if pipes are open
+serverProcess.unref()
+
 // ── 7. Fetch and save each desktop route ──
 const desktopRoutes = [
   '',                    // → index.html (redirects to dashboard)
@@ -204,6 +207,7 @@ else {
 
 if (ok) {
   console.log('[build-tauri] ✅ Done! Zero servers in final app — just static files.')
+  process.exit(0)
 } else {
   process.exit(1)
 }
