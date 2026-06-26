@@ -41,6 +41,9 @@ dev-desktop.log
 # accidental artifacts
 C
 
+# user/analytics data (generated at runtime)
+/data
+
 # vercel
 .vercel
 

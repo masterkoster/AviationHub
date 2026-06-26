@@ -1,4 +1,4 @@
-## AviationHub ${{ github.ref_name }}
+## AviationHub Desktop
 
 ### Downloads
 - **NSIS Installer** (.exe) — Recommended for most users
