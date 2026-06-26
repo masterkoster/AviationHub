@@ -51,7 +51,7 @@
         "language": "en-US"
       }
     },
-    "licenseFile": "LICENSE"
+    "licenseFile": "../LICENSE"
   },
   "plugins": {
     "sql": {
