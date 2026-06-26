@@ -11,6 +11,12 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'build-fallback-secret-do-not-use-in-production' }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY || 're_placeholder_key' }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY || 'sk_placeholder' }}
+      NEXT_PUBLIC_TAILHISTORY_FUNCTION_URL: ${{ secrets.TAILHISTORY_FUNCTION_URL || '' }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'file:./dev.db' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,12 +43,6 @@ jobs:
 
       - name: Build Next.js app
         run: npm run build
-        env:
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'build-fallback-secret-do-not-use-in-production' }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY || 're_placeholder' }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY || 'sk_placeholder' }}
-          NEXT_PUBLIC_TAILHISTORY_FUNCTION_URL: ${{ secrets.TAILHISTORY_FUNCTION_URL || '' }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL || 'file:./dev.db' }}
 
       - name: Build Tauri desktop app
         run: npx tauri build
