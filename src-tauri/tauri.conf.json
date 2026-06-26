@@ -7,7 +7,7 @@
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000/desktop",
     "beforeDevCommand": "echo dev server already running",
-    "beforeBuildCommand": "npm run build && node scripts/copy-to-out.mjs"
+    "beforeBuildCommand": "node scripts/build-tauri.mjs"
   },
   "app": {
     "withGlobalTauri": true,

@@ -41,10 +41,7 @@ jobs:
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli@latest
 
-      - name: Build Next.js app
-        run: npm run build
-
-      - name: Build Tauri desktop app
+      - name: Build Tauri desktop app (Next.js + Rust)
         run: npx tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
