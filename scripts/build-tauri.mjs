@@ -157,6 +157,17 @@ console.log(`[build-tauri] Fetched ${fetched}/${desktopRoutes.length} pages` +
 // ── 8. Kill server ──
 console.log('[build-tauri] Killing temp server...')
 serverProcess.kill('SIGTERM')
+
+// On Windows, SIGTERM often doesn't terminate the process tree
+// (especially with shell: true). Force-kill the entire tree so
+// that `npx tauri build` knows the beforeBuildCommand is done.
+if (process.platform === 'win32') {
+  try {
+    execSync(`taskkill /F /T /PID ${serverProcess.pid}`, { stdio: 'ignore' })
+  } catch {
+    // Already dead, that's fine
+  }
+}
 await new Promise((r) => setTimeout(r, 2000))
 
 // ── 9. Ensure root index.html exists ──
