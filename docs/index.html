@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AviationHub — Pilot Logbook &amp; Flight Planner</title>
+  <meta name="description" content="A modern, offline-first pilot logbook and flight planner for Windows. Logbook, interactive map, weight & balance, fuel planning, currency tracking, and more." />
+  <link rel="icon" type="image/png" href="screenshots/favicon.png" />
+  <meta property="og:title" content="AviationHub — Pilot Logbook & Flight Planner" />
+  <meta property="og:description" content="Offline-first pilot logbook & flight planner for Windows." />
+  <meta property="og:image" content="screenshots/dashboard.jpg" />
+  <meta property="og:type" content="website" />
+  <style>
+    :root {
+      --bg: #020617;
+      --bg-2: #0f172a;
+      --card: rgba(148, 163, 184, 0.06);
+      --card-border: rgba(148, 163, 184, 0.14);
+      --accent: #0ea5e9;
+      --accent-2: #0284c7;
+      --accent-glow: rgba(14, 165, 233, 0.35);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --heading: #f8fafc;
+      --radius: 16px;
+      --max: 1120px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 24px; }
+
+    /* Hero background glow */
+    .hero {
+      position: relative;
+      padding: 96px 0 56px;
+      text-align: center;
+      overflow: hidden;
+      background:
+        radial-gradient(80% 60% at 50% -10%, var(--accent-glow), transparent 70%),
+        linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 100%);
+      border-bottom: 1px solid var(--card-border);
+    }
+    .hero::after {
+      content: "";
+      position: absolute; inset: 0;
+      background-image: radial-gradient(rgba(148,163,184,0.08) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: radial-gradient(60% 50% at 50% 40%, #000 0%, transparent 80%);
+      pointer-events: none;
+    }
+    .hero .wrap { position: relative; z-index: 1; }
+    .hero-logo {
+      width: 96px; height: 96px; border-radius: 22px;
+      box-shadow: 0 12px 40px var(--accent-glow), 0 0 0 1px rgba(255,255,255,0.06) inset;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(2.4rem, 6vw, 4rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--heading);
+      margin-bottom: 16px;
+    }
+    .hero p.lead {
+      font-size: clamp(1.05rem, 2.2vw, 1.35rem);
+      color: var(--muted);
+      max-width: 640px;
+      margin: 0 auto 32px;
+    }
+    .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 26px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 1rem;
+      border: 1px solid transparent;
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .btn:hover { text-decoration: none; transform: translateY(-2px); }
+    .btn-primary {
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
+      color: #fff;
+      box-shadow: 0 8px 24px var(--accent-glow);
+    }
+    .btn-primary:hover { box-shadow: 0 12px 32px var(--accent-glow); }
+    .btn-ghost {
+      background: var(--card);
+      color: var(--text);
+      border-color: var(--card-border);
+    }
+    .btn-ghost:hover { background: rgba(148,163,184,0.12); }
+    .hero-meta {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      display: flex; gap: 18px; justify-content: center; flex-wrap: wrap;
+    }
+    .hero-meta span { display: inline-flex; align-items: center; gap: 6px; }
+
+    /* Sections */
+    section { padding: 80px 0; }
+    section.alt { background: var(--bg-2); border-top: 1px solid var(--card-border); border-bottom: 1px solid var(--card-border); }
+    .section-head { text-align: center; margin-bottom: 48px; }
+    .eyebrow {
+      text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.78rem;
+      color: var(--accent); font-weight: 700; margin-bottom: 12px;
+    }
+    h2 {
+      font-size: clamp(1.8rem, 4vw, 2.6rem);
+      font-weight: 800; letter-spacing: -0.02em; color: var(--heading);
+      margin-bottom: 14px;
+    }
+    .section-sub { color: var(--muted); max-width: 600px; margin: 0 auto; }
+
+    /* Feature grid */
+    .grid { display: grid; gap: 20px; }
+    @media (min-width: 680px) { .grid.features { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 980px) { .grid.features { grid-template-columns: repeat(3, 1fr); } }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 26px;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .card:hover { transform: translateY(-4px); border-color: var(--accent); background: rgba(14,165,233,0.06); }
+    .card .icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      display: grid; place-items: center;
+      background: rgba(14,165,233,0.12);
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+    .card h3 { font-size: 1.12rem; color: var(--heading); margin-bottom: 8px; font-weight: 700; }
+    .card p { color: var(--muted); font-size: 0.95rem; }
+
+    /* Gallery */
+    .gallery { display: grid; gap: 28px; }
+    .shot { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--card-border); background: var(--bg-2); box-shadow: 0 20px 50px rgba(0,0,0,0.4); }
+    .shot img { width: 100%; height: auto; display: block; }
+    .shot .cap { padding: 14px 20px; color: var(--muted); font-size: 0.9rem; }
+    .shot .cap b { color: var(--text); }
+
+    /* Modes */
+    .modes { display: grid; gap: 20px; }
+    @media (min-width: 760px) { .modes { grid-template-columns: 1fr 1fr; } }
+    .mode {
+      background: var(--card); border: 1px solid var(--card-border);
+      border-radius: var(--radius); padding: 30px;
+    }
+    .mode .tag { display: inline-block; font-size: 0.75rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; }
+    .mode h3 { color: var(--heading); font-size: 1.2rem; margin-bottom: 8px; }
+    .mode p { color: var(--muted); }
+
+    /* Coming soon panel */
+    .soon {
+      text-align: center; padding: 48px 28px;
+      background: radial-gradient(60% 80% at 50% 0%, rgba(14,165,233,0.14), transparent 70%);
+      border: 1px dashed var(--card-border); border-radius: var(--radius);
+    }
+    .soon h3 { color: var(--heading); font-size: 1.4rem; margin-bottom: 10px; }
+    .soon p { color: var(--muted); max-width: 480px; margin: 0 auto; }
+
+    /* Download */
+    .download {
+      text-align: center; padding: 64px 28px;
+      background: linear-gradient(180deg, var(--bg-2), var(--bg));
+      border-radius: var(--radius); border: 1px solid var(--card-border);
+    }
+    .req { color: var(--muted); font-size: 0.9rem; margin-top: 18px; }
+
+    /* Footer */
+    footer { padding: 40px 0; border-top: 1px solid var(--card-border); text-align: center; color: var(--muted); font-size: 0.9rem; }
+    footer a { color: var(--muted); } footer a:hover { color: var(--text); }
+    footer .links { display: flex; gap: 22px; justify-content: center; margin-bottom: 16px; flex-wrap: wrap; }
+
+    .plane { display: inline-block; transform: rotate(-20deg); }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="wrap">
+      <img class="hero-logo" src="screenshots/logo.png" alt="AviationHub logo" />
+      <h1>AviationHub</h1>
+      <p class="lead">A modern, offline-first pilot logbook &amp; flight planner for Windows. Your data stays on your machine — no account required.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/masterkoster/AviationHub/releases/latest" target="_blank" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download for Windows
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/masterkoster/AviationHub" target="_blank" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.53-1.34-1.3-1.7-1.3-1.7-1.06-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.4-1.27.73-1.56-2.56-.29-5.26-1.28-5.26-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.5 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.18 1.84 1.18 3.1 0 4.43-2.7 5.41-5.27 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+      <div class="hero-meta">
+        <span>🪟 Windows 10+</span>
+        <span>🔒 Offline-first</span>
+        <span>🔐 Encrypted backups</span>
+        <span>✈️ 20,000+ airports</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- FEATURES -->
+  <section>
+    <div class="wrap">
+      <div class="section-head">
+        <div class="eyebrow">Everything in one cockpit</div>
+        <h2>Built for pilots who actually fly</h2>
+        <p class="section-sub">Logbook, planning, currency, and aircraft management — unified in one fast desktop app. No subscriptions for the basics. No cloud lock-in.</p>
+      </div>
+      <div class="grid features">
+        <div class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v4H4zM4 12h16v8H4zM8 8v4M16 8v4"/></svg></div>
+          <h3>Pilot Logbook</h3>
+          <p>Full time breakdowns — PIC, SIC, night, instrument, cross-country. Search and filter your entire flight history.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+          <h3>Interactive Map</h3>
+          <p>Explore 20,000+ airports with fuel prices, frequencies, and runway info. Plan routes visually with waypoints.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 3 5-6"/></svg></div>
+          <h3>Weight &amp; Balance</h3>
+          <p>Built-in W&amp;B calculator with CG visualization. Pre-flight planning made simple and visual.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <h3>Currency Tracking</h3>
+          <p>FAA currency rules computed from your logbook — night landings, IPC, BFR, medical. Always know your status.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6"/></svg></div>
+          <h3>Fuel Planning</h3>
+          <p>Compare fuel prices, calculate range, and find the cheapest stops along your route.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 16 0M4 12a8 8 0 0 0 16 0M4 12h16M8 12v5M16 12v5"/></svg></div>
+          <h3>Route Weather</h3>
+          <p>METAR, TAF, and wind aloft for your entire route. See the fuel impact of headwinds.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+          <h3>Offline-first &amp; Private</h3>
+          <p>Works entirely offline. Your data stays on your machine — no account required, no cloud lock-in.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v2M12 12v9M8 12l4 4 4-4"/></svg></div>
+          <h3>Encrypted Backups</h3>
+          <p>Export and import your data with <code>.ahb</code> encrypted backup files. Your logbook, portable and safe.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M6 16h12"/></svg></div>
+          <h3>Keyboard-first</h3>
+          <p><code>Ctrl+1</code>–<code>8</code> for rapid navigation, <code>Ctrl+K</code> command palette. Power-user workflows, built in.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GALLERY -->
+  <section class="alt">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="eyebrow">See it in action</div>
+        <h2>Screenshots</h2>
+        <p class="section-sub">A quick tour of the desktop app — no download required to take a look.</p>
+      </div>
+      <div class="gallery">
+        <figure class="shot">
+          <img src="screenshots/dashboard.jpg" alt="AviationHub dashboard showing totals, currency, and recent flights" loading="lazy" />
+          <figcaption class="cap"><b>Dashboard</b> — totals, currency status, and recent flights at a glance.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="screenshots/map.jpg" alt="Interactive airport map with fuel prices and route planning" loading="lazy" />
+          <figcaption class="cap"><b>Interactive Map</b> — 20,000+ airports with fuel prices, frequencies, and runway info.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="screenshots/add-flight.jpg" alt="Logbook flight entry form with time breakdowns" loading="lazy" />
+          <figcaption class="cap"><b>Logbook entry</b> — full time breakdowns (PIC, SIC, night, instrument, cross-country).</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="screenshots/login.jpg" alt="Account picker choosing local or cloud mode" loading="lazy" />
+          <figcaption class="cap"><b>Account picker</b> — choose local mode (offline, PIN-protected) or cloud sync.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODES -->
+  <section>
+    <div class="wrap">
+      <div class="section-head">
+        <div class="eyebrow">Your data, your call</div>
+        <h2>Two ways to run it</h2>
+      </div>
+      <div class="modes">
+        <div class="mode">
+          <span class="tag">Default</span>
+          <h3>Local Mode</h3>
+          <p>Data stays on your machine. No account required. Works completely offline. Protected with a PIN. This is the default — most pilots never need anything else.</p>
+        </div>
+        <div class="mode">
+          <span class="tag">Optional</span>
+          <h3>Cloud Mode</h3>
+          <p>Sign in to sync across devices. Access your logbook from the desktop app and, eventually, the web. Sync is opt-in — never mandatory.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMING SOON -->
+  <section class="alt">
+    <div class="wrap">
+      <div class="soon">
+        <div class="eyebrow">On the horizon</div>
+        <h3>Web version coming soon</h3>
+        <p>A browser-based experience is in development. For now, grab the Windows desktop app — it's fully offline and your data never leaves your machine unless you choose to sync.</p>
+        <div style="margin-top:22px;">
+          <a class="btn btn-primary" href="https://github.com/masterkoster/AviationHub/releases/latest" target="_blank" rel="noopener">Download the desktop app</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DOWNLOAD -->
+  <section>
+    <div class="wrap">
+      <div class="download">
+        <div class="eyebrow">Ready to fly</div>
+        <h2>Get AviationHub for Windows</h2>
+        <p class="section-sub" style="margin-bottom:28px;">Latest NSIS installer from GitHub Releases.</p>
+        <a class="btn btn-primary" href="https://github.com/masterkoster/AviationHub/releases/latest" target="_blank" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download Latest Release
+        </a>
+        <p class="req">Windows 10+ · 64-bit · 4GB RAM (8GB recommended) · ~200MB disk<br/>
+        If Windows SmartScreen appears, click <b>More info → Run anyway</b> (code-signing certificate is pending).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="wrap">
+      <div class="links">
+        <a href="https://github.com/masterkoster/AviationHub" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/masterkoster/AviationHub/releases/latest" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/masterkoster/AviationHub/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+        <a href="https://github.com/masterkoster/AviationHub/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      </div>
+      <p>Built for pilots, by a pilot. <span class="plane">✈️</span> &nbsp;·&nbsp; © AviationHub. Proprietary.</p>
+    </div>
+  </footer>
+
+</body>
+</html>
