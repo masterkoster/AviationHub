@@ -1223,7 +1223,7 @@ model AircraftSpecs {
 }
 
 model Maintenance {
-  id                String    @id(map: "PK__Maintena__3213E83FBBF3C62C") @default("newid()", map: "DF__Maintenance__id__3493CFA7") @db.NVarChar(36)
+  id                String    @id(map: "PK__Maintena__3213E83FBBF3C62C") @default(dbgenerated("newid()"), map: "DF__Maintenance__id__3493CFA7") @db.NVarChar(36)
   organizationId    String?   @db.NVarChar(36)
   clubAircraftId    String?   @db.NVarChar(36)
   reportedByPilotId String?   @db.NVarChar(36)
@@ -1256,7 +1256,7 @@ model Maintenance {
 }
 
 model FuelExpense {
-  id             String    @id @default("newid()") @db.NVarChar(36)
+  id             String    @id @default(dbgenerated("newid()"), map: "FuelExpense_id_df") @db.NVarChar(36)
   organizationId String?   @db.NVarChar(36)
   clubAircraftId String?   @db.NVarChar(36)
   pilotProfileId String?   @db.NVarChar(36)
@@ -1284,7 +1284,7 @@ model FuelExpense {
 }
 
 model ClubAircraft {
-  id                String    @id(map: "PK__ClubAirc__3213E83F197A971B") @default("newid()", map: "DF__ClubAircraft__id__2645B050") @db.NVarChar(36)
+  id                String    @id(map: "PK__ClubAirc__3213E83F197A971B") @default(dbgenerated("newid()"), map: "DF__ClubAircraft__id__2645B050") @db.NVarChar(36)
   organizationId    String?   @db.NVarChar(36)
   nNumber           String?   @db.NVarChar(10)
   nickname          String?   @db.NVarChar(100)
@@ -1318,7 +1318,7 @@ model ClubAircraft {
 }
 
 model Booking {
-  id             String    @id(map: "PK__Booking__3213E83F64A346D6") @default("newid()", map: "DF__Booking__id__2B0A656D") @db.NVarChar(36)
+  id             String    @id(map: "PK__Booking__3213E83F64A346D6") @default(dbgenerated("newid()"), map: "DF__Booking__id__2B0A656D") @db.NVarChar(36)
   organizationId String?   @db.NVarChar(36)
   clubAircraftId String?   @db.NVarChar(36)
   pilotProfileId String?   @db.NVarChar(36)
@@ -1342,7 +1342,7 @@ model Booking {
 }
 
 model PersonalBooking {
-  id             String    @id(map: "PK__PersonalBooking__3213E83F") @default("newid()") @db.NVarChar(36)
+  id             String    @id(map: "PK__PersonalBooking__3213E83F") @default(dbgenerated("newid()"), map: "PersonalBooking_id_df") @db.NVarChar(36)
   userId         String    @db.NVarChar(36)
   userAircraftId String    @db.NVarChar(36)
   startTime      DateTime
@@ -1372,7 +1372,7 @@ model GroupChatMessage {
 }
 
 model FlightLog {
-  id             String    @id(map: "PK__FlightLo__3213E83FB28F28FC") @default("newid()", map: "DF__FlightLog__id__2FCF1A8A") @db.NVarChar(36)
+  id             String    @id(map: "PK__FlightLo__3213E83FB28F28FC") @default(dbgenerated("newid()"), map: "DF__FlightLog__id__2FCF1A8A") @db.NVarChar(36)
   organizationId String?   @db.NVarChar(36)
   clubAircraftId String?   @db.NVarChar(36)
   pilotProfileId String?   @db.NVarChar(36)
