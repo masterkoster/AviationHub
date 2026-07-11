@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
 export async function POST(request: Request) {
   try {
@@ -23,14 +24,29 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { name } = body;
 
-    if (!name) {
+    if (!name || typeof name !== 'string' || !name.trim()) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+    }
+
+    const trimmedName = name.trim();
+
+    // Case-insensitive under the DB's CI collation; the unique index on
+    // Organization.name is the race-safe backstop (handled in catch below)
+    const existing = await prisma.organization.findFirst({
+      where: { name: trimmedName },
+      select: { id: true },
+    });
+    if (existing) {
+      return NextResponse.json(
+        { error: `A group named "${trimmedName}" already exists` },
+        { status: 409 }
+      );
     }
 
     // Create organization with only valid fields
     const group = await prisma.organization.create({
       data: {
-        name,
+        name: trimmedName,
         ownerId: userId,
       },
     });
@@ -53,6 +69,9 @@ export async function POST(request: Request) {
       updatedAt: group.updatedAt,
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json({ error: 'A group with this name already exists' }, { status: 409 });
+    }
     console.error('Error creating group:', error);
     return NextResponse.json({ error: 'Failed to create group', details: String(error) }, { status: 500 });
   }

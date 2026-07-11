@@ -12,7 +12,7 @@ datasource db {
 
 model Organization {
   id        String   @id @default(uuid()) @db.NVarChar(36)
-  name      String   @db.NVarChar(255)
+  name      String   @unique @db.NVarChar(255)
   type      String   @default("club") @db.NVarChar(20)
   ownerId   String   @db.NVarChar(36)
   createdAt DateTime @default(now())
