@@ -11,10 +11,10 @@ export async function GET(request: Request) {
     }
 
     // Get user with credentials
-    const user = await prisma.$queryRawUnsafe(`
+    const user = await prisma.$queryRaw`
       SELECT id, name, bfrExpiry, medicalExpiry, medicalClass
-      FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+      FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
 
     if (!user || user.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -32,14 +32,14 @@ export async function GET(request: Request) {
     calendarMonthsAgo.setMonth(calendarMonthsAgo.getMonth() - 24);
 
     // Get landings in last 90 days
-    const landings90Days = await prisma.$queryRawUnsafe(`
-      SELECT 
+    const landings90Days = await prisma.$queryRaw`
+      SELECT
         SUM(dayLandings) as dayLandings,
         SUM(nightLandings) as nightLandings
       FROM LogbookEntry
-      WHERE userId = '${userId}' 
-      AND date >= '${ninetyDaysAgo.toISOString()}'
-    `) as any[];
+      WHERE userId = ${userId}
+      AND date >= ${ninetyDaysAgo.toISOString()}
+    ` as any[];
 
     const dayLandings = landings90Days && landings90Days.length > 0 
       ? parseInt(landings90Days[0].dayLandings || 0) 
@@ -49,11 +49,11 @@ export async function GET(request: Request) {
       : 0;
 
     // Get BFR status
-    const bfrEntries = await prisma.$queryRawUnsafe(`
+    const bfrEntries = await prisma.$queryRaw`
       SELECT TOP 1 date FROM LogbookEntry
-      WHERE userId = '${userId}' AND dualGiven > 0
+      WHERE userId = ${userId} AND dualGiven > 0
       ORDER BY date DESC
-    `) as any[];
+    ` as any[];
 
     const lastBFRDate = bfrEntries && bfrEntries.length > 0 ? new Date(bfrEntries[0].date) : null;
     const bfrExpiry = userData.bfrExpiry ? new Date(userData.bfrExpiry) : null;
@@ -173,21 +173,26 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { bfrExpiry, medicalExpiry, medicalClass } = body;
 
-    // Build update query
-    const updates: string[] = [];
-    if (bfrExpiry) updates.push(`bfrExpiry = '${new Date(bfrExpiry).toISOString()}'`);
-    if (medicalExpiry) updates.push(`medicalExpiry = '${new Date(medicalExpiry).toISOString()}'`);
-    if (medicalClass) updates.push(`medicalClass = '${medicalClass}'`);
+    const MEDICAL_CLASSES = ['1', '2', '3'];
+    if (medicalClass && !MEDICAL_CLASSES.includes(String(medicalClass))) {
+      return NextResponse.json({ error: 'Invalid medicalClass' }, { status: 400 });
+    }
 
-    if (updates.length === 0) {
+    if (!bfrExpiry && !medicalExpiry && !medicalClass) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
 
-    await prisma.$executeRawUnsafe(`
-      UPDATE [User] 
-      SET ${updates.join(', ')}
-      WHERE email = '${session.user.email}'
-    `);
+    const bfrExpiryValue = bfrExpiry ? new Date(bfrExpiry).toISOString() : null;
+    const medicalExpiryValue = medicalExpiry ? new Date(medicalExpiry).toISOString() : null;
+
+    await prisma.$executeRaw`
+      UPDATE [User]
+      SET
+        bfrExpiry = COALESCE(${bfrExpiryValue}, bfrExpiry),
+        medicalExpiry = COALESCE(${medicalExpiryValue}, medicalExpiry),
+        medicalClass = COALESCE(${medicalClass ? String(medicalClass) : null}, medicalClass)
+      WHERE email = ${session.user.email}
+    `;
 
     return NextResponse.json({ success: true });
   } catch (error) {

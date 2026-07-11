@@ -21,28 +21,28 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
     
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check membership using raw SQL
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId}
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Not a member' }, { status: 403 });
     }
 
-    const aircraft = await prisma.$queryRawUnsafe(`
-      SELECT * FROM ClubAircraft WHERE groupId = '${groupId}' ORDER BY createdAt DESC
-    `) as any[];
+    const aircraft = await prisma.$queryRaw`
+      SELECT * FROM ClubAircraft WHERE groupId = ${groupId} ORDER BY createdAt DESC
+    ` as any[];
 
     const formattedAircraft = (aircraft || []).map((a: any) => ({
       id: a.id,
@@ -68,7 +68,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     return NextResponse.json(formattedAircraft);
   } catch (error) {
     console.error('Error fetching aircraft:', error);
-    return NextResponse.json({ error: 'Failed to fetch aircraft', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch aircraft' }, { status: 500 });
   }
 }
 
@@ -86,20 +86,20 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
     
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
 
     // Check admin role using raw SQL
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}' AND role = 'ADMIN'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId} AND role = 'ADMIN'
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Only admins can add aircraft' }, { status: 403 });
@@ -113,35 +113,48 @@ export async function POST(request: Request, { params }: RouteParams) {
     } = body;
 
     const aircraftId = crypto.randomUUID();
-    
-    await prisma.$executeRawUnsafe(`
+
+    const yearVal = year ? parseInt(year) : null;
+    const totalTachHoursVal = totalTachHours ? parseFloat(totalTachHours) : null;
+    const totalHobbsHoursVal = totalHobbsHours ? parseFloat(totalHobbsHours) : null;
+    const maxPassengersVal = maxPassengers ? parseInt(maxPassengers) : null;
+    const hourlyRateVal = hourlyRate ? parseFloat(hourlyRate) : null;
+
+    if (yearVal !== null && !Number.isInteger(yearVal)) {
+      return NextResponse.json({ error: 'Invalid year' }, { status: 400 });
+    }
+    if (maxPassengersVal !== null && !Number.isInteger(maxPassengersVal)) {
+      return NextResponse.json({ error: 'Invalid maxPassengers' }, { status: 400 });
+    }
+
+    await prisma.$executeRaw`
       INSERT INTO ClubAircraft (id, groupId, nNumber, nickname, customName, make, model, year, totalTachHours, totalHobbsHours, registrationType, hasInsurance, maxPassengers, hourlyRate, aircraftNotes, status, createdAt, updatedAt)
       VALUES (
-        '${aircraftId}', 
-        '${groupId}', 
-        ${nNumber ? "'" + nNumber.replace(/'/g, "''") + "'" : 'NULL'}, 
-        ${nickname ? "'" + nickname.replace(/'/g, "''") + "'" : 'NULL'}, 
-        ${customName ? "'" + customName.replace(/'/g, "''") + "'" : 'NULL'}, 
-        ${make ? "'" + make.replace(/'/g, "''") + "'" : 'NULL'}, 
-        ${model ? "'" + model.replace(/'/g, "''") + "'" : 'NULL'}, 
-        ${year ? parseInt(year) : 'NULL'}, 
-        ${totalTachHours ? parseFloat(totalTachHours) : 'NULL'}, 
-        ${totalHobbsHours ? parseFloat(totalHobbsHours) : 'NULL'}, 
-        ${registrationType ? "'" + registrationType.replace(/'/g, "''") + "'" : 'NULL'}, 
-        ${hasInsurance ? 1 : 0}, 
-        ${maxPassengers ? parseInt(maxPassengers) : 'NULL'}, 
-        ${hourlyRate ? parseFloat(hourlyRate) : 'NULL'}, 
-        ${notes ? "'" + notes.replace(/'/g, "''") + "'" : 'NULL'}, 
+        ${aircraftId},
+        ${groupId},
+        ${nNumber || null},
+        ${nickname || null},
+        ${customName || null},
+        ${make || null},
+        ${model || null},
+        ${yearVal},
+        ${totalTachHoursVal},
+        ${totalHobbsHoursVal},
+        ${registrationType || null},
+        ${hasInsurance ? 1 : 0},
+        ${maxPassengersVal},
+        ${hourlyRateVal},
+        ${notes || null},
         'Available',
         GETDATE(),
         GETDATE()
       )
-    `);
+    `;
 
     // Fetch created aircraft
-    const aircraft = await prisma.$queryRawUnsafe(`
-      SELECT * FROM ClubAircraft WHERE id = '${aircraftId}'
-    `) as any[];
+    const aircraft = await prisma.$queryRaw`
+      SELECT * FROM ClubAircraft WHERE id = ${aircraftId}
+    ` as any[];
 
     const a = aircraft[0];
     return NextResponse.json({
@@ -166,6 +179,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error adding aircraft:', error);
-    return NextResponse.json({ error: 'Failed to add aircraft', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to add aircraft' }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 
+
 const prisma = new PrismaClient();
 
 export const dynamic = 'force-dynamic';
@@ -59,16 +60,16 @@ const AIRCRAFT_MANUFACTURERS = [
 export async function GET() {
   try {
     // Get manufacturers from database with count, filter to real aircraft mfrs
-    const manufacturers = await prisma.$queryRawUnsafe(`
-      SELECT MFR, COUNT(*) as cnt 
-      FROM AircraftMaster 
-      WHERE MFR IS NOT NULL 
+    const manufacturers = await prisma.$queryRaw`
+      SELECT MFR, COUNT(*) as cnt
+      FROM AircraftMaster
+      WHERE MFR IS NOT NULL
         AND LEN(MFR) > 0
         AND LEN(MFR) < 50
-      GROUP BY MFR 
+      GROUP BY MFR
       HAVING COUNT(*) >= 10
       ORDER BY COUNT(*) DESC
-    `) as { MFR: string; cnt: number }[];
+    ` as { MFR: string; cnt: number }[];
 
     // Filter to common aircraft manufacturers
     const filteredMfrs = manufacturers
@@ -86,6 +87,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error("Options error:", error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch aircraft options' }, { status: 500 });
   }
 }

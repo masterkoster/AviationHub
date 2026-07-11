@@ -10,19 +10,19 @@ export async function GET() {
     }
 
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
 
     // Get all bookings for user's groups using raw SQL
-    const bookings = await prisma.$queryRawUnsafe(`
-      SELECT 
+    const bookings = await prisma.$queryRaw`
+      SELECT
         b.id,
         b.aircraftId,
         b.userId,
@@ -43,10 +43,10 @@ export async function GET() {
       FROM Booking b
       JOIN ClubAircraft a ON b.aircraftId = a.id
       JOIN FlyingGroup fg ON a.groupId = fg.id
-      JOIN GroupMember gm ON fg.id = gm.groupId AND gm.userId = '${userId}'
+      JOIN GroupMember gm ON fg.id = gm.groupId AND gm.userId = ${userId}
       JOIN [User] u ON b.userId = u.id
       ORDER BY b.startTime ASC
-    `) as any[];
+    ` as any[];
 
     const formattedBookings = (bookings || []).map((b: any) => ({
       id: b.id,

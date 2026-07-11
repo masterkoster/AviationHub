@@ -21,28 +21,28 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
     
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check membership using raw SQL
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId}
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Not a member' }, { status: 403 });
     }
 
     // Get bookings using raw SQL
-    const bookings = await prisma.$queryRawUnsafe(`
-      SELECT 
+    const bookings = await prisma.$queryRaw`
+      SELECT
         b.id, b.aircraftId, b.userId, b.instructorId, b.startTime, b.endTime, b.purpose, b.createdAt, b.updatedAt,
         a.nNumber, a.customName, a.nickname, a.make, a.model, a.groupId as aircraftGroupId,
         u.name as userName, u.email as userEmail,
@@ -51,9 +51,9 @@ export async function GET(request: Request, { params }: RouteParams) {
       JOIN ClubAircraft a ON b.aircraftId = a.id
       JOIN [User] u ON b.userId = u.id
       LEFT JOIN [User] i ON b.instructorId = i.id
-      WHERE a.groupId = '${groupId}'
+      WHERE a.groupId = ${groupId}
       ORDER BY b.startTime ASC
-    `) as any[];
+    ` as any[];
 
     const formattedBookings = (bookings || []).map((b: any) => ({
       id: b.id,
@@ -89,7 +89,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     return NextResponse.json(formattedBookings);
   } catch (error) {
     console.error('Error fetching bookings:', error);
-    return NextResponse.json({ error: 'Failed to fetch bookings', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch bookings' }, { status: 500 });
   }
 }
 
@@ -107,20 +107,20 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
     
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check membership and role using raw SQL
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}' AND role IN ('MEMBER', 'ADMIN')
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId} AND role IN ('MEMBER', 'ADMIN')
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Only members can book' }, { status: 403 });
@@ -129,20 +129,27 @@ export async function POST(request: Request, { params }: RouteParams) {
     const body = await request.json();
     const { aircraftId, startTime, endTime, purpose, instructorId } = body;
 
+    if (!isUuid(aircraftId)) {
+      return NextResponse.json({ error: 'Invalid aircraftId' }, { status: 400 });
+    }
+    if (instructorId !== undefined && instructorId !== null && !isUuid(instructorId)) {
+      return NextResponse.json({ error: 'Invalid instructorId' }, { status: 400 });
+    }
+
     // Verify aircraft belongs to group
-    const aircraftList = await prisma.$queryRawUnsafe(`
-      SELECT * FROM ClubAircraft WHERE id = '${aircraftId}' AND groupId = '${groupId}'
-    `) as any[];
+    const aircraftList = await prisma.$queryRaw`
+      SELECT * FROM ClubAircraft WHERE id = ${aircraftId} AND groupId = ${groupId}
+    ` as any[];
 
     if (!aircraftList || aircraftList.length === 0) {
       return NextResponse.json({ error: 'Aircraft not found in group' }, { status: 404 });
     }
 
     // Check if aircraft is grounded for maintenance
-    const maintenanceList = await prisma.$queryRawUnsafe(`
-      SELECT * FROM Maintenance 
-      WHERE aircraftId = '${aircraftId}' AND isGrounded = 1 AND status IN ('NEEDED', 'IN_PROGRESS')
-    `) as any[];
+    const maintenanceList = await prisma.$queryRaw`
+      SELECT * FROM Maintenance
+      WHERE aircraftId = ${aircraftId} AND isGrounded = 1 AND status IN ('NEEDED', 'IN_PROGRESS')
+    ` as any[];
 
     if (maintenanceList && maintenanceList.length > 0) {
       return NextResponse.json({ 
@@ -154,12 +161,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     const startDate = new Date(startTime).toISOString();
     const endDate = new Date(endTime).toISOString();
     
-    const conflicts = await prisma.$queryRawUnsafe(`
-      SELECT * FROM Booking 
-      WHERE aircraftId = '${aircraftId}' 
-      AND startTime < '${endDate}' 
-      AND endTime > '${startDate}'
-    `) as any[];
+    const conflicts = await prisma.$queryRaw`
+      SELECT * FROM Booking
+      WHERE aircraftId = ${aircraftId}
+      AND startTime < ${endDate}
+      AND endTime > ${startDate}
+    ` as any[];
 
     if (conflicts && conflicts.length > 0) {
       return NextResponse.json({ error: 'Time slot conflicts with existing booking' }, { status: 409 });
@@ -167,31 +174,31 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Create booking using raw SQL
     const bookingId = crypto.randomUUID();
-    await prisma.$executeRawUnsafe(`
+    await prisma.$executeRaw`
       INSERT INTO Booking (id, aircraftId, userId, instructorId, startTime, endTime, purpose, createdAt, updatedAt)
       VALUES (
-        '${bookingId}',
-        '${aircraftId}',
-        '${userId}',
-        ${instructorId ? "'" + instructorId + "'" : 'NULL'},
-        '${startDate}',
-        '${endDate}',
-        ${purpose ? "'" + purpose.replace(/'/g, "''") + "'" : 'NULL'},
+        ${bookingId},
+        ${aircraftId},
+        ${userId},
+        ${instructorId || null},
+        ${startDate},
+        ${endDate},
+        ${purpose || null},
         GETDATE(),
         GETDATE()
       )
-    `);
+    `;
 
     // Fetch created booking
-    const bookings = await prisma.$queryRawUnsafe(`
+    const bookings = await prisma.$queryRaw`
       SELECT b.*, a.nNumber, a.customName, a.nickname, a.make, a.model, u.name as userName, u.email as userEmail,
         i.name as instructorName, i.email as instructorEmail
       FROM Booking b
       JOIN ClubAircraft a ON b.aircraftId = a.id
       JOIN [User] u ON b.userId = u.id
       LEFT JOIN [User] i ON b.instructorId = i.id
-      WHERE b.id = '${bookingId}'
-    `) as any[];
+      WHERE b.id = ${bookingId}
+    ` as any[];
 
     const b = bookings[0];
     return NextResponse.json({
@@ -224,6 +231,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error creating booking:', error);
-    return NextResponse.json({ error: 'Failed to create booking', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 });
   }
 }

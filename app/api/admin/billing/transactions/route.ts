@@ -17,15 +17,18 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const take = parseInt(searchParams.get('take') || '50');
+    if (!Number.isInteger(take) || take < 1 || take > 1000) {
+      return NextResponse.json({ error: 'Invalid take' }, { status: 400 });
+    }
 
-    const invoices = await prisma.$queryRawUnsafe(`
+    const invoices = await prisma.$queryRaw`
       SELECT TOP (${take})
         i.id, i.totalAmount, i.status, i.createdAt,
         u.name as userName, u.email as userEmail
       FROM Invoice i
       JOIN [User] u ON i.userId = u.id
       ORDER BY i.createdAt DESC
-    `) as any[];
+    ` as any[];
 
     return NextResponse.json({
       transactions: invoices.map(i => ({

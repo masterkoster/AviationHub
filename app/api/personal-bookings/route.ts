@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { isUuid } from '@/lib/validate';
 
 export async function GET(request: Request) {
   try {
@@ -9,9 +10,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userRow = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    const userRow = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
 
     if (!userRow || userRow.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
@@ -28,17 +29,28 @@ export async function GET(request: Request) {
     const startFilter = now.toISOString();
     const endFilter = windowEnd ? windowEnd.toISOString() : null;
 
-    const rows = await prisma.$queryRawUnsafe(`
-      SELECT 
-        pb.id, pb.userId, pb.userAircraftId, pb.startTime, pb.endTime, pb.purpose, pb.createdAt, pb.updatedAt,
-        ua.nNumber, ua.nickname
-      FROM PersonalBooking pb
-      JOIN UserAircraft ua ON pb.userAircraftId = ua.id
-      WHERE pb.userId = '${userId}'
-        AND pb.startTime >= '${startFilter}'
-        ${endFilter ? `AND pb.startTime <= '${endFilter}'` : ''}
-      ORDER BY pb.startTime ASC
-    `) as any[];
+    const rows = endFilter
+      ? await prisma.$queryRaw`
+          SELECT
+            pb.id, pb.userId, pb.userAircraftId, pb.startTime, pb.endTime, pb.purpose, pb.createdAt, pb.updatedAt,
+            ua.nNumber, ua.nickname
+          FROM PersonalBooking pb
+          JOIN UserAircraft ua ON pb.userAircraftId = ua.id
+          WHERE pb.userId = ${userId}
+            AND pb.startTime >= ${startFilter}
+            AND pb.startTime <= ${endFilter}
+          ORDER BY pb.startTime ASC
+        ` as any[]
+      : await prisma.$queryRaw`
+          SELECT
+            pb.id, pb.userId, pb.userAircraftId, pb.startTime, pb.endTime, pb.purpose, pb.createdAt, pb.updatedAt,
+            ua.nNumber, ua.nickname
+          FROM PersonalBooking pb
+          JOIN UserAircraft ua ON pb.userAircraftId = ua.id
+          WHERE pb.userId = ${userId}
+            AND pb.startTime >= ${startFilter}
+          ORDER BY pb.startTime ASC
+        ` as any[];
 
     const bookings = (rows || []).map((b: any) => ({
       id: b.id,
@@ -70,9 +82,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userRow = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    const userRow = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
 
     if (!userRow || userRow.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
@@ -86,9 +98,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Aircraft, start time, and end time are required' }, { status: 400 });
     }
 
-    const owned = await prisma.$queryRawUnsafe(`
-      SELECT id FROM UserAircraft WHERE id = '${userAircraftId}' AND userId = '${userId}'
-    `) as any[];
+    if (!isUuid(userAircraftId)) {
+      return NextResponse.json({ error: 'Invalid userAircraftId' }, { status: 400 });
+    }
+
+    const owned = await prisma.$queryRaw`
+      SELECT id FROM UserAircraft WHERE id = ${userAircraftId} AND userId = ${userId}
+    ` as any[];
 
     if (!owned || owned.length === 0) {
       return NextResponse.json({ error: 'Aircraft not found' }, { status: 404 });
@@ -97,22 +113,22 @@ export async function POST(request: Request) {
     const startDate = new Date(startTime).toISOString();
     const endDate = new Date(endTime).toISOString();
 
-    const conflicts = await prisma.$queryRawUnsafe(`
+    const conflicts = await prisma.$queryRaw`
       SELECT * FROM PersonalBooking
-      WHERE userAircraftId = '${userAircraftId}'
-        AND startTime < '${endDate}'
-        AND endTime > '${startDate}'
-    `) as any[];
+      WHERE userAircraftId = ${userAircraftId}
+        AND startTime < ${endDate}
+        AND endTime > ${startDate}
+    ` as any[];
 
     if (conflicts && conflicts.length > 0) {
       return NextResponse.json({ error: 'Time slot conflicts with existing booking' }, { status: 409 });
     }
 
     const bookingId = crypto.randomUUID();
-    await prisma.$executeRawUnsafe(`
+    await prisma.$executeRaw`
       INSERT INTO PersonalBooking (id, userId, userAircraftId, startTime, endTime, purpose, createdAt, updatedAt)
-      VALUES ('${bookingId}', '${userId}', '${userAircraftId}', '${startDate}', '${endDate}', ${purpose ? "'" + purpose.replace(/'/g, "''") + "'" : 'NULL'}, GETDATE(), GETDATE())
-    `);
+      VALUES (${bookingId}, ${userId}, ${userAircraftId}, ${startDate}, ${endDate}, ${purpose ?? null}, GETDATE(), GETDATE())
+    `;
 
     return NextResponse.json({
       id: bookingId,

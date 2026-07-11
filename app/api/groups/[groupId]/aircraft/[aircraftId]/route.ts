@@ -20,20 +20,20 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
     
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check admin role using raw SQL
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}' AND role = 'ADMIN'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId} AND role = 'ADMIN'
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Only admins can update aircraft' }, { status: 403 });
@@ -42,25 +42,38 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const body = await request.json();
     const { notes, status } = body;
 
-    // Build update query
-    const updates: string[] = [];
-    if (notes !== undefined) updates.push(`aircraftNotes = ${notes ? "'" + notes.replace(/'/g, "''") + "'" : 'NULL'}`);
-    if (status !== undefined) updates.push(`status = '${status}'`);
-    updates.push(`updatedAt = GETDATE()`);
+    const allowedStatuses = ['Available', 'Maintenance', 'Grounded'];
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    }
 
-    await prisma.$executeRawUnsafe(`
-      UPDATE ClubAircraft SET ${updates.join(', ')} WHERE id = '${aircraftId}' AND groupId = '${groupId}'
-    `);
+    if (notes !== undefined && status !== undefined) {
+      await prisma.$executeRaw`
+        UPDATE ClubAircraft SET aircraftNotes = ${notes || null}, status = ${status}, updatedAt = GETDATE() WHERE id = ${aircraftId} AND groupId = ${groupId}
+      `;
+    } else if (notes !== undefined) {
+      await prisma.$executeRaw`
+        UPDATE ClubAircraft SET aircraftNotes = ${notes || null}, updatedAt = GETDATE() WHERE id = ${aircraftId} AND groupId = ${groupId}
+      `;
+    } else if (status !== undefined) {
+      await prisma.$executeRaw`
+        UPDATE ClubAircraft SET status = ${status}, updatedAt = GETDATE() WHERE id = ${aircraftId} AND groupId = ${groupId}
+      `;
+    } else {
+      await prisma.$executeRaw`
+        UPDATE ClubAircraft SET updatedAt = GETDATE() WHERE id = ${aircraftId} AND groupId = ${groupId}
+      `;
+    }
 
     // Fetch updated aircraft
-    const aircraft = await prisma.$queryRawUnsafe(`
-      SELECT * FROM ClubAircraft WHERE id = '${aircraftId}'
-    `) as any[];
+    const aircraft = await prisma.$queryRaw`
+      SELECT * FROM ClubAircraft WHERE id = ${aircraftId}
+    ` as any[];
 
     return NextResponse.json(aircraft[0]);
   } catch (error) {
     console.error('Error updating aircraft:', error);
-    return NextResponse.json({ error: 'Failed to update aircraft', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update aircraft' }, { status: 500 });
   }
 }
 
@@ -77,28 +90,28 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
     
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check admin role using raw SQL
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}' AND role = 'ADMIN'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId} AND role = 'ADMIN'
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Only admins can remove aircraft' }, { status: 403 });
     }
 
-    await prisma.$executeRawUnsafe(`
-      DELETE FROM ClubAircraft WHERE id = '${aircraftId}' AND groupId = '${groupId}'
-    `);
+    await prisma.$executeRaw`
+      DELETE FROM ClubAircraft WHERE id = ${aircraftId} AND groupId = ${groupId}
+    `;
 
     return NextResponse.json({ success: true });
   } catch (error) {
