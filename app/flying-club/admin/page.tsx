@@ -294,6 +294,21 @@ export default function ClubAdminPage() {
   // Loading / error flags
   const [isMembersLoading, setIsMembersLoading] = useState(false)
   const [membersError, setMembersError] = useState<string | null>(null)
+  const [membersRefreshTick, setMembersRefreshTick] = useState(0)
+
+  // Invites
+  const [invites, setInvites] = useState<any[]>([])
+  const [showInviteDialog, setShowInviteDialog] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState("")
+  const [inviteRole, setInviteRole] = useState("MEMBER")
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
+  const [inviteError, setInviteError] = useState<string | null>(null)
+  const [isInviteSubmitting, setIsInviteSubmitting] = useState(false)
+
+  // Manage member
+  const [manageMember, setManageMember] = useState<any | null>(null)
+  const [manageError, setManageError] = useState<string | null>(null)
+  const [isManageSubmitting, setIsManageSubmitting] = useState(false)
 
   const [isFuelLoading, setIsFuelLoading] = useState(false)
   const [fuelError, setFuelError] = useState<string | null>(null)
@@ -403,10 +418,22 @@ export default function ClubAdminPage() {
         setIsMembersLoading(true)
         setMembersError(null)
 
-        const res = await fetch(`/api/admin/members?groupId=${groupId}`)
+        const res = await fetch(`/api/groups/${groupId}/members`)
         if (!res.ok) throw new Error(`Failed to fetch members: ${res.status}`)
         const data = await res.json()
-        const nextMembers = Array.isArray(data) ? data : data.members ?? []
+        const nextMembers = (Array.isArray(data) ? data : []).map((m: any) => ({
+          id: m.id,
+          userId: m.userId,
+          name: m.user?.name || m.user?.email || "Unknown",
+          email: m.user?.email ?? "—",
+          role: m.role === "ADMIN" ? "Admin" : m.role === "INSTRUCTOR" ? "Instructor" : "Member",
+          rawRole: m.role,
+          status: "Active",
+          hours: null,
+          balance: 0,
+          medical: "—",
+          joined: m.joinedAt ? new Date(m.joinedAt).toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "—",
+        }))
         if (!cancelled) setMembers(nextMembers)
       } catch (err) {
         console.error("Failed to load members", err)
@@ -419,11 +446,23 @@ export default function ClubAdminPage() {
       }
     }
 
+    async function loadInvites() {
+      try {
+        const res = await fetch(`/api/groups/${groupId}/invites`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setInvites(Array.isArray(data) ? data : [])
+      } catch (err) {
+        console.error("Failed to load invites", err)
+      }
+    }
+
     loadMembers()
+    loadInvites()
     return () => {
       cancelled = true
     }
-  }, [groupId])
+  }, [groupId, membersRefreshTick])
 
   // Aircraft
   useEffect(() => {
@@ -696,9 +735,87 @@ export default function ClubAdminPage() {
     }
   }
 
+  async function handleCreateInvite() {
+    if (!groupId) return
+    setIsInviteSubmitting(true)
+    setInviteError(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}/invites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inviteEmail.trim() || null, role: inviteRole }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || "Failed to create invite")
+      setInviteLink(`${window.location.origin}/join/${data.token}`)
+      setMembersRefreshTick(t => t + 1)
+    } catch (err: any) {
+      setInviteError(err?.message || "Failed to create invite")
+    } finally {
+      setIsInviteSubmitting(false)
+    }
+  }
+
+  async function handleCancelInvite(inviteId: string) {
+    if (!groupId) return
+    try {
+      const res = await fetch(`/api/groups/${groupId}/invites?inviteId=${inviteId}`, { method: "DELETE" })
+      if (res.ok) setInvites(prev => prev.filter(i => i.id !== inviteId))
+    } catch (err) {
+      console.error("Failed to cancel invite", err)
+    }
+  }
+
+  async function handleChangeRole(newRole: string) {
+    if (!groupId || !manageMember) return
+    setIsManageSubmitting(true)
+    setManageError(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}/members`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId: manageMember.id, role: newRole }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || "Failed to update role")
+      setManageMember(null)
+      setMembersRefreshTick(t => t + 1)
+    } catch (err: any) {
+      setManageError(err?.message || "Failed to update role")
+    } finally {
+      setIsManageSubmitting(false)
+    }
+  }
+
+  async function handleRemoveMember() {
+    if (!groupId || !manageMember) return
+    if (!window.confirm(`Remove ${manageMember.name} from the club?`)) return
+    setIsManageSubmitting(true)
+    setManageError(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}/members?memberId=${manageMember.id}`, { method: "DELETE" })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || "Failed to remove member")
+      setManageMember(null)
+      setMembersRefreshTick(t => t + 1)
+    } catch (err: any) {
+      setManageError(err?.message || "Failed to remove member")
+    } finally {
+      setIsManageSubmitting(false)
+    }
+  }
+
+  function openInviteDialog() {
+    setInviteEmail("")
+    setInviteRole("MEMBER")
+    setInviteLink(null)
+    setInviteError(null)
+    setShowInviteDialog(true)
+  }
+
   const filteredMembers = members.filter(m =>
-    m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
-    m.email.toLowerCase().includes(memberSearch.toLowerCase())
+    (m.name ?? "").toLowerCase().includes(memberSearch.toLowerCase()) ||
+    (m.email ?? "").toLowerCase().includes(memberSearch.toLowerCase())
   )
 
   const activeLabel = NAV_GROUPS.flatMap(g => g.items).find(i => i.id === activeTab)?.label ?? ""
@@ -1088,6 +1205,7 @@ export default function ClubAdminPage() {
 
           {/* ── MEMBERS ──────────────────────────────────────────────────────── */}
           {activeTab === "members" && (
+            <>
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -1113,7 +1231,7 @@ export default function ClubAdminPage() {
                         className="h-7 w-48 rounded-md border border-input bg-background pl-8 pr-3 text-xs outline-none focus:ring-1 focus:ring-ring"
                       />
                     </div>
-                    <Button size="sm" className="h-7 gap-1.5 text-xs">
+                    <Button size="sm" className="h-7 gap-1.5 text-xs" onClick={openInviteDialog} disabled={!groupId}>
                       <Plus className="h-3 w-3" /> Invite
                     </Button>
                   </div>
@@ -1140,14 +1258,22 @@ export default function ClubAdminPage() {
                           </td>
                           <td className="py-2.5 pr-4"><StatusBadge status={m.role} /></td>
                           <td className="py-2.5 pr-4"><StatusBadge status={m.status} /></td>
-                          <td className="py-2.5 pr-4">{m.hours} hrs</td>
+                          <td className="py-2.5 pr-4">{m.hours == null ? "—" : `${m.hours} hrs`}</td>
                           <td className={`py-2.5 pr-4 font-medium ${m.balance < 0 ? "text-destructive" : m.balance > 0 ? "text-chart-2" : ""}`}>
                             {m.balance < 0 ? `-$${Math.abs(m.balance)}` : m.balance > 0 ? `+$${m.balance}` : "$0"}
                           </td>
                           <td className="py-2.5 pr-4 text-muted-foreground">{m.medical}</td>
                           <td className="py-2.5 pr-4 text-muted-foreground">{m.joined}</td>
                           <td className="py-2.5">
-                            <Button size="sm" variant="ghost" className="h-6 text-xs">Manage</Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 text-xs"
+                              onClick={() => { setManageError(null); setManageMember(m) }}
+                              disabled={!groupId || !m.userId}
+                            >
+                              Manage
+                            </Button>
                           </td>
                         </tr>
                       ))}
@@ -1156,6 +1282,168 @@ export default function ClubAdminPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {invites.length > 0 && (
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle className="text-sm">Pending Invites ({invites.length})</CardTitle>
+                  <CardDescription className="text-xs">Invitations that have not been accepted yet</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border">
+                          {["Email", "Role", "Expires", "Sent", ""].map(h => (
+                            <th key={h} className="pb-2 pr-4 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invites.map((inv) => (
+                          <tr key={inv.id} className="border-b border-border/50 last:border-0">
+                            <td className="py-2.5 pr-4 font-medium">{inv.email || "Open invite link"}</td>
+                            <td className="py-2.5 pr-4"><StatusBadge status={inv.role === "ADMIN" ? "Admin" : "Member"} /></td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">
+                              {inv.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : "Never"}
+                            </td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">
+                              {inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : "—"}
+                            </td>
+                            <td className="py-2.5">
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 text-xs"
+                                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/join/${inv.token}`)}
+                                >
+                                  Copy link
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 text-xs text-destructive hover:text-destructive"
+                                  onClick={() => handleCancelInvite(inv.id)}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Invite dialog */}
+            <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Invite a member</DialogTitle>
+                  <DialogDescription>
+                    Send an email-specific invite, or leave the email blank to generate a shareable link.
+                  </DialogDescription>
+                </DialogHeader>
+                {inviteLink ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground">Invite created. Share this link:</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        readOnly
+                        value={inviteLink}
+                        className="h-8 flex-1 rounded-md border border-input bg-muted/40 px-2 text-xs outline-none"
+                        onFocus={e => e.currentTarget.select()}
+                      />
+                      <Button size="sm" className="h-8 text-xs" onClick={() => navigator.clipboard.writeText(inviteLink)}>
+                        Copy
+                      </Button>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setShowInviteDialog(false)}>
+                        Done
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium">Email (optional)</label>
+                      <input
+                        type="email"
+                        value={inviteEmail}
+                        onChange={e => setInviteEmail(e.target.value)}
+                        placeholder="pilot@example.com"
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium">Role</label>
+                      <select
+                        value={inviteRole}
+                        onChange={e => setInviteRole(e.target.value)}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="MEMBER">Member</option>
+                        <option value="ADMIN">Admin</option>
+                      </select>
+                    </div>
+                    {inviteError && <p className="text-xs text-destructive">{inviteError}</p>}
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setShowInviteDialog(false)}>
+                        Cancel
+                      </Button>
+                      <Button size="sm" className="h-8 text-xs" onClick={handleCreateInvite} disabled={isInviteSubmitting}>
+                        {isInviteSubmitting ? "Creating…" : "Create invite"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
+
+            {/* Manage member dialog */}
+            <Dialog open={!!manageMember} onOpenChange={(open) => { if (!open) setManageMember(null) }}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Manage {manageMember?.name}</DialogTitle>
+                  <DialogDescription>{manageMember?.email}</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Role</label>
+                    <select
+                      value={manageMember?.rawRole ?? "MEMBER"}
+                      onChange={e => handleChangeRole(e.target.value)}
+                      disabled={isManageSubmitting}
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="MEMBER">Member</option>
+                      <option value="ADMIN">Admin</option>
+                    </select>
+                    <p className="text-[11px] text-muted-foreground">Changing the role saves immediately.</p>
+                  </div>
+                  {manageError && <p className="text-xs text-destructive">{manageError}</p>}
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">Remove this member from the club</p>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-8 text-xs"
+                      onClick={handleRemoveMember}
+                      disabled={isManageSubmitting}
+                    >
+                      {isManageSubmitting ? "Working…" : "Remove member"}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            </>
           )}
 
           {/* ── AIRCRAFT ─────────────────────────────────────────────────────── */}
