@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { isUuid } from '@/lib/validate';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -16,10 +17,14 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const { groupId } = await params;
 
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     // Get user
-    const user = await prisma.$queryRawUnsafe(`
-      SELECT id, name FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    const user = await prisma.$queryRaw`
+      SELECT id, name FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
 
     if (!user || user.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -29,9 +34,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     const userName = user[0].name;
 
     // Verify membership
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT role FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT role FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId}
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Not a member' }, { status: 403 });
@@ -44,10 +49,19 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'aircraftId and hobbsStart required' }, { status: 400 });
     }
 
+    if (!isUuid(aircraftId)) {
+      return NextResponse.json({ error: 'Invalid aircraftId' }, { status: 400 });
+    }
+
+    const hobbsStartNum = Number(hobbsStart);
+    if (!Number.isFinite(hobbsStartNum)) {
+      return NextResponse.json({ error: 'Invalid hobbsStart' }, { status: 400 });
+    }
+
     // Verify aircraft belongs to group
-    const aircraft = await prisma.$queryRawUnsafe(`
-      SELECT * FROM ClubAircraft WHERE id = '${aircraftId}' AND groupId = '${groupId}'
-    `) as any[];
+    const aircraft = await prisma.$queryRaw`
+      SELECT * FROM ClubAircraft WHERE id = ${aircraftId} AND groupId = ${groupId}
+    ` as any[];
 
     if (!aircraft || aircraft.length === 0) {
       return NextResponse.json({ error: 'Aircraft not found in this club' }, { status: 404 });
@@ -56,52 +70,52 @@ export async function POST(request: Request, { params }: RouteParams) {
     const aircraftData = aircraft[0];
 
     // Check if aircraft is already checked out
-    const activeFlights = await prisma.$queryRawUnsafe(`
-      SELECT * FROM FlightLog 
-      WHERE aircraftId = '${aircraftId}' AND hobbsEnd IS NULL
-    `) as any[];
+    const activeFlights = await prisma.$queryRaw`
+      SELECT * FROM FlightLog
+      WHERE aircraftId = ${aircraftId} AND hobbsEnd IS NULL
+    ` as any[];
 
     if (activeFlights && activeFlights.length > 0) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Aircraft already checked out',
-        checkedOutBy: activeFlights[0].userId 
+        checkedOutBy: activeFlights[0].userId
       }, { status: 409 });
     }
 
     // Check for conflicting booking at current time
     const now = new Date();
-    const conflicts = await prisma.$queryRawUnsafe(`
-      SELECT * FROM Booking 
-      WHERE aircraftId = '${aircraftId}' 
-      AND startTime <= '${now.toISOString()}'
-      AND endTime >= '${now.toISOString()}'
-    `) as any[];
+    const conflicts = await prisma.$queryRaw`
+      SELECT * FROM Booking
+      WHERE aircraftId = ${aircraftId}
+      AND startTime <= ${now}
+      AND endTime >= ${now}
+    ` as any[];
 
     // Create flight log entry
     const flightLogId = crypto.randomUUID();
-    await prisma.$executeRawUnsafe(`
+    await prisma.$executeRaw`
       INSERT INTO FlightLog (id, aircraftId, userId, date, hobbsStart, hobbsEnd, hobbsTime, notes, createdAt)
       VALUES (
-        '${flightLogId}',
-        '${aircraftId}',
-        '${userId}',
+        ${flightLogId},
+        ${aircraftId},
+        ${userId},
         GETDATE(),
-        ${hobbsStart},
+        ${hobbsStartNum},
         NULL,
         NULL,
-        ${notes ? "'" + notes.replace(/'/g, "''") + "'" : 'NULL'},
+        ${notes ? String(notes) : null},
         GETDATE()
       )
-    `);
+    `;
 
     // Fetch created entry
-    const created = await prisma.$queryRawUnsafe(`
+    const created = await prisma.$queryRaw`
       SELECT fl.*, a.nNumber, a.customName, u.name as userName
       FROM FlightLog fl
       JOIN ClubAircraft a ON fl.aircraftId = a.id
       JOIN [User] u ON fl.userId = u.id
-      WHERE fl.id = '${flightLogId}'
-    `) as any[];
+      WHERE fl.id = ${flightLogId}
+    ` as any[];
 
     return NextResponse.json({
       success: true,

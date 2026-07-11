@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
+import { isUuid } from '@/lib/validate';
 
 export async function GET(request: Request) {
   try {
@@ -10,20 +12,20 @@ export async function GET(request: Request) {
     }
 
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check admin role using raw SQL
-    const adminMemberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE userId = '${userId}' AND role = 'ADMIN'
-    `) as any[];
+    const adminMemberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE userId = ${userId} AND role = 'ADMIN'
+    ` as any[];
 
     if (!adminMemberships || adminMemberships.length === 0) {
       return NextResponse.json({ error: 'Only admins can view billing' }, { status: 403 });
@@ -33,6 +35,9 @@ export async function GET(request: Request) {
     const month = parseInt(url.searchParams.get('month') || new Date().getMonth().toString());
     const year = parseInt(url.searchParams.get('year') || new Date().getFullYear().toString());
     const groupId = url.searchParams.get('groupId') || null;
+    if (groupId && !isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
 
     // Get start and end of month
     const startDate = new Date(year, month, 1).toISOString();
@@ -48,20 +53,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No group selected' }, { status: 400 });
     }
 
-    const groupIdList = targetGroupIds.map((id: string) => "'" + id + "'").join(',');
-
     // Get flight logs for the month using raw SQL
-    const flightLogs = await prisma.$queryRawUnsafe(`
-      SELECT 
+    const flightLogs = await prisma.$queryRaw`
+      SELECT
         fl.*,
         a.nNumber, a.customName, a.nickname, a.hourlyRate,
         u.name as userName, u.email as userEmail
       FROM FlightLog fl
       JOIN ClubAircraft a ON fl.aircraftId = a.id
       JOIN [User] u ON fl.userId = u.id
-      WHERE fl.date >= '${startDate}' AND fl.date <= '${endDate}'
-      AND a.groupId IN (${groupIdList})
-    `) as any[];
+      WHERE fl.date >= ${startDate} AND fl.date <= ${endDate}
+      AND a.groupId IN (${Prisma.join(targetGroupIds)})
+    ` as any[];
 
     // Calculate billing per member
     const billingByMember: Record<string, any> = {};
@@ -123,6 +126,6 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error('Error fetching billing:', error);
-    return NextResponse.json({ error: 'Failed to fetch billing', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch billing' }, { status: 500 });
   }
 }

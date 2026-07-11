@@ -23,30 +23,30 @@ export async function GET(request: Request, { params }: RouteParams) {
     // Get user by email using raw SQL
     let userId: string | null = null;
     try {
-      const users = await prisma.$queryRawUnsafe(`
-        SELECT id FROM [User] WHERE email = '${session.user.email}'
-      `) as any[];
+      const users = await prisma.$queryRaw`
+        SELECT id FROM [User] WHERE email = ${session.user.email}
+      ` as any[];
       if (users && users.length > 0) {
         userId = users[0].id;
       }
     } catch (e) {
       console.error('Error fetching user:', e);
-      return NextResponse.json({ error: 'Failed to find user', details: String(e) }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to find user' }, { status: 500 });
     }
-    
+
     if (!userId) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     // Check membership using raw SQL
     let memberships: any[] = [];
     try {
-      memberships = await prisma.$queryRawUnsafe(`
-        SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}'
-      `) as any[];
+      memberships = await prisma.$queryRaw`
+        SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId}
+      ` as any[];
     } catch (e) {
       console.error('Error checking membership:', e);
-      return NextResponse.json({ error: 'Failed to check membership', details: String(e) }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to check membership' }, { status: 500 });
     }
 
     if (!memberships || memberships.length === 0) {
@@ -56,15 +56,15 @@ export async function GET(request: Request, { params }: RouteParams) {
     // Get members using raw SQL
     let members: any[] = [];
     try {
-      members = await prisma.$queryRawUnsafe(`
+      members = await prisma.$queryRaw`
         SELECT gm.*, u.name as userName, u.email as userEmail
         FROM GroupMember gm
         JOIN [User] u ON gm.userId = u.id
-        WHERE gm.groupId = '${groupId}'
-      `) as any[];
+        WHERE gm.groupId = ${groupId}
+      ` as any[];
     } catch (e) {
       console.error('Error fetching members:', e);
-      return NextResponse.json({ error: 'Failed to fetch members', details: String(e) }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to fetch members' }, { status: 500 });
     }
 
     const formattedMembers = (members || []).map((m: any) => ({
@@ -83,7 +83,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     return NextResponse.json(formattedMembers);
   } catch (error) {
     console.error('Error fetching members:', error);
-    return NextResponse.json({ error: 'Failed to fetch members', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch members' }, { status: 500 });
   }
 }
 
@@ -96,22 +96,25 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
 
     const { groupId } = await params;
-    
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check admin role
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}' AND role = 'ADMIN'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId} AND role = 'ADMIN'
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Only admins can update members' }, { status: 403 });
@@ -120,14 +123,22 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const body = await request.json();
     const { memberId, role } = body;
 
-    await prisma.$executeRawUnsafe(`
-      UPDATE GroupMember SET role = '${role}' WHERE id = '${memberId}'
-    `);
+    if (!isUuid(memberId)) {
+      return NextResponse.json({ error: 'Invalid memberId' }, { status: 400 });
+    }
+    const allowedRoles = ['ADMIN', 'MEMBER', 'VIEWER'];
+    if (!allowedRoles.includes(role)) {
+      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    }
+
+    await prisma.$executeRaw`
+      UPDATE GroupMember SET role = ${role} WHERE id = ${memberId}
+    `;
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error updating member:', error);
-    return NextResponse.json({ error: 'Failed to update member', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update member' }, { status: 500 });
   }
 }
 
@@ -140,29 +151,35 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     const { groupId } = await params;
-    
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     const url = new URL(request.url);
     const memberId = url.searchParams.get('memberId');
 
     if (!memberId) {
       return NextResponse.json({ error: 'memberId required' }, { status: 400 });
     }
+    if (!isUuid(memberId)) {
+      return NextResponse.json({ error: 'Invalid memberId' }, { status: 400 });
+    }
 
     // Get target member
-    const targetMembers = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE id = '${memberId}' AND groupId = '${groupId}'
-    `) as any[];
+    const targetMembers = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE id = ${memberId} AND groupId = ${groupId}
+    ` as any[];
 
     if (!targetMembers || targetMembers.length === 0) {
       return NextResponse.json({ error: 'Member not found' }, { status: 404 });
@@ -170,21 +187,21 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     const targetMember = targetMembers[0];
     const isSelfRemoval = targetMember.userId === userId;
-    
+
     // Check if user is admin
-    const adminMemberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}' AND role = 'ADMIN'
-    `) as any[];
+    const adminMemberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId} AND role = 'ADMIN'
+    ` as any[];
 
     if ((!adminMemberships || adminMemberships.length === 0) && !isSelfRemoval) {
       return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
     }
 
-    await prisma.$executeRawUnsafe(`DELETE FROM GroupMember WHERE id = '${memberId}'`);
+    await prisma.$executeRaw`DELETE FROM GroupMember WHERE id = ${memberId}`;
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error removing member:', error);
-    return NextResponse.json({ error: 'Failed to remove member', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to remove member' }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { isUuid } from '@/lib/validate';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -16,19 +17,23 @@ export async function GET(request: Request, { params }: RouteParams) {
 
     const { groupId } = await params;
 
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     // Get active flights (where hobbsEnd is null)
-    const activeFlights = await prisma.$queryRawUnsafe(`
-      SELECT 
+    const activeFlights = await prisma.$queryRaw`
+      SELECT
         fl.id, fl.aircraftId, fl.userId, fl.hobbsStart, fl.createdAt as checkedOutAt,
         a.nNumber, a.customName, a.make, a.model,
         u.name as userName
       FROM FlightLog fl
       JOIN ClubAircraft a ON fl.aircraftId = a.id
       JOIN [User] u ON fl.userId = u.id
-      WHERE a.groupId = '${groupId}'
+      WHERE a.groupId = ${groupId}
       AND fl.hobbsEnd IS NULL
       ORDER BY fl.createdAt DESC
-    `) as any[];
+    ` as any[];
 
     return NextResponse.json(
       activeFlights.map(f => ({

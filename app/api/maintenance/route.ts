@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     return NextResponse.json(maintenance);
   } catch (error) {
     console.error('Error fetching maintenance:', error);
-    return NextResponse.json({ error: 'Failed to fetch maintenance', details: String(error), stack: error instanceof Error ? error.stack : undefined }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch maintenance' }, { status: 500 });
   }
 }
 
@@ -103,6 +103,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error creating maintenance:', error);
-    return NextResponse.json({ error: 'Failed to create maintenance', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create maintenance' }, { status: 500 });
   }
 }

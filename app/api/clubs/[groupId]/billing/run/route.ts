@@ -6,6 +6,7 @@ import { sendInvoiceEmail } from '@/lib/resend';
 import { generateInvoicePDF, generateSimpleInvoiceHTML } from '@/lib/invoice';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
+import { isUuid } from '@/lib/validate';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -21,10 +22,14 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const { groupId } = await params;
 
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     // Verify admin
-    const user = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    const user = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
 
     if (!user || user.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -32,18 +37,18 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const userId = user[0].id;
 
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT role FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT role FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId}
+    ` as any[];
 
     if (!memberships || memberships.length === 0 || memberships[0].role !== 'ADMIN') {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
     // Get club name
-    const club = await prisma.$queryRawUnsafe(`
-      SELECT name FROM FlyingGroup WHERE id = '${groupId}'
-    `) as any[];
+    const club = await prisma.$queryRaw`
+      SELECT name FROM FlyingGroup WHERE id = ${groupId}
+    ` as any[];
 
     const clubName = club && club.length > 0 ? club[0].name : 'Your Flying Club';
 
@@ -56,15 +61,15 @@ export async function POST(request: Request, { params }: RouteParams) {
     for (const result of results) {
       if (result.success && result.invoiceId) {
         // Get invoice details
-        const invoiceItems = await prisma.$queryRawUnsafe(`
-          SELECT 
+        const invoiceItems = await prisma.$queryRaw`
+          SELECT
             fl.date, a.nNumber, fl.hobbsTime, a.hourlyRate,
             fl.hobbsTime * a.hourlyRate as amount
           FROM InvoiceItem ii
           JOIN FlightLog fl ON ii.flightLogId = fl.id
           JOIN ClubAircraft a ON ii.aircraftId = a.id
-          WHERE ii.invoiceId = '${result.invoiceId}'
-        `) as any[];
+          WHERE ii.invoiceId = ${result.invoiceId}
+        ` as any[];
 
         const pdfBuffer = await generateInvoicePDF({
           id: result.invoiceId,
@@ -110,6 +115,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error running billing:', error);
-    return NextResponse.json({ error: 'Failed to run billing', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to run billing' }, { status: 500 });
   }
 }

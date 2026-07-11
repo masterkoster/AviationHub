@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isUuid } from '@/lib/validate';
+import { Prisma } from '@prisma/client';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -20,29 +21,29 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
     
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check membership using raw SQL
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId}
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Not a member of this group' }, { status: 403 });
     }
 
     // Get group details using raw SQL
-    const groups = await prisma.$queryRawUnsafe(`
-      SELECT * FROM FlyingGroup WHERE id = '${groupId}'
-    `) as any[];
+    const groups = await prisma.$queryRaw`
+      SELECT * FROM FlyingGroup WHERE id = ${groupId}
+    ` as any[];
 
     if (!groups || groups.length === 0) {
       return NextResponse.json({ error: 'Group not found' }, { status: 404 });
@@ -51,17 +52,17 @@ export async function GET(request: Request, { params }: RouteParams) {
     const g = groups[0];
 
     // Get members
-    const members = await prisma.$queryRawUnsafe(`
+    const members = await prisma.$queryRaw`
       SELECT gm.*, u.name as userName, u.email as userEmail
       FROM GroupMember gm
       JOIN [User] u ON gm.userId = u.id
-      WHERE gm.groupId = '${groupId}'
-    `) as any[];
+      WHERE gm.groupId = ${groupId}
+    ` as any[];
 
     // Get aircraft
-    const aircraft = await prisma.$queryRawUnsafe(`
-      SELECT * FROM ClubAircraft WHERE groupId = '${groupId}'
-    `) as any[];
+    const aircraft = await prisma.$queryRaw`
+      SELECT * FROM ClubAircraft WHERE groupId = ${groupId}
+    ` as any[];
 
     const formattedGroup = {
       id: g.id,
@@ -119,7 +120,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     return NextResponse.json(formattedGroup);
   } catch (error) {
     console.error('Error fetching group:', error);
-    return NextResponse.json({ error: 'Failed to fetch group', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch group' }, { status: 500 });
   }
 }
 
@@ -136,20 +137,20 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
     
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check admin role using raw SQL
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}' AND role = 'ADMIN'
-    `) as any[];
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE groupId = ${groupId} AND userId = ${userId} AND role = 'ADMIN'
+    ` as any[];
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Only admins can update the group' }, { status: 403 });
@@ -164,35 +165,52 @@ export async function PUT(request: Request, { params }: RouteParams) {
     } = body;
 
     // Build update query
-    const updates: string[] = [];
-    if (name !== undefined) updates.push(`name = '${name.replace(/'/g, "''")}'`);
-    if (description !== undefined) updates.push(`description = ${description ? "'" + description.replace(/'/g, "''") + "'" : 'NULL'}`);
-    if (dryRate !== undefined) updates.push(`dryRate = ${dryRate ? parseFloat(dryRate) : 'NULL'}`);
-    if (wetRate !== undefined) updates.push(`wetRate = ${wetRate ? parseFloat(wetRate) : 'NULL'}`);
-    if (customRates !== undefined) updates.push(`customRates = '${JSON.stringify(customRates).replace(/'/g, "''")}'`);
-    if (showBookings !== undefined) updates.push(`showBookings = ${showBookings ? 1 : 0}`);
-    if (showAircraft !== undefined) updates.push(`showAircraft = ${showAircraft ? 1 : 0}`);
-    if (showFlights !== undefined) updates.push(`showFlights = ${showFlights ? 1 : 0}`);
-    if (showMaintenance !== undefined) updates.push(`showMaintenance = ${showMaintenance ? 1 : 0}`);
-    if (showBilling !== undefined) updates.push(`showBilling = ${showBilling ? 1 : 0}`);
-    if (showBillingAll !== undefined) updates.push(`showBillingAll = ${showBillingAll ? 1 : 0}`);
-    if (showMembers !== undefined) updates.push(`showMembers = ${showMembers ? 1 : 0}`);
-    if (showPartners !== undefined) updates.push(`showPartners = ${showPartners ? 1 : 0}`);
-    if (defaultInviteExpiry !== undefined) updates.push(`defaultInviteExpiry = ${defaultInviteExpiry !== null ? defaultInviteExpiry : 'NULL'}`);
+    const updates: Prisma.Sql[] = [];
+    if (name !== undefined) updates.push(Prisma.sql`name = ${name}`);
+    if (description !== undefined) updates.push(Prisma.sql`description = ${description ?? null}`);
+    if (dryRate !== undefined) {
+      const dryRateNum = dryRate ? parseFloat(dryRate) : null;
+      if (dryRateNum !== null && !Number.isFinite(dryRateNum)) {
+        return NextResponse.json({ error: 'Invalid dryRate' }, { status: 400 });
+      }
+      updates.push(Prisma.sql`dryRate = ${dryRateNum}`);
+    }
+    if (wetRate !== undefined) {
+      const wetRateNum = wetRate ? parseFloat(wetRate) : null;
+      if (wetRateNum !== null && !Number.isFinite(wetRateNum)) {
+        return NextResponse.json({ error: 'Invalid wetRate' }, { status: 400 });
+      }
+      updates.push(Prisma.sql`wetRate = ${wetRateNum}`);
+    }
+    if (customRates !== undefined) updates.push(Prisma.sql`customRates = ${JSON.stringify(customRates)}`);
+    if (showBookings !== undefined) updates.push(Prisma.sql`showBookings = ${showBookings ? 1 : 0}`);
+    if (showAircraft !== undefined) updates.push(Prisma.sql`showAircraft = ${showAircraft ? 1 : 0}`);
+    if (showFlights !== undefined) updates.push(Prisma.sql`showFlights = ${showFlights ? 1 : 0}`);
+    if (showMaintenance !== undefined) updates.push(Prisma.sql`showMaintenance = ${showMaintenance ? 1 : 0}`);
+    if (showBilling !== undefined) updates.push(Prisma.sql`showBilling = ${showBilling ? 1 : 0}`);
+    if (showBillingAll !== undefined) updates.push(Prisma.sql`showBillingAll = ${showBillingAll ? 1 : 0}`);
+    if (showMembers !== undefined) updates.push(Prisma.sql`showMembers = ${showMembers ? 1 : 0}`);
+    if (showPartners !== undefined) updates.push(Prisma.sql`showPartners = ${showPartners ? 1 : 0}`);
+    if (defaultInviteExpiry !== undefined) {
+      if (defaultInviteExpiry !== null && !Number.isInteger(defaultInviteExpiry)) {
+        return NextResponse.json({ error: 'Invalid defaultInviteExpiry' }, { status: 400 });
+      }
+      updates.push(Prisma.sql`defaultInviteExpiry = ${defaultInviteExpiry}`);
+    }
 
     if (updates.length > 0) {
-      updates.push(`updatedAt = GETDATE()`);
-      await prisma.$executeRawUnsafe(`
-        UPDATE FlyingGroup SET ${updates.join(', ')} WHERE id = '${groupId}'
-      `);
+      updates.push(Prisma.sql`updatedAt = GETDATE()`);
+      await prisma.$executeRaw`
+        UPDATE FlyingGroup SET ${Prisma.join(updates, ', ')} WHERE id = ${groupId}
+      `;
     }
 
     // Fetch updated group
-    const groups = await prisma.$queryRawUnsafe(`SELECT * FROM FlyingGroup WHERE id = '${groupId}'`) as any[];
+    const groups = await prisma.$queryRaw`SELECT * FROM FlyingGroup WHERE id = ${groupId}` as any[];
     return NextResponse.json(groups[0]);
   } catch (error) {
     console.error('Error updating group:', error);
-    return NextResponse.json({ error: 'Failed to update group', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update group' }, { status: 500 });
   }
 }
 
@@ -209,20 +227,20 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
     
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check ownership using raw SQL
-    const groups = await prisma.$queryRawUnsafe(`
-      SELECT * FROM FlyingGroup WHERE id = '${groupId}'
-    `) as any[];
+    const groups = await prisma.$queryRaw`
+      SELECT * FROM FlyingGroup WHERE id = ${groupId}
+    ` as any[];
 
     if (!groups || groups.length === 0) {
       return NextResponse.json({ error: 'Group not found' }, { status: 404 });
@@ -232,7 +250,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Only the owner can delete this group' }, { status: 403 });
     }
 
-    await prisma.$executeRawUnsafe(`DELETE FROM FlyingGroup WHERE id = '${groupId}'`);
+    await prisma.$executeRaw`DELETE FROM FlyingGroup WHERE id = ${groupId}`;
 
     return NextResponse.json({ success: true });
   } catch (error) {

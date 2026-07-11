@@ -11,10 +11,10 @@ export async function GET(request: Request) {
     }
 
     // Get user
-    const user = await prisma.$queryRawUnsafe(`
+    const user = await prisma.$queryRaw`
       SELECT id, name, email, bfrExpiry, medicalExpiry, medicalClass, credits
-      FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+      FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
 
     if (!user || user.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -24,61 +24,61 @@ export async function GET(request: Request) {
     const userId = userData.id;
 
     // Get recent flights (last 10)
-    const recentFlights = await prisma.$queryRawUnsafe(`
-      SELECT TOP 10 
+    const recentFlights = await prisma.$queryRaw`
+      SELECT TOP 10
         fl.id, fl.date, fl.routeFrom, fl.routeTo, fl.totalTime, fl.hobbsTime,
         a.nNumber, a.customName
       FROM FlightLog fl
       JOIN ClubAircraft a ON fl.aircraftId = a.id
-      WHERE fl.userId = '${userId}'
+      WHERE fl.userId = ${userId}
       ORDER BY fl.date DESC
-    `) as any[];
+    ` as any[];
 
     // Get time totals
-    const totals = await prisma.$queryRawUnsafe(`
-      SELECT 
+    const totals = await prisma.$queryRaw`
+      SELECT
         SUM(fl.totalTime) as totalTime,
         SUM(fl.soloTime) as soloTime,
         SUM(fl.nightTime) as nightTime,
         SUM(fl.instrumentTime) as instrumentTime,
         SUM(fl.crossCountryTime) as crossCountryTime
       FROM LogbookEntry fl
-      WHERE fl.userId = '${userId}'
-    `) as any[];
+      WHERE fl.userId = ${userId}
+    ` as any[];
 
     // Get member clubs
-    const clubs = await prisma.$queryRawUnsafe(`
+    const clubs = await prisma.$queryRaw`
       SELECT fg.id, fg.name, gm.role
       FROM GroupMember gm
       JOIN FlyingGroup fg ON gm.groupId = fg.id
-      WHERE gm.userId = '${userId}'
-    `) as any[];
+      WHERE gm.userId = ${userId}
+    ` as any[];
 
     // Get active flights (checked out)
-    const activeFlights = await prisma.$queryRawUnsafe(`
+    const activeFlights = await prisma.$queryRaw`
       SELECT fl.id, fl.hobbsStart, fl.checkedOutAt, a.nNumber, a.customName
       FROM FlightLog fl
       JOIN ClubAircraft a ON fl.aircraftId = a.id
-      WHERE fl.userId = '${userId}' AND fl.hobbsEnd IS NULL
-    `) as any[];
+      WHERE fl.userId = ${userId} AND fl.hobbsEnd IS NULL
+    ` as any[];
 
     // Calculate currency status
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-    const recentLandings = await prisma.$queryRawUnsafe(`
-      SELECT 
+    const recentLandings = await prisma.$queryRaw`
+      SELECT
         SUM(dayLandings) as dayLandings,
         SUM(nightLandings) as nightLandings
       FROM LogbookEntry
-      WHERE userId = '${userId}' AND date >= '${ninetyDaysAgo.toISOString()}'
-    `) as any[];
+      WHERE userId = ${userId} AND date >= ${ninetyDaysAgo}
+    ` as any[];
 
-    const dayLandings = recentLandings && recentLandings.length > 0 
-      ? (recentLandings[0].dayLandings || 0) 
+    const dayLandings = recentLandings && recentLandings.length > 0
+      ? (recentLandings[0].dayLandings || 0)
       : 0;
-    const nightLandings = recentLandings && recentLandings.length > 0 
-      ? (recentLandings[0].nightLandings || 0) 
+    const nightLandings = recentLandings && recentLandings.length > 0
+      ? (recentLandings[0].nightLandings || 0)
       : 0;
 
     // Currency calculations

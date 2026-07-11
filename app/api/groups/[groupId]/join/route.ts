@@ -21,19 +21,22 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!token) {
       return NextResponse.json({ error: 'Token required' }, { status: 400 });
     }
+    if (!/^[0-9a-f]{64}$/i.test(token)) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 400 });
+    }
 
     // Find the invite using raw SQL
-    const invites = await prisma.$queryRawUnsafe(`
-      SELECT * FROM Invite 
-      WHERE token = '${token}' AND groupId = '${groupId}' AND expiresAt > GETDATE()
-    `) as any[];
+    const invites = await prisma.$queryRaw`
+      SELECT * FROM Invite
+      WHERE token = ${token} AND groupId = ${groupId} AND expiresAt > GETDATE()
+    ` as any[];
 
     if (!invites || invites.length === 0) {
       // Check if invite exists but expired
-      const anyInvites = await prisma.$queryRawUnsafe(`
-        SELECT * FROM Invite WHERE token = '${token}'
-      `) as any[];
-      
+      const anyInvites = await prisma.$queryRaw`
+        SELECT * FROM Invite WHERE token = ${token}
+      ` as any[];
+
       if (anyInvites && anyInvites.length > 0) {
         const inv = anyInvites[0];
         if (new Date(inv.expiresAt) <= new Date()) {
@@ -49,9 +52,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     // VIEWER role can join without account - just return success
     if (invite.role === 'VIEWER' && !session?.user?.email) {
       // For viewer invites without login, just return success info
-      const groups = await prisma.$queryRawUnsafe(`
-        SELECT id, name, description FROM FlyingGroup WHERE id = '${groupId}'
-      `) as any[];
+      const groups = await prisma.$queryRaw`
+        SELECT id, name, description FROM FlyingGroup WHERE id = ${groupId}
+      ` as any[];
       
       return NextResponse.json({ 
         success: true, 
@@ -67,20 +70,20 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
+
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
     }
-    
+
     const userId = users[0].id;
-    
+
     // Check if already a member using raw SQL
-    const existingMembers = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE userId = '${userId}' AND groupId = '${groupId}'
-    `) as any[];
+    const existingMembers = await prisma.$queryRaw`
+      SELECT * FROM GroupMember WHERE userId = ${userId} AND groupId = ${groupId}
+    ` as any[];
 
     if (existingMembers && existingMembers.length > 0) {
       return NextResponse.json({ error: 'Already a member of this group' }, { status: 400 });
@@ -88,17 +91,17 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Add user as member using raw SQL
     const memberId = crypto.randomUUID();
-    await prisma.$executeRawUnsafe(`
+    await prisma.$executeRaw`
       INSERT INTO GroupMember (id, userId, groupId, role, joinedAt)
-      VALUES ('${memberId}', '${userId}', '${groupId}', '${invite.role}', GETDATE())
-    `);
+      VALUES (${memberId}, ${userId}, ${groupId}, ${invite.role}, GETDATE())
+    `;
 
     // Delete the used invite
-    await prisma.$executeRawUnsafe(`DELETE FROM Invite WHERE id = '${invite.id}'`);
+    await prisma.$executeRaw`DELETE FROM Invite WHERE id = ${invite.id}`;
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error joining group:', error);
-    return NextResponse.json({ error: 'Failed to join group', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to join group' }, { status: 500 });
   }
 }

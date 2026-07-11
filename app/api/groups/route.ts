@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
 export async function POST(request: Request) {
   try {
@@ -10,9 +11,9 @@ export async function POST(request: Request) {
     }
 
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
 
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 });
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('Error creating group:', error);
-    return NextResponse.json({ error: 'Failed to create group', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create group' }, { status: 500 });
   }
 }
 
@@ -67,9 +68,9 @@ export async function GET() {
     }
 
     // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
 
     if (!users || users.length === 0) {
       console.log('[User] not found for email:', session.user.email);
@@ -79,24 +80,24 @@ export async function GET() {
     const userId = users[0].id;
 
     // Use raw SQL to get organizations the user is a member of
-    const memberships = await prisma.$queryRawUnsafe(`
+    const memberships = await prisma.$queryRaw`
       SELECT gm.role, o.id, o.name, o.type, o.ownerId, o.createdAt, o.updatedAt
       FROM OrganizationMember gm
       JOIN Organization o ON gm.organizationId = o.id
-      WHERE gm.userId = '${userId}'
-    `) as any[];
+      WHERE gm.userId = ${userId}
+    ` as any[];
 
     // Now fetch aircraft for each group
     const groupIds = memberships.map((m: any) => m.id);
     let aircraftMap: Record<string, any[]> = {};
-    
+
     if (groupIds.length > 0) {
-      const aircraftList = await prisma.$queryRawUnsafe(`
+      const aircraftList = await prisma.$queryRaw`
         SELECT a.*, o.name as groupName
         FROM ClubAircraft a
         JOIN Organization o ON a.organizationId = o.id
-        WHERE a.organizationId IN (${groupIds.map((id: string) => "'" + id + "'").join(',')})
-      `) as any[];
+        WHERE a.organizationId IN (${Prisma.join(groupIds)})
+      ` as any[];
       
       // Group aircraft by groupId
       aircraftList.forEach((a: any) => {

@@ -3,7 +3,7 @@ import { auth, prisma } from '@/lib/auth';
 
 async function ensureInquiryTable() {
   try {
-    await prisma.$executeRawUnsafe(`
+    await prisma.$executeRaw`
       IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'AircraftInquiry')
       BEGIN
         CREATE TABLE [AircraftInquiry] (
@@ -20,7 +20,7 @@ async function ensureInquiryTable() {
         CREATE NONCLUSTERED INDEX [IX_AircraftInquiry_buyerId] ON [AircraftInquiry]([buyerId]);
         CREATE NONCLUSTERED INDEX [IX_AircraftInquiry_status] ON [AircraftInquiry]([status]);
       END
-    `);
+    `;
   } catch (error) {
     console.error('Failed to ensure AircraftInquiry table:', error);
   }

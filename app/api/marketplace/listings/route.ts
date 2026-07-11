@@ -79,7 +79,7 @@ function safeParseJSON(value: string | null) {
 async function ensureMarketplaceTable() {
   try {
     // Create table if missing (Azure SQL / SQL Server)
-    await prisma.$executeRawUnsafe(`
+    await prisma.$executeRaw`
       IF OBJECT_ID('MarketplaceListing', 'U') IS NULL
       BEGIN
         CREATE TABLE MarketplaceListing (
@@ -108,7 +108,7 @@ async function ensureMarketplaceTable() {
         CREATE INDEX idx_marketplace_airport ON MarketplaceListing(airportIcao);
         CREATE INDEX idx_marketplace_status ON MarketplaceListing(status);
       END
-    `);
+    `;
   } catch (error) {
     // If permissions disallow DDL, queries below will return 500; log for visibility.
     console.error('Failed to ensure MarketplaceListing table:', error);
