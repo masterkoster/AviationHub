@@ -11,12 +11,17 @@ datasource db {
 }
 
 model Organization {
-  id        String   @id @default(uuid()) @db.NVarChar(36)
-  name      String   @unique @db.NVarChar(255)
-  type      String   @default("club") @db.NVarChar(20)
-  ownerId   String   @db.NVarChar(36)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid()) @db.NVarChar(36)
+  name        String   @unique @db.NVarChar(255)
+  type        String   @default("club") @db.NVarChar(20) // club | partnership
+  ownerId     String   @db.NVarChar(36)
+  description String?  @db.NVarChar(Max)
+  website     String?  @db.NVarChar(500)
+  homeAirport String?  @db.NVarChar(10) // ICAO/FAA identifier, e.g. KPTK
+  sizeBracket String?  @db.NVarChar(20) // 1-5 | 6-15 | 16-40 | 40+
+  showOnMap   Boolean  @default(false) // opt-in to the public club discovery map
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   owner               User                 @relation("OrganizationOwner", fields: [ownerId], references: [id], onDelete: NoAction)
   members             OrganizationMember[]

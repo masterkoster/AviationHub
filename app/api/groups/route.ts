@@ -22,13 +22,39 @@ export async function POST(request: Request) {
     const userId = users[0].id;
 
     const body = await request.json();
-    const { name } = body;
+    const { name, type, description, website, homeAirport, sizeBracket, showOnMap } = body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
     const trimmedName = name.trim();
+
+    // Two-path creation: partnership (small co-ownership) or club (full profile)
+    const groupType = type === 'partnership' ? 'partnership' : 'club';
+
+    const SIZE_BRACKETS = ['1-5', '6-15', '16-40', '40+'];
+    const profile = {
+      description:
+        typeof description === 'string' && description.trim()
+          ? description.trim().slice(0, 2000)
+          : null,
+      website:
+        typeof website === 'string' && website.trim()
+          ? website.trim().slice(0, 500)
+          : null,
+      homeAirport:
+        typeof homeAirport === 'string' && /^[A-Za-z0-9]{3,7}$/.test(homeAirport.trim())
+          ? homeAirport.trim().toUpperCase()
+          : null,
+      sizeBracket:
+        typeof sizeBracket === 'string' && SIZE_BRACKETS.includes(sizeBracket) ? sizeBracket : null,
+      // Map opt-in only makes sense for clubs with a public profile
+      showOnMap: groupType === 'club' && showOnMap === true,
+    };
+    if (profile.website && !/^https?:\/\//i.test(profile.website)) {
+      profile.website = `https://${profile.website}`;
+    }
 
     // Case-insensitive under the DB's CI collation; the unique index on
     // Organization.name is the race-safe backstop (handled in catch below)
@@ -48,6 +74,8 @@ export async function POST(request: Request) {
       data: {
         name: trimmedName,
         ownerId: userId,
+        type: groupType,
+        ...profile,
       },
     });
 
