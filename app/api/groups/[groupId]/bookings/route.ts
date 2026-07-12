@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isUuid } from '@/lib/validate';
+import { evaluateBooking, normalizePolicy } from '@/lib/club/policy';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -149,16 +150,46 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Aircraft not found in this group' }, { status: 404 });
     }
 
-    // Check if aircraft is grounded for maintenance
-    const groundingIssue = await prisma.maintenance.findFirst({
-      where: { clubAircraftId: aircraftId, isGrounded: true, status: { in: ['NEEDED', 'IN_PROGRESS'] } }
+    // Evaluate club booking policy: airworthiness (grounded squawk, overdue
+    // required inspection) + scheduling limits (max duration, advance window,
+    // minimum notice). A club with no policy row uses safe defaults.
+    const [policyRow, groundingIssue, inspections] = await Promise.all([
+      prisma.clubPolicy.findUnique({ where: { organizationId: groupId } }),
+      prisma.maintenance.findFirst({
+        where: { clubAircraftId: aircraftId, isGrounded: true, status: { in: ['NEEDED', 'IN_PROGRESS'] } },
+        select: { id: true },
+      }),
+      prisma.aircraftInspection.findMany({
+        where: { clubAircraftId: aircraftId, isActive: true },
+      }),
+    ]);
+
+    const policy = normalizePolicy(policyRow as Record<string, unknown> | null);
+    const violation = evaluateBooking(policy, {
+      start,
+      end,
+      hasGroundingSquawk: Boolean(groundingIssue),
+      currentTachHours: aircraft.totalTachHours ? Number(aircraft.totalTachHours) : null,
+      inspections: inspections.map((i) => ({
+        id: i.id,
+        type: i.type,
+        label: i.label,
+        lastDoneDate: i.lastDoneDate,
+        lastDoneHours: i.lastDoneHours ? Number(i.lastDoneHours) : null,
+        intervalMonths: i.intervalMonths,
+        intervalHours: i.intervalHours ? Number(i.intervalHours) : null,
+        isRequired: i.isRequired,
+        isActive: i.isActive,
+        notes: i.notes,
+      })),
     });
 
-    if (groundingIssue) {
-      return NextResponse.json(
-        { error: 'This aircraft is currently Grounded for maintenance. Please contact your admin.' },
-        { status: 403 }
-      );
+    if (violation) {
+      // Airworthiness blocks are 403 (not allowed); scheduling-limit blocks
+      // are 422 (request understood but violates a rule).
+      const status =
+        violation.code === 'GROUNDED_SQUAWK' || violation.code === 'OVERDUE_INSPECTION' ? 403 : 422;
+      return NextResponse.json({ error: violation.message, code: violation.code }, { status });
     }
 
     // Get or create pilot profile for this user

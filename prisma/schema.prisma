@@ -68,6 +68,7 @@ model Organization {
   posts               OrganizationPost[]
   documents           OrganizationDocument[]
   invites             Invite[]
+  policy              ClubPolicy?
 
   @@map("Organization")
 }
@@ -1413,6 +1414,26 @@ model ClubAircraft {
 
   @@index([organizationId])
   @@map("ClubAircraft")
+}
+
+// Per-club booking policy. One row per organization; absence means defaults.
+// Evaluated at booking creation (see lib/club/policy.ts).
+model ClubPolicy {
+  id                       String   @id @default(uuid()) @db.NVarChar(36)
+  organizationId           String   @unique @db.NVarChar(36)
+  maxBookingHours          Decimal? @db.Decimal(6, 2) // null = no cap
+  maxAdvanceDays           Int? // how far ahead a booking may start; null = no cap
+  minBookingNoticeHours    Decimal? @db.Decimal(6, 2) // must start at least this far out; null = none
+  blockOnOverdueInspection Boolean  @default(true) // block if a required inspection is overdue
+  blockOnGroundedSquawk    Boolean  @default(true) // block if grounded by a maintenance squawk
+  requireCurrencyToBook    Boolean  @default(false) // reserved: gate on pilot currency (not yet enforced)
+  blockOnUnpaidBalance     Boolean  @default(false) // reserved: gate on outstanding balance (not yet enforced)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("ClubPolicy")
 }
 
 // Recurring airworthiness inspections for a club aircraft. Each row tracks one
