@@ -31,6 +31,7 @@ import {
 } from '@/desktop/lib/local-auth'
 import { ConfirmDialog } from '@/desktop/components/confirm-dialog'
 import { notifyError } from '@/desktop/lib/toast-helpers'
+import { cloudApi } from '@/desktop/lib/cloud-api'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -382,6 +383,19 @@ export default function DesktopProfilePage() {
     setEditHomeAirport(resolvedUser.homeAirport || '')
   }, [resolvedUser])
 
+  // In cloud mode the server is the source of truth for home airport —
+  // the local SQLite row is just a mirror (and absent in the browser).
+  useEffect(() => {
+    if (mode !== 'cloud') return
+    cloudApi
+      .getProfile()
+      .then((profile) => {
+        const ha = profile && typeof profile.homeAirport === 'string' ? profile.homeAirport : ''
+        if (ha) setEditHomeAirport(ha)
+      })
+      .catch((err) => console.error('[profile] load cloud profile failed', err))
+  }, [mode])
+
   // ── Load docs, certs, stats on mount ───────────────────────────
   useEffect(() => {
     if (!resolvedUser) return
@@ -654,15 +668,28 @@ export default function DesktopProfilePage() {
   }
 
   async function handleSaveAirport() {
-    if (!resolvedUser) return
+    const value = editHomeAirport.trim().toUpperCase()
     setSavingAirport(true)
     setAirportSaved(false)
     try {
-      await updateLocalUser(resolvedUser.id, { homeAirport: editHomeAirport.trim() })
+      // Cloud accounts: persist to the server (PilotProfile.homeAirport) so it
+      // survives reloads and other devices; the local row is only a mirror.
+      if (mode === 'cloud') {
+        await cloudApi.updateProfile({ homeAirport: value || null })
+      }
+      // Mirror into the local SQLite when a local row exists (Tauri).
+      if (resolvedUser) {
+        await updateLocalUser(resolvedUser.id, { homeAirport: value })
+        setResolvedUser({ ...resolvedUser, homeAirport: value || null })
+      } else if (mode !== 'cloud') {
+        throw new Error('No profile to save to')
+      }
+      setEditHomeAirport(value)
       setAirportSaved(true)
       setTimeout(() => setAirportSaved(false), 2000)
     } catch (err) {
       console.error('[profile] save airport failed', err)
+      notifyError('Home airport', err instanceof Error ? err.message : 'Failed to save home airport')
     } finally {
       setSavingAirport(false)
     }

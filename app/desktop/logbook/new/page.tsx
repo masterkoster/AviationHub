@@ -41,6 +41,7 @@ export default function DesktopNewFlightPage() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [aircraft, setAircraft] = useState('')
   const [aircraftId, setAircraftId] = useState('')
+  const [useManualAircraft, setUseManualAircraft] = useState(false)
   const [routeFrom, setRouteFrom] = useState('')
   const [routeTo, setRouteTo] = useState('')
   const [totalTime, setTotalTime] = useState('')
@@ -130,7 +131,11 @@ export default function DesktopNewFlightPage() {
   const setField = (key: TimeKey, val: string) => setTimes((prev) => ({ ...prev, [key]: val }))
 
   function applySavedPlan(plan: StoredFlightPlan) {
-    setAircraft(plan.callsign || plan.aircraftName || '')
+    const value = plan.callsign || plan.aircraftName || ''
+    setAircraft(value)
+    const match = aircraftList.find((a) => a.nNumber.toUpperCase() === value.toUpperCase())
+    setAircraftId(match?.id || '')
+    setUseManualAircraft(!match)
     setRemarks((prev) => [plan.name ? `Plan: ${plan.name}` : '', prev].filter(Boolean).join('\n'))
     if (plan.waypoints.length > 0) {
       setRouteFrom(plan.waypoints[0]?.icao || '')
@@ -285,26 +290,68 @@ export default function DesktopNewFlightPage() {
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={INPUT_CLASS} />
             </Field>
             <Field label="Aircraft">
-              <input
-                type="text"
-                value={aircraft}
-                placeholder="N-number"
-                onChange={(e) => {
-                  setAircraft(e.target.value.toUpperCase())
-                  const match = aircraftList.find((a) => a.nNumber.toUpperCase() === e.target.value.toUpperCase())
-                  setAircraftId(match?.id || '')
-                  clearFieldError('aircraft')
-                }}
-                list="aircraft-list"
-                className={INPUT_CLASS}
-              />
-              <datalist id="aircraft-list">
-                {aircraftList.map((a) => (
-                  <option key={a.id} value={a.nNumber}>
-                    {a.nickname ? `${a.nNumber} (${a.nickname})` : a.nNumber}
-                  </option>
-                ))}
-              </datalist>
+              {aircraftList.length === 0 ? (
+                <input
+                  type="text"
+                  value={aircraft}
+                  placeholder="N-number"
+                  onChange={(e) => {
+                    setAircraft(e.target.value.toUpperCase())
+                    setAircraftId('')
+                    clearFieldError('aircraft')
+                  }}
+                  className={INPUT_CLASS}
+                />
+              ) : useManualAircraft ? (
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    value={aircraft}
+                    placeholder="N-number"
+                    onChange={(e) => {
+                      const value = e.target.value.toUpperCase()
+                      setAircraft(value)
+                      const match = aircraftList.find((a) => a.nNumber.toUpperCase() === value)
+                      setAircraftId(match?.id || '')
+                      clearFieldError('aircraft')
+                    }}
+                    className={INPUT_CLASS}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setUseManualAircraft(false)}
+                    className="text-[11px] font-medium text-primary hover:underline"
+                  >
+                    Choose from saved aircraft
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={aircraftId}
+                  onChange={(e) => {
+                    const id = e.target.value
+                    if (id === '__manual__') {
+                      setUseManualAircraft(true)
+                      setAircraft('')
+                      setAircraftId('')
+                      return
+                    }
+                    setAircraftId(id)
+                    const match = aircraftList.find((a) => a.id === id)
+                    setAircraft(match?.nNumber || '')
+                    clearFieldError('aircraft')
+                  }}
+                  className={INPUT_CLASS}
+                >
+                  <option value="">Select aircraft…</option>
+                  {aircraftList.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nickname ? `${a.nickname} — ${a.nNumber}` : a.nNumber}
+                    </option>
+                  ))}
+                  <option value="__manual__">Other / enter manually…</option>
+                </select>
+              )}
               {fieldErrors.aircraft && (
                 <p className="mt-1 text-xs text-destructive">{fieldErrors.aircraft}</p>
               )}

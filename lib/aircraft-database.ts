@@ -1021,3 +1021,43 @@ export function searchAircraft(query: string): AircraftEntry[] {
       a.commonUse.toLowerCase().includes(q),
   )
 }
+
+/**
+ * Tolerant match from a free-text "make/model" string (as stored on a user's
+ * owned aircraft) to an entry in the static database. Tolerant of case and
+ * spacing/punctuation differences, and of shorthand model names (e.g. a
+ * saved aircraft model of "Cessna 172S" should still match the "172 Skyhawk"
+ * database entry).
+ */
+export function findAircraftMatch(text: string | null | undefined): AircraftEntry | undefined {
+  if (!text) return undefined
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const needle = norm(text)
+  if (!needle) return undefined
+
+  const candidates = aircraftDatabase.map(a => ({
+    entry: a,
+    manufacturer: norm(a.manufacturer),
+    model: norm(a.model),
+    modelCode: norm(a.model.split(' ')[0]),
+  }))
+
+  // 1. Exact combined manufacturer+model match (e.g. text built by our own picker)
+  let hit = candidates.find(c => `${c.manufacturer}${c.model}` === needle)
+  if (hit) return hit.entry
+
+  // 2. Manufacturer + full model name both present in the text
+  hit = candidates.find(c => c.manufacturer && c.model && needle.includes(c.manufacturer) && needle.includes(c.model))
+  if (hit) return hit.entry
+
+  // 3. Manufacturer + leading model code both present (handles shorthand like "Cessna 172S")
+  hit = candidates.find(c => c.manufacturer && c.modelCode && needle.includes(c.manufacturer) && needle.includes(c.modelCode))
+  if (hit) return hit.entry
+
+  // 4. Combined string is a superstring/substring of the text (or vice versa)
+  hit = candidates.find(c => {
+    const combined = `${c.manufacturer}${c.model}`
+    return combined.length > 0 && (combined.includes(needle) || needle.includes(combined))
+  })
+  return hit?.entry
+}

@@ -132,6 +132,13 @@ async function logsFetcher(url: string): Promise<LogsResponse> {
 type GroupCreateStep = 'choose' | 'partnership' | 'club'
 type GroupCreateType = 'partnership' | 'club'
 
+interface AirportSuggestion {
+  ident: string
+  name: string
+  municipality?: string | null
+  region?: string | null
+}
+
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: (group: Group) => void }) {
   const [step, setStep] = useState<GroupCreateStep>('choose')
   const [selectedType, setSelectedType] = useState<GroupCreateType | null>(null)
@@ -147,8 +154,58 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [description, setDescription] = useState('')
   const [showOnMap, setShowOnMap] = useState(false)
 
+  // Home airport autocomplete
+  const [airportSuggestions, setAirportSuggestions] = useState<AirportSuggestion[]>([])
+  const [showAirportSuggestions, setShowAirportSuggestions] = useState(false)
+  const [airportHighlight, setAirportHighlight] = useState(-1)
+
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Debounced airport suggestion lookup as the user types the home airport
+  useEffect(() => {
+    const q = homeAirport.trim()
+    if (q.length < 2) {
+      setAirportSuggestions([])
+      setAirportHighlight(-1)
+      return
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/airports/search?q=${encodeURIComponent(q)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        setAirportSuggestions(Array.isArray(data) ? data : [])
+        setAirportHighlight(-1)
+      } catch {
+        // Ignore — suggestions are best-effort, free typing still works
+      }
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [homeAirport])
+
+  function selectAirport(a: AirportSuggestion) {
+    setHomeAirport(a.ident)
+    setShowAirportSuggestions(false)
+    setAirportSuggestions([])
+    setAirportHighlight(-1)
+  }
+
+  function handleAirportKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showAirportSuggestions || airportSuggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setAirportHighlight(i => (i + 1) % airportSuggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setAirportHighlight(i => (i <= 0 ? airportSuggestions.length - 1 : i - 1))
+    } else if (e.key === 'Enter' && airportHighlight >= 0) {
+      e.preventDefault()
+      selectAirport(airportSuggestions[airportHighlight])
+    } else if (e.key === 'Escape') {
+      setShowAirportSuggestions(false)
+    }
+  }
 
   const groupTypeOptions: {
     type: GroupCreateType
@@ -326,15 +383,44 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
                 <option value="40+">40+ members</option>
               </select>
             </div>
-            <div>
+            <div className="relative">
               <label className="text-sm font-medium">Home Airport</label>
               <input
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-ring"
                 value={homeAirport}
-                onChange={e => setHomeAirport(e.target.value.toUpperCase())}
+                onChange={e => {
+                  setHomeAirport(e.target.value.toUpperCase())
+                  setShowAirportSuggestions(true)
+                }}
+                onFocus={() => { if (airportSuggestions.length > 0) setShowAirportSuggestions(true) }}
+                onBlur={() => setTimeout(() => setShowAirportSuggestions(false), 150)}
+                onKeyDown={handleAirportKeyDown}
                 placeholder="e.g. KPTK"
                 maxLength={7}
+                autoComplete="off"
+                role="combobox"
+                aria-expanded={showAirportSuggestions && airportSuggestions.length > 0}
+                aria-autocomplete="list"
               />
+              {showAirportSuggestions && airportSuggestions.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-md border border-border bg-popover shadow-md">
+                  {airportSuggestions.map((a, i) => (
+                    <button
+                      key={a.ident}
+                      type="button"
+                      // onMouseDown (not onClick) fires before the input's onBlur closes the dropdown
+                      onMouseDown={e => { e.preventDefault(); selectAirport(a) }}
+                      onMouseEnter={() => setAirportHighlight(i)}
+                      className={`block w-full truncate px-3 py-2 text-left text-sm normal-case ${
+                        i === airportHighlight ? 'bg-accent text-accent-foreground' : 'hover:bg-accent hover:text-accent-foreground'
+                      }`}
+                    >
+                      <span className="font-medium">{a.ident}</span>
+                      <span className="text-muted-foreground"> — {a.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium">Website</label>
@@ -1002,6 +1088,73 @@ function InviteMemberModal({ group, onClose, onAdded }: {
   )
 }
 
+// ---- DeleteClubModal ----
+
+function DeleteClubModal({ group, onClose, onDeleted }: {
+  group: Group
+  onClose: () => void
+  onDeleted: () => void
+}) {
+  const [confirmText, setConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleDelete() {
+    if (confirmText !== 'delete') return
+    setDeleting(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/groups/${group.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || 'Failed to delete club')
+        return
+      }
+      onDeleted()
+    } catch {
+      setError('Network error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-destructive">Delete {group.name}</h2>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+        <div className="space-y-4">
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            This permanently deletes the club, its aircraft records, bookings, and member associations. This cannot be undone.
+          </div>
+          <div>
+            <label className="text-sm font-medium">
+              Type <span className="font-mono font-semibold">delete</span> to confirm
+            </label>
+            <input
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-destructive"
+              value={confirmText}
+              onChange={e => setConfirmText(e.target.value)}
+              placeholder="delete"
+              autoFocus
+              autoComplete="off"
+            />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting || confirmText !== 'delete'}>
+              {deleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Deleting…</> : 'Delete Club'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ---- NewPostModal ----
 
 function NewPostModal({ groupId, onClose, onCreated }: {
@@ -1217,6 +1370,7 @@ export default function FlyingClubPage() {
 
   const [showNewPost, setShowNewPost] = useState(false)
   const [showUploadDocument, setShowUploadDocument] = useState(false)
+  const [showDeleteClub, setShowDeleteClub] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   // Auto-dismiss success message
@@ -1233,6 +1387,7 @@ export default function FlyingClubPage() {
   const upcomingBookings = bookings.filter(b => bookingStatus(b) !== 'past').slice(0, 5)
 
   const isAdminOrOfficer = selectedGroup?.role === 'ADMIN' || selectedGroup?.role === 'OFFICER'
+  const isOwnerOrAdmin = selectedGroup?.role === 'ADMIN'
 
   function getDaysInMonth() {
     const y = currentMonth.getFullYear(), m = currentMonth.getMonth()
@@ -1251,7 +1406,10 @@ export default function FlyingClubPage() {
   }
 
   const hasGroups = !groupsLoading && groups.length > 0
-  const tabs = ['dashboard', 'updates', 'documents', 'calendar', 'bookings', 'aircraft', 'flights', 'maintenance', 'members'] as const
+  const tabs = [
+    'dashboard', 'updates', 'documents', 'calendar', 'bookings', 'aircraft', 'flights', 'maintenance', 'members',
+    ...(isOwnerOrAdmin ? ['settings'] : []),
+  ]
 
   const [showConvertModal, setShowConvertModal] = useState(false)
 
@@ -2057,11 +2215,74 @@ export default function FlyingClubPage() {
           </Card>
         )}
 
+        {/* ---- SETTINGS ---- */}
+        {hasGroups && activeTab === 'settings' && isOwnerOrAdmin && selectedGroup && (
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Club Settings</CardTitle>
+                <CardDescription>Basic details for {selectedGroup.name}.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex items-center justify-between border-b border-border py-2">
+                  <span className="text-muted-foreground">Name</span>
+                  <span className="font-medium">{selectedGroup.name}</span>
+                </div>
+                <div className="flex items-center justify-between border-b border-border py-2">
+                  <span className="text-muted-foreground">Type</span>
+                  <span className="font-medium capitalize">{selectedGroup.type}</span>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-muted-foreground">Your Role</span>
+                  <Badge variant="default" className="text-xs">{selectedGroup.role}</Badge>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-destructive/40">
+              <CardHeader>
+                <CardTitle className="text-destructive">Danger Zone</CardTitle>
+                <CardDescription>Irreversible actions for this club.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Delete this club</p>
+                    <p className="text-xs text-muted-foreground">
+                      Permanently deletes the club, its aircraft records, bookings, and member associations.
+                    </p>
+                  </div>
+                  <Button variant="destructive" size="sm" onClick={() => setShowDeleteClub(true)}>
+                    <Trash2 className="mr-2 h-4 w-4" />Delete Club
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {showInviteMember && selectedGroup && (
           <InviteMemberModal
             group={selectedGroup}
             onClose={() => setShowInviteMember(false)}
             onAdded={() => mutateMembers()}
+          />
+        )}
+
+        {showDeleteClub && selectedGroup && (
+          <DeleteClubModal
+            group={selectedGroup}
+            onClose={() => setShowDeleteClub(false)}
+            onDeleted={() => {
+              const deletedId = selectedGroup.id
+              const deletedName = selectedGroup.name
+              const remaining = groups.filter(g => g.id !== deletedId)
+              mutateGroups(remaining, { revalidate: true })
+              setSelectedGroupId(remaining[0]?.id ?? null)
+              setActiveTab('dashboard')
+              setShowDeleteClub(false)
+              setSuccessMessage(`"${deletedName}" was deleted.`)
+            }}
           />
         )}
 

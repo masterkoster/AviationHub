@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Compass, Search, X, Upload, Loader2, Route, Plus, Download, Plane,
-  ChevronDown, ChevronUp, Star, Map, CheckCircle2, Mountain,
+  ChevronDown, ChevronUp, Star, Map, CheckCircle2, Mountain, MapPinned,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { stateData, getAllStates, type StateInfo } from '@/lib/stateData'
@@ -31,6 +31,18 @@ interface SharedRoute {
   downloadsCount: number
   createdAt: string
   sharedBy: string
+}
+
+interface ClubMapEntry {
+  id: string
+  name: string
+  description: string | null
+  website: string | null
+  sizeBracket: string | null
+  homeAirport: string
+  airportName: string
+  lat: number
+  lon: number
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -68,6 +80,18 @@ async function openExternalUrl(url: string) {
   if (typeof window !== 'undefined') window.open(url, '_blank', 'noopener,noreferrer')
 }
 
+const SIZE_LABELS: Record<string, string> = {
+  '1-5': '1–5 members',
+  '6-15': '6–15 members',
+  '16-40': '16–40 members',
+  '40+': '40+ members',
+}
+
+function formatSizeBracket(bracket: string | null): string {
+  if (!bracket) return 'Size not shared'
+  return SIZE_LABELS[bracket] ?? bracket
+}
+
 const TAG_COLORS: Record<string, string> = {
   scenic: 'bg-emerald-500/15 text-emerald-700',
   coastal: 'bg-blue-500/15 text-blue-700',
@@ -90,7 +114,7 @@ const AC_CAT_COLORS: Record<string, string> = {
   Experimental: 'bg-rose-500/15 text-rose-700',
 }
 
-type SectionId = 'featured' | 'aircraft' | 'community' | 'states'
+type SectionId = 'featured' | 'aircraft' | 'community' | 'states' | 'clubs'
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 
@@ -102,6 +126,7 @@ export default function DiscoverPage() {
   const [search, setSearch] = useState('')
   const [regionFilter, setRegionFilter] = useState('All')
   const [categoryFilter, setCategoryFilter] = useState('All')
+  const [engineFilter, setEngineFilter] = useState<'All' | AircraftEntry['engineType']>('All')
   const [distanceFilter, setDistanceFilter] = useState<'all' | 'short' | 'medium' | 'long'>('all')
 
   const [expanded, setExpanded] = useState<SectionId | null>(null)
@@ -113,6 +138,9 @@ export default function DiscoverPage() {
   const [importedId, setImportedId] = useState<string | null>(null)
   const [showShare, setShowShare] = useState(false)
   const [stateImgCache, setStateImgCache] = useState<Record<string, string | null>>({})
+
+  const [clubs, setClubs] = useState<ClubMapEntry[]>([])
+  const [clubsLoading, setClubsLoading] = useState(true)
 
   function toggle(id: SectionId) {
     setExpanded(prev => (prev === id ? null : id))
@@ -138,13 +166,14 @@ export default function DiscoverPage() {
   const filteredAircraft = useMemo(() => {
     return aircraftDatabase.filter(a => {
       if (categoryFilter !== 'All' && a.category !== categoryFilter) return false
+      if (engineFilter !== 'All' && a.engineType !== engineFilter) return false
       if (search) {
         const q = search.toLowerCase()
         return a.manufacturer.toLowerCase().includes(q) || a.model.toLowerCase().includes(q) || a.commonUse.toLowerCase().includes(q)
       }
       return true
     })
-  }, [categoryFilter, search])
+  }, [categoryFilter, engineFilter, search])
 
   const filteredStates = useMemo(() => {
     return getAllStates().filter(s => {
@@ -156,6 +185,17 @@ export default function DiscoverPage() {
       return true
     })
   }, [regionFilter, search])
+
+  const filteredClubs = useMemo(() => {
+    return clubs.filter(c => {
+      if (search) {
+        const q = search.toLowerCase()
+        return c.name.toLowerCase().includes(q) || c.homeAirport.toLowerCase().includes(q) ||
+          c.airportName.toLowerCase().includes(q)
+      }
+      return true
+    })
+  }, [clubs, search])
 
   const fetchCommunity = useCallback(async () => {
     setCommunityLoading(true)
@@ -178,6 +218,17 @@ export default function DiscoverPage() {
   }, [distMin, distMax, categoryFilter, expanded])
 
   useEffect(() => { fetchCommunity() }, [fetchCommunity])
+
+  useEffect(() => {
+    let cancelled = false
+    setClubsLoading(true)
+    fetch('/api/discover/clubs')
+      .then(res => res.ok ? res.json() : [])
+      .then((data: ClubMapEntry[]) => { if (!cancelled) setClubs(Array.isArray(data) ? data : []) })
+      .catch(() => { if (!cancelled) setClubs([]) })
+      .finally(() => { if (!cancelled) setClubsLoading(false) })
+    return () => { cancelled = true }
+  }, [])
 
   function importCurated(route: CuratedRoute) {
     try {
@@ -207,14 +258,16 @@ export default function DiscoverPage() {
   const visRoutes = expanded === 'featured' ? filteredRoutes : filteredRoutes.slice(0, 4)
   const visAircraft = expanded === 'aircraft' ? filteredAircraft : filteredAircraft.slice(0, 4)
   const visStates = expanded === 'states' ? filteredStates : filteredStates.slice(0, 6)
+  const visClubs = expanded === 'clubs' ? filteredClubs : filteredClubs.slice(0, 4)
 
-  const hasFilters = search || regionFilter !== 'All' || categoryFilter !== 'All' || distanceFilter !== 'all'
+  const hasFilters = search || regionFilter !== 'All' || categoryFilter !== 'All' || engineFilter !== 'All' || distanceFilter !== 'all'
 
   const sectionMeta: Record<SectionId, { title: string; subtitle: string; icon: React.ReactNode }> = {
     featured: { title: 'Featured Routes', subtitle: 'Curated VFR adventures across the US', icon: <Map className="h-4 w-4" /> },
     aircraft: { title: 'Aircraft to Explore', subtitle: 'Specs, history, and fleet integration', icon: <Plane className="h-4 w-4" /> },
     community: { title: 'Community Routes', subtitle: 'Routes shared by fellow pilots', icon: <Route className="h-4 w-4" /> },
     states: { title: 'State Highlights', subtitle: 'Fun facts and curated routes by state', icon: <Star className="h-4 w-4" /> },
+    clubs: { title: 'Flying Clubs', subtitle: 'Find clubs near you on the map', icon: <MapPinned className="h-4 w-4" /> },
   }
 
   return (
@@ -265,6 +318,13 @@ export default function DiscoverPage() {
           <option value="LSA">Light Sport</option>
           <option value="Experimental">Experimental</option>
         </select>
+        <select value={engineFilter} onChange={e => setEngineFilter(e.target.value as typeof engineFilter)} className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring">
+          <option value="All">All Engines</option>
+          <option value="Piston">Piston</option>
+          <option value="Turbine">Turbine</option>
+          <option value="Electric">Electric</option>
+          <option value="Rotary">Rotary</option>
+        </select>
         <select value={distanceFilter} onChange={e => setDistanceFilter(e.target.value as typeof distanceFilter)} className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring">
           <option value="all">Any Distance</option>
           <option value="short">Short (&lt;100 nm)</option>
@@ -273,7 +333,7 @@ export default function DiscoverPage() {
         </select>
         {hasFilters && (
           <button
-            onClick={() => { setSearch(''); setRegionFilter('All'); setCategoryFilter('All'); setDistanceFilter('all') }}
+            onClick={() => { setSearch(''); setRegionFilter('All'); setCategoryFilter('All'); setEngineFilter('All'); setDistanceFilter('all') }}
             className="flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-muted"
           >
             <X className="h-3 w-3" /> Clear
@@ -380,10 +440,46 @@ export default function DiscoverPage() {
           </SectionWrapper>
         )}
 
+        {/* Section 5: Flying Clubs */}
+        {(expanded === null || expanded === 'clubs') && (
+          <SectionWrapper
+            meta={sectionMeta.clubs}
+            count={filteredClubs.length}
+            isExpanded={expanded === 'clubs'}
+            onToggle={() => toggle('clubs')}
+            extra={
+              <button
+                onClick={() => router.push('/desktop/discover/clubs')}
+                className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted"
+              >
+                <Map className="h-3 w-3" /> Open Map
+              </button>
+            }
+          >
+            {clubsLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredClubs.length === 0 ? (
+              <EmptyFilter label="No clubs have joined the map yet." />
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {visClubs.map(c => (
+                  <ClubCard
+                    key={c.id}
+                    club={c}
+                    onClick={() => router.push(`/desktop/discover/clubs?club=${c.id}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </SectionWrapper>
+        )}
+
         {/* Collapsed headers for the sections not currently expanded */}
         {expanded !== null && (
           <div className="divide-y divide-border">
-            {(['featured', 'aircraft', 'community', 'states'] as SectionId[])
+            {(['featured', 'aircraft', 'community', 'states', 'clubs'] as SectionId[])
               .filter(id => id !== expanded)
               .map(id => (
                 <button
@@ -689,6 +785,31 @@ function StateCard({
       <div className="p-2.5">
         <p className="text-xs font-semibold leading-tight">{stateInfo.stateName}</p>
         <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">{stateInfo.funFact}</p>
+      </div>
+    </button>
+  )
+}
+
+// ── Club Card ─────────────────────────────────────────────────────────────────
+
+function ClubCard({ club, onClick }: { club: ClubMapEntry; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="group overflow-hidden rounded-lg border border-border bg-card text-left transition-all hover:border-primary/30 hover:shadow-md"
+    >
+      <div className="relative flex h-24 items-center justify-center overflow-hidden bg-gradient-to-br from-primary/5 to-primary/10">
+        <MapPinned className="h-8 w-8 text-primary/20" />
+        <span className="absolute right-2 top-2 rounded bg-primary/80 px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+          {formatSizeBracket(club.sizeBracket)}
+        </span>
+      </div>
+      <div className="p-3">
+        <h3 className="truncate text-sm font-semibold leading-tight">{club.name}</h3>
+        <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{club.homeAirport} · {club.airportName}</p>
+        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+          {club.description || 'No description provided.'}
+        </p>
       </div>
     </button>
   )

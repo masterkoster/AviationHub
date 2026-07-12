@@ -9,12 +9,18 @@ import {
   updateLocalFlight,
   voidLocalFlight,
   getLocalFlightHistory,
+  listLocalAircraftOptions,
+  resolveLocalLogbookUserId,
   type LocalFlightFull,
   type LocalFlightHistory,
   type UpdateLocalFlightInput,
 } from '@/apps/desktop/src/lib/local-logbook'
+import { getCloudSession } from '@/apps/desktop/src/lib/cloud-session'
+import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
 import { notifySaved, notifyError } from '@/desktop/lib/toast-helpers'
 import { toast } from '@/components/ui/use-toast'
+
+type AircraftOption = { id: string; nNumber: string; nickname?: string | null }
 
 const FIELDS = [
   { key: 'picTime', label: 'PIC', step: '0.1' },
@@ -70,7 +76,7 @@ export default function DesktopEditFlightPage() {
   const router = useRouter()
   const params = useParams()
   const id = params.id as string
-  const { localUser } = useDesktopAuth()
+  const { mode, localUser, cloudUser } = useDesktopAuth()
 
   const [flight, setFlight] = useState<LocalFlightFull | null>(null)
   const [history, setHistory] = useState<LocalFlightHistory[]>([])
@@ -83,6 +89,9 @@ export default function DesktopEditFlightPage() {
 
   const [date, setDate] = useState('')
   const [aircraft, setAircraft] = useState('')
+  const [aircraftId, setAircraftId] = useState('')
+  const [aircraftList, setAircraftList] = useState<AircraftOption[]>([])
+  const [useManualAircraft, setUseManualAircraft] = useState(false)
   const [routeFrom, setRouteFrom] = useState('')
   const [routeTo, setRouteTo] = useState('')
   const [totalTime, setTotalTime] = useState('')
@@ -93,6 +102,51 @@ export default function DesktopEditFlightPage() {
   const [times, setTimes] = useState<Record<TimeKey, string>>({} as Record<TimeKey, string>)
 
   const setField = (key: TimeKey, val: string) => setTimes((prev) => ({ ...prev, [key]: val }))
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadAircraftList() {
+      const rows: AircraftOption[] = []
+      try {
+        const localId = await resolveLocalLogbookUserId({ mode, localUserId: localUser?.id, cloudUser })
+        const localAircraft = await listLocalAircraftOptions(localId)
+        for (const a of localAircraft) rows.push({ id: a.id, nNumber: a.nNumber, nickname: a.nickname })
+      } catch {
+        // ignore local list errors
+      }
+      try {
+        const session = await getCloudSession()
+        if (session.authenticated) {
+          const cloudAircraft = await cloudApi.getAircraft()
+          for (const a of cloudAircraft) rows.push(a)
+        }
+      } catch {
+        // ignore cloud list errors
+      }
+      const deduped = new Map<string, AircraftOption>()
+      for (const a of rows) {
+        const key = a.nNumber.toUpperCase()
+        if (!deduped.has(key)) deduped.set(key, a)
+      }
+      if (!cancelled) setAircraftList(Array.from(deduped.values()))
+    }
+    loadAircraftList()
+    return () => { cancelled = true }
+  }, [mode, localUser?.id, cloudUser])
+
+  // Once the flight and the saved-aircraft list are both loaded, try to match
+  // the flight's aircraft text to a saved plane so the dropdown pre-selects it.
+  useEffect(() => {
+    if (!flight) return
+    const match = aircraftList.find((a) => a.nNumber.toUpperCase() === flight.aircraft.toUpperCase())
+    if (match) {
+      setAircraftId(match.id)
+      setUseManualAircraft(false)
+    } else {
+      setAircraftId('')
+      setUseManualAircraft(aircraftList.length > 0)
+    }
+  }, [flight, aircraftList])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -254,14 +308,65 @@ export default function DesktopEditFlightPage() {
             />
           </Field>
           <Field label="Aircraft">
-            <input
-              type="text"
-              value={aircraft}
-              onChange={(e) => setAircraft(e.target.value.toUpperCase())}
-              disabled={isReadOnly}
-              placeholder="N-number"
-              className={INPUT_CLASS}
-            />
+            {aircraftList.length === 0 ? (
+              <input
+                type="text"
+                value={aircraft}
+                onChange={(e) => setAircraft(e.target.value.toUpperCase())}
+                disabled={isReadOnly}
+                placeholder="N-number"
+                className={INPUT_CLASS}
+              />
+            ) : useManualAircraft ? (
+              <div className="space-y-1">
+                <input
+                  type="text"
+                  value={aircraft}
+                  onChange={(e) => {
+                    const value = e.target.value.toUpperCase()
+                    setAircraft(value)
+                    const match = aircraftList.find((a) => a.nNumber.toUpperCase() === value)
+                    setAircraftId(match?.id || '')
+                  }}
+                  disabled={isReadOnly}
+                  placeholder="N-number"
+                  className={INPUT_CLASS}
+                />
+                {!isReadOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setUseManualAircraft(false)}
+                    className="text-[11px] font-medium text-primary hover:underline"
+                  >
+                    Choose from saved aircraft
+                  </button>
+                )}
+              </div>
+            ) : (
+              <select
+                value={aircraftId}
+                onChange={(e) => {
+                  const id = e.target.value
+                  if (id === '__manual__') {
+                    setUseManualAircraft(true)
+                    return
+                  }
+                  setAircraftId(id)
+                  const match = aircraftList.find((a) => a.id === id)
+                  if (match) setAircraft(match.nNumber)
+                }}
+                disabled={isReadOnly}
+                className={INPUT_CLASS}
+              >
+                <option value="" disabled>Select aircraft…</option>
+                {aircraftList.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.nickname ? `${a.nickname} — ${a.nNumber}` : a.nNumber}
+                  </option>
+                ))}
+                <option value="__manual__">Other / enter manually…</option>
+              </select>
+            )}
           </Field>
         </div>
 

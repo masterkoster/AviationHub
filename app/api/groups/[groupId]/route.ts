@@ -144,11 +144,104 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Only the owner can delete the group' }, { status: 403 });
     }
 
-    // Delete related records first
-    await prisma.organizationMember.deleteMany({ where: { organizationId: groupId } });
-    await prisma.clubAircraft.deleteMany({ where: { organizationId: groupId } });
-    await prisma.booking.deleteMany({ where: { organizationId: groupId } });
-    await prisma.organization.delete({ where: { id: groupId } });
+    // The Organization row is referenced (directly or via its ClubAircraft/FlightLog rows)
+    // by a large web of tables, almost all with onDelete: NoAction constraints, so a bare
+    // `organization.delete` throws a FK violation the moment any of them has a row. Clean
+    // up every dependent in FK-safe order inside one transaction, then delete the org.
+    //
+    // LogbookEntry is the exception: it's a pilot's personal/legal flight record, so we
+    // detach it (null out organizationId/clubAircraftId) instead of deleting it.
+    await prisma.$transaction(async (tx) => {
+      const aircraft = await tx.clubAircraft.findMany({
+        where: { organizationId: groupId },
+        select: { id: true },
+      });
+      const aircraftIds = aircraft.map(a => a.id);
+
+      const flightLogs = await tx.flightLog.findMany({
+        where: { OR: [{ organizationId: groupId }, { clubAircraftId: { in: aircraftIds } }] },
+        select: { id: true },
+      });
+      const flightLogIds = flightLogs.map(f => f.id);
+
+      const maintenanceRequests = await tx.maintenanceRequest.findMany({
+        where: { organizationId: groupId },
+        select: { id: true },
+      });
+      const maintenanceRequestIds = maintenanceRequests.map(m => m.id);
+
+      // Preserve pilots' personal logbook entries — just detach them from the club/aircraft.
+      await tx.logbookEntry.updateMany({
+        where: { OR: [{ organizationId: groupId }, { clubAircraftId: { in: aircraftIds } }] },
+        data: { organizationId: null, clubAircraftId: null },
+      });
+
+      // Mechanic marketplace records tied to this club's maintenance requests
+      // (children of MaintenanceRequest before the request itself).
+      await tx.mechanicJobSchedule.deleteMany({ where: { maintenanceRequestId: { in: maintenanceRequestIds } } });
+      await tx.mechanicReview.deleteMany({ where: { maintenanceRequestId: { in: maintenanceRequestIds } } });
+      await tx.mechanicFileRequest.deleteMany({ where: { maintenanceRequestId: { in: maintenanceRequestIds } } });
+      await tx.mechanicQuote.deleteMany({ where: { maintenanceRequestId: { in: maintenanceRequestIds } } });
+      await tx.maintenanceRequest.deleteMany({ where: { organizationId: groupId } });
+
+      // Billing (children before parents) and aircraft-usage records that reference the
+      // org's aircraft or flight logs.
+      await tx.invoiceItem.deleteMany({
+        where: {
+          OR: [
+            { invoice: { organizationId: groupId } },
+            { clubAircraftId: { in: aircraftIds } },
+            { flightLogId: { in: flightLogIds } },
+          ],
+        },
+      });
+      await tx.maintenance.deleteMany({
+        where: {
+          OR: [
+            { organizationId: groupId },
+            { clubAircraftId: { in: aircraftIds } },
+            { flightLogId: { in: flightLogIds } },
+          ],
+        },
+      });
+      await tx.fuelExpense.deleteMany({
+        where: {
+          OR: [
+            { organizationId: groupId },
+            { clubAircraftId: { in: aircraftIds } },
+            { flightLogId: { in: flightLogIds } },
+          ],
+        },
+      });
+      await tx.invoice.deleteMany({ where: { organizationId: groupId } });
+      await tx.billingRun.deleteMany({ where: { organizationId: groupId } });
+      await tx.flightLog.deleteMany({
+        where: { OR: [{ organizationId: groupId }, { clubAircraftId: { in: aircraftIds } }] },
+      });
+
+      // Bookings/blockouts on the org's aircraft, then the aircraft themselves.
+      await tx.booking.deleteMany({
+        where: { OR: [{ organizationId: groupId }, { clubAircraftId: { in: aircraftIds } }] },
+      });
+      await tx.blockOut.deleteMany({
+        where: { OR: [{ organizationId: groupId }, { clubAircraftId: { in: aircraftIds } }] },
+      });
+      await tx.clubAircraft.deleteMany({ where: { organizationId: groupId } });
+
+      // Membership, chat, and club content.
+      await tx.groupChatMessage.deleteMany({ where: { organizationId: groupId } });
+      await tx.organizationMember.deleteMany({ where: { organizationId: groupId } });
+      await tx.invite.deleteMany({ where: { groupId } });
+      await tx.organizationPost.deleteMany({ where: { organizationId: groupId } });
+      await tx.organizationDocument.deleteMany({ where: { organizationId: groupId } });
+
+      // Third-party integrations (QuickBooks, etc.) and their sync history.
+      await tx.syncLog.deleteMany({ where: { integration: { organizationId: groupId } } });
+      await tx.quickBooksMapping.deleteMany({ where: { integration: { organizationId: groupId } } });
+      await tx.integration.deleteMany({ where: { organizationId: groupId } });
+
+      await tx.organization.delete({ where: { id: groupId } });
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

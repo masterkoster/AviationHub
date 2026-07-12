@@ -10,6 +10,28 @@ datasource db {
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
+// Public aviation events (fly-ins, airshows, seminars) pinned to an airport.
+// Surfaced as "events near you" and as an opt-in calendar overlay.
+model AviationEvent {
+  id             String    @id @default(uuid()) @db.NVarChar(36)
+  title          String    @db.NVarChar(200)
+  description    String?   @db.NVarChar(Max)
+  airportIcao    String    @db.NVarChar(10)
+  startTime      DateTime
+  endTime        DateTime?
+  website        String?   @db.NVarChar(500)
+  category       String?   @db.NVarChar(50) // fly-in, airshow, seminar, meetup, breakfast
+  organizationId String?   @db.NVarChar(36) // hosting club, if any
+  createdBy      String?   @db.NVarChar(36)
+  isPublic       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([airportIcao, startTime])
+  @@index([startTime])
+  @@map("AviationEvent")
+}
+
 model Organization {
   id          String   @id @default(uuid()) @db.NVarChar(36)
   name        String   @unique @db.NVarChar(255)
