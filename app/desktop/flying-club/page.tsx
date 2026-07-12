@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import {
   Plane, Calendar, Users, Wrench, DollarSign, Clock,
   AlertCircle, Plus, ChevronLeft, ChevronRight,
@@ -497,11 +498,16 @@ function NewBookingModal({ group, onClose, onCreated }: {
   const [purpose, setPurpose] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Policy blocks (403 airworthiness / 422 scheduling-limit) get a more
+  // prominent callout since the message is directly actionable; plain
+  // conflicts (409) and other errors keep the simple inline text.
+  const [isPolicyError, setIsPolicyError] = useState(false)
 
   async function handleBook() {
     if (!aircraftId || !date) return
     setSaving(true)
     setError(null)
+    setIsPolicyError(false)
     try {
       const startISO = new Date(`${date}T${startTime}:00`).toISOString()
       const endISO = new Date(`${date}T${endTime}:00`).toISOString()
@@ -510,8 +516,12 @@ function NewBookingModal({ group, onClose, onCreated }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ aircraftId, startTime: startISO, endTime: endISO, purpose: purpose || undefined }),
       })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Failed to create booking'); return }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error || 'Failed to create booking')
+        setIsPolicyError(res.status === 403 || res.status === 422)
+        return
+      }
       onCreated(data)
     } catch {
       setError('Network error')
@@ -565,7 +575,13 @@ function NewBookingModal({ group, onClose, onCreated }: {
               placeholder="e.g. Local practice, cross country…"
             />
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && isPolicyError && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span className="font-medium">{error}</span>
+            </div>
+          )}
+          {error && !isPolicyError && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2 justify-end">
             <Button variant="outline" onClick={onClose}>Cancel</Button>
             <Button onClick={handleBook} disabled={saving || !aircraftId}>
@@ -1347,6 +1363,196 @@ function UploadDocumentModal({ groupId, onClose, onCreated }: {
         </div>
       </div>
     </div>
+  )
+}
+
+// ---- BookingPolicyCard ----
+// Admin-only booking policy editor for the Settings tab. Fetches the
+// effective policy (defaults if unset) and PUTs changes back.
+
+interface ClubPolicy {
+  maxBookingHours: number | null
+  maxAdvanceDays: number | null
+  minBookingNoticeHours: number | null
+  blockOnOverdueInspection: boolean
+  blockOnGroundedSquawk: boolean
+  requireCurrencyToBook: boolean
+  blockOnUnpaidBalance: boolean
+}
+
+function BookingPolicyCard({ groupId }: { groupId: string }) {
+  const { data: policy, isLoading, mutate: mutatePolicy } = useSWR<ClubPolicy>(
+    `/api/groups/${groupId}/policy`,
+    fetcher
+  )
+
+  const [maxBookingHours, setMaxBookingHours] = useState('')
+  const [maxAdvanceDays, setMaxAdvanceDays] = useState('')
+  const [minBookingNoticeHours, setMinBookingNoticeHours] = useState('')
+  const [blockOnOverdueInspection, setBlockOnOverdueInspection] = useState(true)
+  const [blockOnGroundedSquawk, setBlockOnGroundedSquawk] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  // Sync local form state whenever the fetched policy changes (group switch, initial load).
+  useEffect(() => {
+    if (!policy) return
+    setMaxBookingHours(policy.maxBookingHours != null ? String(policy.maxBookingHours) : '')
+    setMaxAdvanceDays(policy.maxAdvanceDays != null ? String(policy.maxAdvanceDays) : '')
+    setMinBookingNoticeHours(policy.minBookingNoticeHours != null ? String(policy.minBookingNoticeHours) : '')
+    setBlockOnOverdueInspection(policy.blockOnOverdueInspection)
+    setBlockOnGroundedSquawk(policy.blockOnGroundedSquawk)
+  }, [policy])
+
+  useEffect(() => {
+    if (!saved) return
+    const t = setTimeout(() => setSaved(false), 3000)
+    return () => clearTimeout(t)
+  }, [saved])
+
+  async function handleSave() {
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+    try {
+      const res = await fetch(`/api/groups/${groupId}/policy`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          maxBookingHours: maxBookingHours.trim() === '' ? null : parseFloat(maxBookingHours),
+          maxAdvanceDays: maxAdvanceDays.trim() === '' ? null : parseInt(maxAdvanceDays, 10),
+          minBookingNoticeHours: minBookingNoticeHours.trim() === '' ? null : parseFloat(minBookingNoticeHours),
+          blockOnOverdueInspection,
+          blockOnGroundedSquawk,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || 'Failed to save booking policy'); return }
+      mutatePolicy(data, { revalidate: false })
+      setSaved(true)
+    } catch {
+      setError('Network error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Booking Policy</CardTitle>
+        <CardDescription>Control how members can book aircraft in this club.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5 text-sm">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <label className="text-sm font-medium">Max booking length (hours)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={maxBookingHours}
+                  onChange={e => setMaxBookingHours(e.target.value)}
+                  placeholder="No limit"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Max advance booking (days)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={maxAdvanceDays}
+                  onChange={e => setMaxAdvanceDays(e.target.value)}
+                  placeholder="No limit"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Minimum notice (hours)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={minBookingNoticeHours}
+                  onChange={e => setMinBookingNoticeHours(e.target.value)}
+                  placeholder="No limit"
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-medium">Block booking when a required inspection is overdue</p>
+                  <p className="text-xs text-muted-foreground">
+                    Members can't reserve an aircraft that has an overdue required inspection.
+                  </p>
+                </div>
+                <Switch checked={blockOnOverdueInspection} onCheckedChange={setBlockOnOverdueInspection} />
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-medium">Block booking when grounded for maintenance</p>
+                  <p className="text-xs text-muted-foreground">
+                    Members can't reserve an aircraft that's currently grounded by an open squawk.
+                  </p>
+                </div>
+                <Switch checked={blockOnGroundedSquawk} onCheckedChange={setBlockOnGroundedSquawk} />
+              </div>
+              <div className="flex items-start justify-between gap-4 opacity-60">
+                <div>
+                  <p className="font-medium flex items-center gap-2">
+                    Require currency to book
+                    <Badge variant="secondary" className="text-[10px]">Coming soon</Badge>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Members without current flight review / medical on file won't be able to book.
+                  </p>
+                </div>
+                <Switch checked={false} disabled />
+              </div>
+              <div className="flex items-start justify-between gap-4 opacity-60">
+                <div>
+                  <p className="font-medium flex items-center gap-2">
+                    Block booking on unpaid balance
+                    <Badge variant="secondary" className="text-[10px]">Coming soon</Badge>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Members with an outstanding account balance won't be able to book.
+                  </p>
+                </div>
+                <Switch checked={false} disabled />
+              </div>
+            </div>
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            {saved && !error && (
+              <p className="text-sm font-medium text-emerald-600 flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4" />Policy saved
+              </p>
+            )}
+
+            <div className="flex justify-end">
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</> : 'Save policy'}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -2282,6 +2488,8 @@ export default function FlyingClubPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <BookingPolicyCard groupId={selectedGroup.id} />
 
             <Card className="border-destructive/40">
               <CardHeader>
