@@ -38,6 +38,7 @@ interface ClubMapEntry {
   name: string
   description: string | null
   website: string | null
+  contactEmail: string | null
   sizeBracket: string | null
   homeAirport: string
   airportName: string
@@ -145,6 +146,17 @@ export default function DiscoverPage() {
   function toggle(id: SectionId) {
     setExpanded(prev => (prev === id ? null : id))
   }
+
+  // Used by the hero pillar tiles: always focus (never toggle back to null),
+  // then scroll the matching preview section into view.
+  function focusSection(id: SectionId) {
+    setExpanded(id)
+  }
+
+  useEffect(() => {
+    if (!expanded) return
+    document.getElementById(`section-${expanded}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [expanded])
 
   const distMin = distanceFilter === 'medium' ? 100 : distanceFilter === 'long' ? 300 : 0
   const distMax = distanceFilter === 'short' ? 100 : distanceFilter === 'medium' ? 300 : 99999
@@ -341,108 +353,68 @@ export default function DiscoverPage() {
         )}
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto divide-y divide-border">
+      {/* Scrollable content: hero hub grid + compact previews per pillar */}
+      <div className="flex-1 overflow-y-auto">
 
-        {/* Section 1: Featured Routes */}
-        {(expanded === null || expanded === 'featured') && (
-          <SectionWrapper
-            meta={sectionMeta.featured}
-            count={filteredRoutes.length}
-            isExpanded={expanded === 'featured'}
-            onToggle={() => toggle('featured')}
+        {/* Hub: the four things every pilot needs to find, plus Aircraft as a smaller tile */}
+        <div className="border-b border-border bg-muted/10 px-4 py-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <HeroTile
+              icon={MapPinned}
+              title="Flying Clubs"
+              description="Find clubs near you on the map"
+              count={clubsLoading ? null : clubs.length}
+              countLabel="on the map"
+              onClick={() => router.push('/desktop/discover/clubs')}
+            />
+            <HeroTile
+              icon={Star}
+              title="States"
+              description="What to fly and see, state by state"
+              count={getAllStates().length}
+              countLabel="states"
+              onClick={() => focusSection('states')}
+            />
+            <HeroTile
+              icon={Route}
+              title="Community"
+              description="Routes shared by fellow pilots"
+              count={communityLoading ? null : communityTotal}
+              countLabel="shared routes"
+              onClick={() => focusSection('community')}
+            />
+            <HeroTile
+              icon={Map}
+              title="Featured Routes"
+              description="Curated VFR adventures across the US"
+              count={curatedRoutes.length}
+              countLabel="routes"
+              onClick={() => focusSection('featured')}
+            />
+          </div>
+          <button
+            onClick={() => focusSection('aircraft')}
+            className="group mt-3 flex w-full items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5 text-left transition-all hover:border-primary/40 hover:shadow-sm sm:w-auto"
           >
-            {filteredRoutes.length === 0 ? <EmptyFilter /> : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {visRoutes.map(r => (
-                  <CuratedRouteCard key={r.id} route={r} onImport={() => importCurated(r)} />
-                ))}
-              </div>
-            )}
-          </SectionWrapper>
-        )}
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Plane className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold leading-tight">Aircraft to Explore</p>
+              <p className="text-[11px] text-muted-foreground">Specs, history, and fleet integration</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {aircraftDatabase.length} types
+            </span>
+          </button>
+        </div>
 
-        {/* Section 2: Aircraft to Explore */}
-        {(expanded === null || expanded === 'aircraft') && (
-          <SectionWrapper
-            meta={sectionMeta.aircraft}
-            count={filteredAircraft.length}
-            isExpanded={expanded === 'aircraft'}
-            onToggle={() => toggle('aircraft')}
-          >
-            {filteredAircraft.length === 0 ? <EmptyFilter /> : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {visAircraft.map(a => (
-                  <AircraftCard
-                    key={a.id}
-                    aircraft={a}
-                    onClick={() => router.push(`/desktop/discover/aircraft/${a.id}`)}
-                  />
-                ))}
-              </div>
-            )}
-          </SectionWrapper>
-        )}
+        <div className="divide-y divide-border">
 
-        {/* Section 3: Community Routes */}
-        {(expanded === null || expanded === 'community') && (
-          <SectionWrapper
-            meta={sectionMeta.community}
-            count={communityTotal}
-            isExpanded={expanded === 'community'}
-            onToggle={() => toggle('community')}
-            extra={!isCloud ? (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Sign in to share</span>
-            ) : undefined}
-          >
-            {communityLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : community.length === 0 ? (
-              <EmptyFilter label={isCloud ? 'No community routes yet — share one from the Map!' : 'Sign in to browse and share community routes.'} />
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {community.map(r => (
-                  <CommunityRouteCard
-                    key={r.id}
-                    route={r}
-                    importing={importedId === r.id}
-                    onImport={() => importCommunity(r)}
-                  />
-                ))}
-              </div>
-            )}
-          </SectionWrapper>
-        )}
-
-        {/* Section 4: State Highlights */}
-        {(expanded === null || expanded === 'states') && (
-          <SectionWrapper
-            meta={sectionMeta.states}
-            count={filteredStates.length}
-            isExpanded={expanded === 'states'}
-            onToggle={() => toggle('states')}
-          >
-            {filteredStates.length === 0 ? <EmptyFilter /> : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                {visStates.map(s => (
-                  <StateCard
-                    key={s.state}
-                    stateInfo={s}
-                    cachedImage={stateImgCache[s.state]}
-                    onImageLoaded={url => setStateImgCache(prev => ({ ...prev, [s.state]: url }))}
-                    onClick={() => router.push(`/desktop/discover/state/${s.state}`)}
-                  />
-                ))}
-              </div>
-            )}
-          </SectionWrapper>
-        )}
-
-        {/* Section 5: Flying Clubs */}
+        {/* Preview 1: Flying Clubs */}
         {(expanded === null || expanded === 'clubs') && (
           <SectionWrapper
+            id="clubs"
             meta={sectionMeta.clubs}
             count={filteredClubs.length}
             isExpanded={expanded === 'clubs'}
@@ -476,10 +448,110 @@ export default function DiscoverPage() {
           </SectionWrapper>
         )}
 
+        {/* Preview 2: State Highlights */}
+        {(expanded === null || expanded === 'states') && (
+          <SectionWrapper
+            id="states"
+            meta={sectionMeta.states}
+            count={filteredStates.length}
+            isExpanded={expanded === 'states'}
+            onToggle={() => toggle('states')}
+          >
+            {filteredStates.length === 0 ? <EmptyFilter /> : (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {visStates.map(s => (
+                  <StateCard
+                    key={s.state}
+                    stateInfo={s}
+                    cachedImage={stateImgCache[s.state]}
+                    onImageLoaded={url => setStateImgCache(prev => ({ ...prev, [s.state]: url }))}
+                    onClick={() => router.push(`/desktop/discover/state/${s.state}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </SectionWrapper>
+        )}
+
+        {/* Preview 3: Community Routes */}
+        {(expanded === null || expanded === 'community') && (
+          <SectionWrapper
+            id="community"
+            meta={sectionMeta.community}
+            count={communityTotal}
+            isExpanded={expanded === 'community'}
+            onToggle={() => toggle('community')}
+            extra={!isCloud ? (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Sign in to share</span>
+            ) : undefined}
+          >
+            {communityLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : community.length === 0 ? (
+              <EmptyFilter label={isCloud ? 'No community routes yet — share one from the Map!' : 'Sign in to browse and share community routes.'} />
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {community.map(r => (
+                  <CommunityRouteCard
+                    key={r.id}
+                    route={r}
+                    importing={importedId === r.id}
+                    onImport={() => importCommunity(r)}
+                  />
+                ))}
+              </div>
+            )}
+          </SectionWrapper>
+        )}
+
+        {/* Preview 4: Featured Routes */}
+        {(expanded === null || expanded === 'featured') && (
+          <SectionWrapper
+            id="featured"
+            meta={sectionMeta.featured}
+            count={filteredRoutes.length}
+            isExpanded={expanded === 'featured'}
+            onToggle={() => toggle('featured')}
+          >
+            {filteredRoutes.length === 0 ? <EmptyFilter /> : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {visRoutes.map(r => (
+                  <CuratedRouteCard key={r.id} route={r} onImport={() => importCurated(r)} />
+                ))}
+              </div>
+            )}
+          </SectionWrapper>
+        )}
+
+        {/* Preview 5: Aircraft to Explore */}
+        {(expanded === null || expanded === 'aircraft') && (
+          <SectionWrapper
+            id="aircraft"
+            meta={sectionMeta.aircraft}
+            count={filteredAircraft.length}
+            isExpanded={expanded === 'aircraft'}
+            onToggle={() => toggle('aircraft')}
+          >
+            {filteredAircraft.length === 0 ? <EmptyFilter /> : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {visAircraft.map(a => (
+                  <AircraftCard
+                    key={a.id}
+                    aircraft={a}
+                    onClick={() => router.push(`/desktop/discover/aircraft/${a.id}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </SectionWrapper>
+        )}
+
         {/* Collapsed headers for the sections not currently expanded */}
         {expanded !== null && (
           <div className="divide-y divide-border">
-            {(['featured', 'aircraft', 'community', 'states', 'clubs'] as SectionId[])
+            {(['clubs', 'states', 'community', 'featured', 'aircraft'] as SectionId[])
               .filter(id => id !== expanded)
               .map(id => (
                 <button
@@ -494,6 +566,7 @@ export default function DiscoverPage() {
               ))}
           </div>
         )}
+        </div>
       </div>
 
       {showShare && (
@@ -509,8 +582,9 @@ export default function DiscoverPage() {
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
 function SectionWrapper({
-  meta, count, isExpanded, onToggle, children, extra,
+  id, meta, count, isExpanded, onToggle, children, extra,
 }: {
+  id: SectionId
   meta: { title: string; subtitle: string; icon: React.ReactNode }
   count: number
   isExpanded: boolean
@@ -519,7 +593,7 @@ function SectionWrapper({
   extra?: React.ReactNode
 }) {
   return (
-    <div className="px-4 py-4">
+    <div id={`section-${id}`} className="scroll-mt-2 px-4 py-4">
       <div className="mb-3 flex items-center gap-2">
         <span className="text-primary">{meta.icon}</span>
         <div className="flex-1 min-w-0">
@@ -537,6 +611,43 @@ function SectionWrapper({
       </div>
       {children}
     </div>
+  )
+}
+
+// ── Hero tile (hub grid) ────────────────────────────────────────────────────────
+
+function HeroTile({
+  icon: Icon, title, description, count, countLabel, onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  title: string
+  description: string
+  count: number | null
+  countLabel: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md"
+    >
+      <div className="flex w-full items-start justify-between gap-2">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+        {count !== null ? (
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {count.toLocaleString()} {countLabel}
+          </span>
+        ) : (
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">…</span>
+        )}
+      </div>
+      <div className="min-w-0">
+        <h2 className="text-sm font-semibold leading-tight">{title}</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+    </button>
   )
 }
 

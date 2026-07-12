@@ -21,3 +21,14 @@ BEGIN
   CREATE INDEX [AviationEvent_airportIcao_startTime_idx] ON [AviationEvent]([airportIcao], [startTime]);
   CREATE INDEX [AviationEvent_startTime_idx] ON [AviationEvent]([startTime]);
 END;
+
+-- Import provenance for external feeds (faasafety.gov etc.) with dedupe.
+IF COL_LENGTH('AviationEvent', 'source') IS NULL
+  ALTER TABLE [AviationEvent] ADD [source] NVARCHAR(50) NULL;
+
+IF COL_LENGTH('AviationEvent', 'sourceId') IS NULL
+  ALTER TABLE [AviationEvent] ADD [sourceId] NVARCHAR(100) NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'AviationEvent_source_sourceId_key')
+  CREATE UNIQUE INDEX [AviationEvent_source_sourceId_key]
+    ON [AviationEvent]([source], [sourceId]) WHERE [source] IS NOT NULL AND [sourceId] IS NOT NULL;

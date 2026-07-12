@@ -48,7 +48,7 @@ export async function POST(request: Request) {
 
     const userId = session.user.id
     const body = await request.json()
-    const { name, type, description, website, homeAirport, sizeBracket, showOnMap } = body
+    const { name, type, description, website, homeAirport, sizeBracket, showOnMap, contactEmail } = body
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return NextResponse.json({ error: 'Group name is required' }, { status: 400 })
@@ -58,6 +58,15 @@ export async function POST(request: Request) {
 
     // Two-path creation: partnership (small co-ownership) or club (full profile)
     const groupType = type === 'partnership' ? 'partnership' : 'club'
+
+    // Contact email is only meaningful for clubs (shown publicly on the discovery
+    // map/detail card). Silently drop anything that doesn't look like an email
+    // rather than rejecting the whole request.
+    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    const rawContactEmail =
+      typeof contactEmail === 'string' ? contactEmail.trim().toLowerCase().slice(0, 255) : ''
+    const validContactEmail =
+      groupType === 'club' && EMAIL_REGEX.test(rawContactEmail) ? rawContactEmail : null
 
     const SIZE_BRACKETS = ['1-5', '6-15', '16-40', '40+']
     const profile = {
@@ -104,6 +113,14 @@ export async function POST(request: Request) {
       },
     })
 
+    // The generated Prisma Client predates the `contactEmail` column (added
+    // directly to the DB while `npx prisma generate` was blocked by a running
+    // dev server holding the query-engine binary locked). Write it via a
+    // parameterized raw UPDATE until the client can be regenerated.
+    if (validContactEmail) {
+      await prisma.$executeRaw`UPDATE Organization SET contactEmail = ${validContactEmail} WHERE id = ${group.id}`
+    }
+
     await prisma.organizationMember.create({
       data: {
         userId: userId,
@@ -120,7 +137,8 @@ export async function POST(request: Request) {
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
       role: 'ADMIN',
-      aircraft: []
+      aircraft: [],
+      contactEmail: validContactEmail,
     })
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

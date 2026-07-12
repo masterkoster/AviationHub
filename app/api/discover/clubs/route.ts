@@ -3,6 +3,7 @@ import sqlite3 from 'sqlite3'
 import { open } from 'sqlite'
 import path from 'path'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 
 // Organizations live in the SQL Server database (via Prisma); airport
 // lat/lon lives in the separate sqlite aviation_hub.db. We join the two
@@ -57,6 +58,15 @@ export async function GET() {
       })
     }
 
+    // `contactEmail` predates the generated Prisma Client (added directly to the
+    // DB while `npx prisma generate` was blocked by a running dev server holding
+    // the query-engine binary locked). Fetch it via raw SQL and merge by id until
+    // the client can be regenerated.
+    const contactEmailRows = await prisma.$queryRaw<{ id: string; contactEmail: string | null }[]>`
+      SELECT id, contactEmail FROM Organization WHERE id IN (${Prisma.join(clubs.map((c) => c.id))})
+    `
+    const contactEmailById = new Map(contactEmailRows.map((r) => [r.id, r.contactEmail]))
+
     const idents = [...new Set(
       clubs
         .map((c) => c.homeAirport?.trim().toUpperCase())
@@ -90,6 +100,7 @@ export async function GET() {
           name: club.name,
           description: club.description,
           website: club.website,
+          contactEmail: contactEmailById.get(club.id) ?? null,
           sizeBracket: club.sizeBracket,
           homeAirport: airport.icao,
           airportName: airport.name,

@@ -151,6 +151,7 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [sizeBracket, setSizeBracket] = useState('')
   const [homeAirport, setHomeAirport] = useState('')
   const [website, setWebsite] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
   const [description, setDescription] = useState('')
   const [showOnMap, setShowOnMap] = useState(false)
 
@@ -250,6 +251,7 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           type: 'club',
           description: description.trim() || undefined,
           website: website.trim() || undefined,
+          contactEmail: contactEmail.trim() || undefined,
           homeAirport: homeAirport.trim() || undefined,
           sizeBracket: sizeBracket || undefined,
           showOnMap,
@@ -430,6 +432,17 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
                 onChange={e => setWebsite(e.target.value)}
                 placeholder="yourclub.com"
               />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Contact email <span className="font-normal text-muted-foreground">(optional)</span></label>
+              <input
+                type="email"
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={contactEmail}
+                onChange={e => setContactEmail(e.target.value)}
+                placeholder="info@yourclub.com"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">Shown publicly so pilots can reach your club</p>
             </div>
             <div>
               <label className="text-sm font-medium">Bio</label>

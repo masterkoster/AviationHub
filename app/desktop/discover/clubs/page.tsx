@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
-  ArrowLeft, Loader2, Users, Plane, ExternalLink, X, MapPinned,
+  ArrowLeft, Loader2, Users, Plane, ExternalLink, X, MapPinned, Mail,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ErrorCard } from '@/desktop/components/error-card'
@@ -25,6 +25,7 @@ interface ClubMapEntry {
   name: string
   description: string | null
   website: string | null
+  contactEmail: string | null
   sizeBracket: string | null
   homeAirport: string
   airportName: string
@@ -239,14 +240,29 @@ function ClubDetailCard({ club, onClose }: { club: ClubMapEntry; onClose: () => 
         {club.description || 'No description provided.'}
       </p>
 
-      {club.website && (
-        <button
-          onClick={() => openExternalUrl(withProtocol(club.website!))}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          Visit Website
-        </button>
+      {(club.contactEmail || club.website) ? (
+        <div className="mt-3 flex gap-2">
+          {club.contactEmail && (
+            <a
+              href={`mailto:${club.contactEmail}`}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              Email
+            </a>
+          )}
+          {club.website && (
+            <button
+              onClick={() => openExternalUrl(withProtocol(club.website!))}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Website
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 text-center text-xs text-muted-foreground">No contact info provided</p>
       )}
     </div>
   )
