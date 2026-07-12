@@ -9,6 +9,28 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async redirects() {
+    return [
+      // Phase 0 route consolidation: /modules/* duplicates point at the
+      // canonical trees. Temporary (307) until the duplicate code is deleted.
+      { source: "/modules/fuel-saver", destination: "/fuel-saver", permanent: false },
+      { source: "/modules/fuel-saver/:path*", destination: "/fuel-saver/:path*", permanent: false },
+      { source: "/modules/logbook", destination: "/logbook", permanent: false },
+      { source: "/modules/marketplace", destination: "/marketplace", permanent: false },
+      { source: "/modules/marketplace/create", destination: "/marketplace", permanent: false },
+      { source: "/modules/marketplace/saved", destination: "/marketplace", permanent: false },
+      { source: "/modules/flying-club", destination: "/flying-club", permanent: false },
+      { source: "/modules/flying-club/manage", destination: "/flying-club/admin", permanent: false },
+      { source: "/modules/flying-club/manage/:section", destination: "/flying-club/admin", permanent: false },
+      { source: "/modules/scheduler-preview", destination: "/flying-club", permanent: false },
+      // Retired surfaces (messaging/social/friends cut from the product)
+      { source: "/messages", destination: "/dashboard", permanent: false },
+      { source: "/modules/social", destination: "/dashboard", permanent: false },
+      { source: "/modules/social/:path*", destination: "/dashboard", permanent: false },
+      { source: "/modules/pilot-directory", destination: "/dashboard", permanent: false },
+      { source: "/modules/pilot-overview", destination: "/dashboard", permanent: false },
+    ];
+  },
   async headers() {
     const csp = [
       "default-src 'self'",

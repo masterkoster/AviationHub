@@ -1,4 +1,4 @@
-import { Resend } from 'resend';
+﻿import { Resend } from 'resend';
 import { 
   verificationEmailTemplate, 
   resetPasswordEmailTemplate,
@@ -7,7 +7,15 @@ import {
 } from './email-templates';
 
 const resendApiKey = process.env.RESEND_API_KEY;
-const resend = new Resend(resendApiKey);
+
+// Constructed lazily: Resend throws when instantiated without a key, which
+// would crash module evaluation (and `next build`) in environments where
+// email isn't configured. Callers already guard on resendApiKey.
+let resendClient: Resend | null = null;
+function getResend(): Resend {
+  if (!resendClient) resendClient = new Resend(resendApiKey);
+  return resendClient;
+}
 
 const APP_NAME = 'AviationHub';
 const APP_URL =
@@ -72,7 +80,7 @@ export async function sendVerificationEmail(
       return { success: false, error: fromResolved.error };
     }
 
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResend().emails.send({
       from: fromResolved.from,
       to: email,
       subject: `Verify your email - ${APP_NAME}`,
@@ -114,7 +122,7 @@ export async function sendPasswordResetEmail(
       return { success: false, error: fromResolved.error };
     }
 
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResend().emails.send({
       from: fromResolved.from,
       to: email,
       subject: `Reset your password - ${APP_NAME}`,
@@ -154,7 +162,7 @@ export async function sendEmail(
       return { success: false, error: fromResolved.error };
     }
 
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResend().emails.send({
       from: fromResolved.from,
       to,
       subject,

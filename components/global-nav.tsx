@@ -52,7 +52,6 @@ const NAV_ITEMS: NavItem[] = [
       { label: "Fuel Saver", href: "/fuel-saver", description: "Optimise routes and reduce fuel costs" },
       { label: "Airports", href: "/airports", description: "Find airports and FBO info" },
       { label: "Weather Radar", href: "/modules/weather-radar", description: "Live precipitation radar" },
-      { label: "NOTAMs", href: "/fuel-saver", description: "View NOTAMs along route" },
       { label: "E6B Calculator", href: "/modules/e6b", description: "Wind correction, fuel, speed" },
     ],
   },
@@ -69,8 +68,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: "Dashboard", href: "/flying-club", description: "Club overview" },
       { label: "Active Flights", href: "/flying-club/active", description: "Today's flights and schedules" },
-      { label: "Members", href: "/flying-club", description: "View and manage club members" },
-      { label: "Aircraft", href: "/flying-club", description: "Club fleet management" },
+      { label: "Members & Fleet", href: "/flying-club/admin", description: "Manage club members and aircraft" },
       { label: "Maintenance", href: "/flying-club/maintenance-requests", description: "Club maintenance queue" },
       { label: "Currency", href: "/flying-club/currency", description: "Member currency status" },
       { label: "Billing", href: "/flying-club/billing", description: "Hobbs billing" },
@@ -81,8 +79,6 @@ const NAV_ITEMS: NavItem[] = [
     label: "Tools",
     children: [
       { label: "Marketplace", href: "/marketplace", description: "Buy/sell aircraft and parts" },
-      { label: "Messages", href: "/messages", description: "Pilot messaging" },
-      { label: "Scheduler", href: "/scheduler", description: "Schedule management" },
       { label: "Find Mechanic", href: "/mechanics", description: "Search mechanics" },
     ],
   },
