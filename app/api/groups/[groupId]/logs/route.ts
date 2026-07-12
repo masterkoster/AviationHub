@@ -74,8 +74,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
       aircraftId: fl.clubAircraftId,
       userId: fl.pilotProfile?.userId,
       date: fl.date,
-      tachTime: fl.tachTime,
-      hobbsTime: fl.hobbsTime,
+      // Prisma Decimal serializes to a string over JSON; coerce to number so
+      // clients (which type these as number) can call numeric methods safely.
+      tachTime: fl.tachTime != null ? Number(fl.tachTime) : null,
+      hobbsTime: fl.hobbsTime != null ? Number(fl.hobbsTime) : null,
       notes: fl.notes,
       aircraft: fl.clubAircraft ? {
         id: fl.clubAircraft.id,
