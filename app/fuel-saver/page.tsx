@@ -11,7 +11,8 @@ const StateInfoPanel = dynamic(() => import('./StateInfoPanel'), { ssr: false })
 const NotamsPanel = dynamic(() => import('./components/NOTAMsPanel'), { ssr: false });
 const ExportDropdown = dynamic(() => import('./components/ExportDropdown'), { ssr: false });
 const TripFinder = dynamic(() => import('./components/TripFinder'), { ssr: false });
-import { MapControls, DEFAULT_MAP_OPTIONS, MapTileLayer, MapLayerOptions } from './MapControls';
+import { DEFAULT_MAP_OPTIONS, type MapLayerOptions } from './map-options';
+const MapControls = dynamic(() => import('./MapControls').then((m) => m.MapControls), { ssr: false });
 import FlightPlayback from './FlightPlayback';
 import RangeRingCalculator from './RangeRing';
 import PerformanceSettingsPanel, { PerformanceSettings, DEFAULT_SETTINGS } from './PerformanceSettings';

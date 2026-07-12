@@ -3,21 +3,9 @@
 import { useState, useEffect } from 'react';
 import { LayersControl, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import type { MapLayerOptions } from './map-options';
 
-export interface MapLayerOptions {
-  baseLayer: 'osm' | 'satellite' | 'terrain' | 'dark';
-  showLarge: boolean;
-  showMedium: boolean;
-  showSmall: boolean;
-  showSeaplane: boolean;
-  showTerrain: boolean;
-  showAirspaces: boolean;
-  showFuelPrices: boolean;
-  showStatePrices: boolean;
-  showTfrs: boolean;
-  showPireps: boolean;
-  performanceMode: boolean;
-}
+export { DEFAULT_MAP_OPTIONS, type MapLayerOptions } from './map-options';
 
 interface MapControlsProps {
   options: MapLayerOptions;
@@ -218,20 +206,6 @@ export function MapControls({ options, onOptionsChange }: MapControlsProps) {
 }
 
 // Default options
-export const DEFAULT_MAP_OPTIONS: MapLayerOptions = {
-  baseLayer: 'osm',
-  showLarge: true,
-  showMedium: true,
-  showSmall: true,
-  showSeaplane: false,
-  showTerrain: false,
-  showAirspaces: false,
-  showFuelPrices: true,
-  showStatePrices: true,
-  showTfrs: true,
-  showPireps: true,
-  performanceMode: false
-};
 
 // Tile layer component for the map
 export function MapTileLayer({ baseLayer }: { baseLayer: MapLayerOptions['baseLayer'] }) {
