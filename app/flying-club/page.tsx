@@ -14,12 +14,12 @@ import {
 import {
   Plane, Calendar, Users, Wrench, DollarSign, Clock,
   AlertCircle, Plus, ChevronLeft, ChevronRight,
-  BookOpen, Settings, X, Loader2
+  BookOpen, Settings, X, Loader2, CheckCircle2
 } from "lucide-react"
 import { FlightCompleteWizard } from "@/components/flight-complete/FlightCompleteWizard"
 import { ClubHomeView } from "@/components/club-home/ClubHomeView"
 import type { Post, DocumentMeta, BlockOutItem } from "@/components/club-home/types"
-import { fmtNum } from "@/lib/utils"
+import { fmtNum, cn } from "@/lib/utils"
 
 // ---- Types ----
 
@@ -103,6 +103,7 @@ const SIZE_BRACKET_OPTIONS = [
 
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: (group: Group) => void }) {
   const [step, setStep] = useState<'choose' | 'partnership' | 'club'>('choose')
+  const [selectedType, setSelectedType] = useState<'partnership' | 'club' | null>(null)
   const [name, setName] = useState('')
   const [sizeBracket, setSizeBracket] = useState('')
   const [homeAirport, setHomeAirport] = useState('')
@@ -171,28 +172,57 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 
         {step === 'choose' && (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">Choose the kind of group that fits how you fly.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button
-                onClick={() => setStep('partnership')}
-                className="rounded-lg border border-border bg-background p-4 text-left transition-colors hover:border-primary hover:bg-primary/5"
-              >
-                <Users className="h-6 w-6 text-primary mb-2" />
-                <p className="font-medium">Partnership</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  A few friends who own a plane together and split costs
-                </p>
-              </button>
-              <button
-                onClick={() => setStep('club')}
-                className="rounded-lg border border-border bg-background p-4 text-left transition-colors hover:border-primary hover:bg-primary/5"
-              >
-                <Plane className="h-6 w-6 text-primary mb-2" />
-                <p className="font-medium">Flying Club</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  A club with members, scheduling, and billing
-                </p>
-              </button>
+            <div className="text-center">
+              <h2 className="text-lg font-bold">What kind of group is this?</h2>
+              <p className="mt-1 text-xs text-muted-foreground">You can change the details later.</p>
+            </div>
+            <div className="grid gap-3">
+              {[
+                {
+                  type: 'partnership' as const,
+                  icon: Users,
+                  title: 'Partnership',
+                  desc: 'A few friends who own a plane together and split costs',
+                },
+                {
+                  type: 'club' as const,
+                  icon: Plane,
+                  title: 'Flying Club',
+                  desc: 'A club with members, scheduling, and billing',
+                },
+              ].map((c) => (
+                <button
+                  key={c.type}
+                  onClick={() => setSelectedType(c.type)}
+                  className={cn(
+                    'flex items-start gap-3 rounded-md border p-4 text-left transition-all',
+                    selectedType === c.type
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                      : 'border-border hover:border-foreground/20 hover:bg-muted/50'
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'flex h-9 w-9 items-center justify-center rounded-md',
+                      selectedType === c.type ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                    )}
+                  >
+                    <c.icon className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold">{c.title}</p>
+                    <p className="text-xs text-muted-foreground">{c.desc}</p>
+                  </div>
+                  {selectedType === c.type && (
+                    <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => selectedType && setStep(selectedType)} disabled={!selectedType}>
+                Continue
+              </Button>
             </div>
           </div>
         )}

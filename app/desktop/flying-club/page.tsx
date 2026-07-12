@@ -14,8 +14,8 @@ import { Separator } from "@/components/ui/separator"
 import {
   Plane, Calendar, Users, Wrench, DollarSign, Clock,
   AlertCircle, Plus, ChevronLeft, ChevronRight,
-  BookOpen, X, Loader2, Cloud, ArrowRight,
-  FileText, Download, Trash2, Pin,
+  BookOpen, X, Loader2, Cloud, ArrowRight, ArrowLeft,
+  FileText, Download, Trash2, Pin, CheckCircle2,
 } from "lucide-react"
 import { FlightCompleteWizard } from "@/components/flight-complete/FlightCompleteWizard"
 
@@ -129,20 +129,46 @@ async function logsFetcher(url: string): Promise<LogsResponse> {
 
 // ---- NewGroupModal ----
 
+type GroupCreateStep = 'choose' | 'partnership' | 'club'
+type GroupCreateType = 'partnership' | 'club'
+
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: (group: Group) => void }) {
-  const [name, setName] = useState('')
+  const [step, setStep] = useState<GroupCreateStep>('choose')
+  const [selectedType, setSelectedType] = useState<GroupCreateType | null>(null)
+
+  // Partnership form
+  const [partnershipName, setPartnershipName] = useState('')
+
+  // Flying club form
+  const [clubName, setClubName] = useState('')
+  const [sizeBracket, setSizeBracket] = useState('')
+  const [homeAirport, setHomeAirport] = useState('')
+  const [website, setWebsite] = useState('')
+  const [description, setDescription] = useState('')
+  const [showOnMap, setShowOnMap] = useState(false)
+
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleCreate() {
-    if (!name.trim()) return
+  const groupTypeOptions: {
+    type: GroupCreateType
+    icon: React.ComponentType<{ className?: string }>
+    title: string
+    desc: string
+  }[] = [
+    { type: 'partnership', icon: Users, title: 'Partnership', desc: 'A few friends who own a plane together and split costs' },
+    { type: 'club', icon: Plane, title: 'Flying Club', desc: 'A club with members, scheduling, and billing' },
+  ]
+
+  async function handleCreatePartnership() {
+    if (!partnershipName.trim()) return
     setSaving(true)
     setError(null)
     try {
       const res = await fetch('/api/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name: partnershipName.trim(), type: 'partnership' }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error || 'Failed to create group'); return }
@@ -154,6 +180,39 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     }
   }
 
+  async function handleCreateClub() {
+    if (!clubName.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: clubName.trim(),
+          type: 'club',
+          description: description.trim() || undefined,
+          website: website.trim() || undefined,
+          homeAirport: homeAirport.trim() || undefined,
+          sizeBracket: sizeBracket || undefined,
+          showOnMap,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Failed to create group'); return }
+      onCreated({ ...data, aircraft: [], role: 'ADMIN' })
+    } catch {
+      setError('Network error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function goBackToChoose() {
+    setStep('choose')
+    setError(null)
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
@@ -161,26 +220,164 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           <h2 className="text-lg font-semibold">Create New Group</h2>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
         </div>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Group Name</label>
-            <input
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. Sky High Flying Club"
-              onKeyDown={e => e.key === 'Enter' && handleCreate()}
-              autoFocus
-            />
+
+        {step === 'choose' && (
+          <div className="space-y-4">
+            <div className="text-center">
+              <h3 className="text-lg font-bold">What kind of group is this?</h3>
+              <p className="mt-1 text-xs text-muted-foreground">You can change the details later.</p>
+            </div>
+            <div className="grid gap-3">
+              {groupTypeOptions.map(o => (
+                <button
+                  key={o.type}
+                  type="button"
+                  onClick={() => setSelectedType(o.type)}
+                  className={`flex items-start gap-3 rounded-md border p-4 text-left transition-all ${
+                    selectedType === o.type
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                      : 'border-border hover:border-foreground/20 hover:bg-muted/50'
+                  }`}
+                >
+                  <div
+                    className={`flex h-9 w-9 items-center justify-center rounded-md ${
+                      selectedType === o.type ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                    }`}
+                  >
+                    <o.icon className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold">{o.title}</p>
+                    <p className="text-xs text-muted-foreground">{o.desc}</p>
+                  </div>
+                  {selectedType === o.type && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <Button disabled={!selectedType} onClick={() => selectedType && setStep(selectedType)}>
+                Continue
+              </Button>
+            </div>
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={saving || !name.trim()}>
-              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : 'Create Group'}
-            </Button>
+        )}
+
+        {step === 'partnership' && (
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={goBackToChoose}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back
+            </button>
+            <div>
+              <label className="text-sm font-medium">Name</label>
+              <input
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={partnershipName}
+                onChange={e => setPartnershipName(e.target.value)}
+                placeholder="e.g. N12345 Partners"
+                onKeyDown={e => e.key === 'Enter' && handleCreatePartnership()}
+                autoFocus
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button onClick={handleCreatePartnership} disabled={saving || !partnershipName.trim()}>
+                {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : 'Create Group'}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
+
+        {step === 'club' && (
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={goBackToChoose}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back
+            </button>
+            <div>
+              <label className="text-sm font-medium">Name *</label>
+              <input
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={clubName}
+                onChange={e => setClubName(e.target.value)}
+                placeholder="e.g. Sky High Flying Club"
+                onKeyDown={e => e.key === 'Enter' && handleCreateClub()}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Club Size</label>
+              <select
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={sizeBracket}
+                onChange={e => setSizeBracket(e.target.value)}
+              >
+                <option value="">Select…</option>
+                <option value="1-5">1–5 members</option>
+                <option value="6-15">6–15 members</option>
+                <option value="16-40">16–40 members</option>
+                <option value="40+">40+ members</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Home Airport</label>
+              <input
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-ring"
+                value={homeAirport}
+                onChange={e => setHomeAirport(e.target.value.toUpperCase())}
+                placeholder="e.g. KPTK"
+                maxLength={7}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Website</label>
+              <input
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={website}
+                onChange={e => setWebsite(e.target.value)}
+                placeholder="yourclub.com"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Bio</label>
+              <textarea
+                className="mt-1 w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={description}
+                onChange={e => setDescription(e.target.value.slice(0, 2000))}
+                placeholder="Tell pilots about your club..."
+                maxLength={2000}
+              />
+            </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={showOnMap}
+                onChange={e => setShowOnMap(e.target.checked)}
+                className="mt-0.5 rounded"
+              />
+              <span>
+                Show my club on the public club map
+                <span className="block text-xs text-muted-foreground">
+                  Pilots browsing the map can discover your club at its home airport
+                </span>
+              </span>
+            </label>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button onClick={handleCreateClub} disabled={saving || !clubName.trim()}>
+                {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : 'Create Group'}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
