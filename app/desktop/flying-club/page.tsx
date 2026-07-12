@@ -18,6 +18,7 @@ import {
   FileText, Download, Trash2, Pin, CheckCircle2,
 } from "lucide-react"
 import { FlightCompleteWizard } from "@/components/flight-complete/FlightCompleteWizard"
+import { worstStatus, type InspectionComputed } from "@/lib/club/inspections"
 
 // ---- Types ----
 
@@ -845,6 +846,35 @@ function bookingStatus(b: Booking): 'past' | 'active' | 'upcoming' {
 
 function acLabel(a: { nNumber: string; nickname?: string | null }) {
   return a.nNumber + (a.nickname ? ` (${a.nickname})` : '')
+}
+
+// ---- AircraftAirworthinessBadge ----
+// Lightweight per-aircraft airworthiness indicator for the fleet list. Only
+// mounted for aircraft cards actually rendered (i.e. only while the Aircraft
+// tab is open), so this doesn't fan out requests for the whole app — just
+// the handful of aircraft in the currently selected club.
+
+function AircraftAirworthinessBadge({ groupId, aircraftId }: { groupId: string; aircraftId: string }) {
+  const { data } = useSWR<{ currentTachHours: number | null; inspections: InspectionComputed[] }>(
+    `/api/groups/${groupId}/aircraft/${aircraftId}/inspections`,
+    fetcher,
+    { revalidateOnFocus: false, refreshInterval: 60000 }
+  )
+
+  if (!data || !Array.isArray(data.inspections) || data.inspections.length === 0) return null
+  const status = worstStatus(data.inspections)
+  if (status === 'UNKNOWN') return null
+
+  const cls =
+    status === 'OVERDUE' ? 'bg-red-500/10 text-red-600 border-red-500/30'
+    : status === 'DUE_SOON' ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+    : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+  const label =
+    status === 'OVERDUE' ? 'Inspections Overdue'
+    : status === 'DUE_SOON' ? 'Inspection Due Soon'
+    : 'Airworthy'
+
+  return <Badge className={`text-xs border ${cls}`}>{label}</Badge>
 }
 
 // ---- AddAircraftModal ----
@@ -2045,9 +2075,10 @@ export default function FlyingClubPage() {
                   <Card key={a.id}>
                     <Link href={`/desktop/flying-club/aircraft/${a.id}`} className="block hover:bg-muted/50 transition-colors rounded-t-xl">
                       <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
+                        <CardTitle className="flex items-center gap-2 flex-wrap">
                           {a.nNumber}
                           <Badge variant={a.status === 'Available' ? 'secondary' : 'destructive'}>{a.status || 'Unknown'}</Badge>
+                          {selectedGroup && <AircraftAirworthinessBadge groupId={selectedGroup.id} aircraftId={a.id} />}
                         </CardTitle>
                         <CardDescription>{[a.make, a.model].filter(Boolean).join(' ')}{a.nickname ? ` — "${a.nickname}"` : ''}</CardDescription>
                       </CardHeader>

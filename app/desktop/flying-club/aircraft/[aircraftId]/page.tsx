@@ -10,8 +10,16 @@ import { Button } from '@/components/ui/button'
 import {
   Plane, Wrench, Calendar, Clock, DollarSign, ArrowLeft, Loader2,
   AlertTriangle, CheckCircle, BookOpen, Gauge, Plus, Users, FileText,
-  ClipboardList, CloudOff,
+  ClipboardList, CloudOff, ShieldCheck, Pencil, Trash2, X,
 } from 'lucide-react'
+import {
+  INSPECTION_TYPES,
+  inspectionCountdown,
+  isGroundedByInspection,
+  type InspectionComputed,
+  type InspectionStatus,
+  type InspectionType,
+} from '@/lib/club/inspections'
 
 // ---- Types (mirrors lib/club/aircraft-profile.ts AircraftProfileData) ----
 
@@ -120,6 +128,31 @@ function aircraftTitle(a: AircraftProfileAircraft) {
   return a.customName || a.nickname || null
 }
 
+const STATUS_SORT_ORDER: Record<InspectionStatus, number> = { OVERDUE: 0, DUE_SOON: 1, OK: 2, UNKNOWN: 3 }
+
+function inspectionStatusBadgeClass(status: InspectionStatus) {
+  if (status === 'OVERDUE') return 'bg-red-500/10 text-red-600 border-red-500/30'
+  if (status === 'DUE_SOON') return 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+  if (status === 'OK') return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+  return 'bg-muted text-muted-foreground'
+}
+
+function inspectionStatusLabel(status: InspectionStatus) {
+  if (status === 'OVERDUE') return 'Overdue'
+  if (status === 'DUE_SOON') return 'Due Soon'
+  if (status === 'OK') return 'OK'
+  return 'Not set up'
+}
+
+function fmtInspectionPoint(date: string | null, hours: number | null) {
+  const parts: string[] = []
+  if (date) {
+    try { parts.push(new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })) } catch { /* ignore */ }
+  }
+  if (hours != null) parts.push(`${hours.toFixed(1)} hrs`)
+  return parts.length ? parts.join(' · ') : '—'
+}
+
 function UtilizationBar({ label, flights, hours, maxHours }: { label: string; flights: number; hours: number; maxHours: number }) {
   const pct = maxHours > 0 ? Math.max(hours > 0 ? 4 : 0, Math.min(100, (hours / maxHours) * 100)) : 0
   return (
@@ -138,6 +171,251 @@ function UtilizationBar({ label, flights, hours, maxHours }: { label: string; fl
   )
 }
 
+// ---- InspectionModal ----
+
+type InspectionModalMode = 'add' | 'edit' | 'complete'
+
+function InspectionModal({
+  mode, groupId, aircraftId, existing, currentTachHours, onClose, onSaved,
+}: {
+  mode: InspectionModalMode
+  groupId: string
+  aircraftId: string
+  existing?: InspectionComputed
+  currentTachHours: number | null
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const initialType = (existing?.type as InspectionType) || 'ANNUAL'
+  const isComplete = mode === 'complete'
+  const usesHours = existing ? (existing.intervalHours != null || existing.lastDoneHours != null) : true
+
+  const [type, setType] = useState<InspectionType>(initialType)
+  const [label, setLabel] = useState(existing?.label && existing.type === 'OTHER' ? existing.label : '')
+  const [lastDoneDate, setLastDoneDate] = useState(() => {
+    if (isComplete) return new Date().toISOString().split('T')[0]
+    return existing?.lastDoneDate ? existing.lastDoneDate.split('T')[0] : ''
+  })
+  const [lastDoneHours, setLastDoneHours] = useState(() => {
+    if (isComplete) {
+      if (currentTachHours != null) return String(currentTachHours)
+      return existing?.lastDoneHours != null ? String(existing.lastDoneHours) : ''
+    }
+    return existing?.lastDoneHours != null ? String(existing.lastDoneHours) : ''
+  })
+  const [intervalMonths, setIntervalMonths] = useState(() => {
+    if (existing) return existing.intervalMonths != null ? String(existing.intervalMonths) : ''
+    const meta = INSPECTION_TYPES[initialType]
+    return meta.defaultMonths != null ? String(meta.defaultMonths) : ''
+  })
+  const [intervalHours, setIntervalHours] = useState(() => {
+    if (existing) return existing.intervalHours != null ? String(existing.intervalHours) : ''
+    const meta = INSPECTION_TYPES[initialType]
+    return meta.defaultHours != null ? String(meta.defaultHours) : ''
+  })
+  const [isRequired, setIsRequired] = useState(existing ? existing.isRequired : true)
+  const [notes, setNotes] = useState(existing?.notes || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function handleTypeChange(t: InspectionType) {
+    setType(t)
+    const meta = INSPECTION_TYPES[t]
+    setIntervalMonths(meta.defaultMonths != null ? String(meta.defaultMonths) : '')
+    setIntervalHours(meta.defaultHours != null ? String(meta.defaultHours) : '')
+  }
+
+  async function handleSubmit() {
+    setError(null)
+    if (mode === 'add' && type === 'OTHER' && !label.trim()) {
+      setError('Label is required for a custom inspection type')
+      return
+    }
+    setSaving(true)
+    try {
+      if (mode === 'add') {
+        const res = await fetch(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type,
+            label: label.trim() || undefined,
+            lastDoneDate: lastDoneDate || undefined,
+            lastDoneHours: lastDoneHours !== '' ? Number(lastDoneHours) : undefined,
+            intervalMonths: intervalMonths !== '' ? Number(intervalMonths) : undefined,
+            intervalHours: intervalHours !== '' ? Number(intervalHours) : undefined,
+            isRequired,
+            notes: notes.trim() || undefined,
+          }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) { setError((data && data.error) || 'Failed to add inspection'); return }
+      } else if (mode === 'edit' && existing) {
+        const res = await fetch(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections/${existing.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label: label.trim() || null,
+            lastDoneDate: lastDoneDate || null,
+            lastDoneHours: lastDoneHours !== '' ? Number(lastDoneHours) : null,
+            intervalMonths: intervalMonths !== '' ? Number(intervalMonths) : null,
+            intervalHours: intervalHours !== '' ? Number(intervalHours) : null,
+            isRequired,
+            notes: notes.trim() || null,
+          }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) { setError((data && data.error) || 'Failed to update inspection'); return }
+      } else if (mode === 'complete' && existing) {
+        const body: Record<string, unknown> = {}
+        if (lastDoneDate) body.lastDoneDate = lastDoneDate
+        if (lastDoneHours !== '') body.lastDoneHours = Number(lastDoneHours)
+        const res = await fetch(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections/${existing.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) { setError((data && data.error) || 'Failed to record completion'); return }
+      }
+      onSaved()
+    } catch {
+      setError('Network error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const title = mode === 'add'
+    ? 'Add Inspection'
+    : mode === 'edit'
+      ? `Edit — ${existing?.label ?? ''}`
+      : `Record Completion — ${existing?.label ?? ''}`
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+        <div className="space-y-4">
+          {mode === 'add' && (
+            <div>
+              <label className="text-sm font-medium">Type *</label>
+              <select
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={type}
+                onChange={e => handleTypeChange(e.target.value as InspectionType)}
+              >
+                {(Object.entries(INSPECTION_TYPES) as [InspectionType, typeof INSPECTION_TYPES[InspectionType]][]).map(([key, meta]) => (
+                  <option key={key} value={key}>{meta.label}</option>
+                ))}
+              </select>
+              {INSPECTION_TYPES[type].note && (
+                <p className="mt-1 text-xs text-muted-foreground">{INSPECTION_TYPES[type].note}</p>
+              )}
+            </div>
+          )}
+
+          {mode === 'edit' && existing && (
+            <div>
+              <label className="text-sm font-medium">Type</label>
+              <p className="mt-1 text-sm text-muted-foreground">{INSPECTION_TYPES[existing.type as InspectionType]?.label ?? existing.type}</p>
+            </div>
+          )}
+
+          {(mode === 'add' || mode === 'edit') && (
+            <div>
+              <label className="text-sm font-medium">
+                Custom Label {mode === 'add' && type === 'OTHER' ? '*' : <span className="font-normal text-muted-foreground">(optional)</span>}
+              </label>
+              <input
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={label}
+                onChange={e => setLabel(e.target.value)}
+                placeholder={mode === 'add' ? INSPECTION_TYPES[type].label : (existing?.label ?? '')}
+                maxLength={100}
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="text-sm font-medium">Last Done Date</label>
+            <input
+              type="date"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={lastDoneDate}
+              onChange={e => setLastDoneDate(e.target.value)}
+            />
+          </div>
+
+          {(mode !== 'complete' || usesHours) && (
+            <div>
+              <label className="text-sm font-medium">Last Done Hours (Tach)</label>
+              <input
+                type="number"
+                step="0.1"
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={lastDoneHours}
+                onChange={e => setLastDoneHours(e.target.value)}
+                placeholder={currentTachHours != null ? String(currentTachHours) : undefined}
+              />
+            </div>
+          )}
+
+          {(mode === 'add' || mode === 'edit') && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Interval (Months)</label>
+                  <input
+                    type="number"
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={intervalMonths}
+                    onChange={e => setIntervalMonths(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Interval (Hours)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={intervalHours}
+                    onChange={e => setIntervalHours(e.target.value)}
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={isRequired} onChange={e => setIsRequired(e.target.checked)} className="rounded" />
+                Required for airworthiness
+              </label>
+              <div>
+                <label className="text-sm font-medium">Notes</label>
+                <textarea
+                  className="mt-1 w-full min-h-[70px] rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value.slice(0, 2000))}
+                  placeholder="Optional notes"
+                />
+              </div>
+            </>
+          )}
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={saving}>
+              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</> : mode === 'complete' ? 'Record Completion' : mode === 'edit' ? 'Save Changes' : 'Add Inspection'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ---- Main Page ----
 
 export default function DesktopAircraftProfilePage() {
@@ -151,6 +429,50 @@ export default function DesktopAircraftProfilePage() {
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
 
+  // Group context for the inspections API + admin gating (resolved alongside the profile).
+  const [groupId, setGroupId] = useState<string | null>(null)
+  const [role, setRole] = useState<string | null>(null)
+  const isAdmin = role === 'ADMIN'
+
+  const [inspections, setInspections] = useState<InspectionComputed[] | null>(null)
+  const [currentTachHours, setCurrentTachHours] = useState<number | null>(null)
+  const [inspectionsError, setInspectionsError] = useState<string | null>(null)
+  const [inspectionModal, setInspectionModal] = useState<{ mode: InspectionModalMode; existing?: InspectionComputed } | null>(null)
+
+  async function refetchInspections(gid?: string) {
+    const useGroupId = gid ?? groupId
+    if (!useGroupId) return
+    setInspectionsError(null)
+    try {
+      const res = await fetch(`/api/groups/${useGroupId}/aircraft/${aircraftId}/inspections`)
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setInspectionsError((data && data.error) || 'Failed to load inspections')
+        return
+      }
+      setInspections(Array.isArray(data?.inspections) ? data.inspections : [])
+      setCurrentTachHours(data?.currentTachHours ?? null)
+    } catch {
+      setInspectionsError('Network error loading inspections')
+    }
+  }
+
+  async function handleRemoveInspection(c: InspectionComputed) {
+    if (!groupId) return
+    if (!window.confirm(`Remove "${c.label}" from tracked inspections?`)) return
+    try {
+      const res = await fetch(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections/${c.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        setInspectionsError((data && data.error) || 'Failed to remove inspection')
+        return
+      }
+      refetchInspections()
+    } catch {
+      setInspectionsError('Network error removing inspection')
+    }
+  }
+
   useEffect(() => {
     if (initializing || !cloudUser || !aircraftId) return
     let cancelled = false
@@ -160,6 +482,7 @@ export default function DesktopAircraftProfilePage() {
       setError(null)
       setNotFound(false)
       setConnectionError(false)
+      setInspectionsError(null)
       try {
         const groupsRes = await fetch('/api/groups')
         const groupsData = await groupsRes.json().catch(() => null)
@@ -167,15 +490,22 @@ export default function DesktopAircraftProfilePage() {
           if (!cancelled) setError((groupsData && groupsData.error) || 'Failed to load groups')
           return
         }
-        const groups: Array<{ id: string; aircraft?: Array<{ id: string }> }> = Array.isArray(groupsData) ? groupsData : []
+        const groups: Array<{ id: string; role?: string; aircraft?: Array<{ id: string }> }> = Array.isArray(groupsData) ? groupsData : []
         const owningGroup = groups.find(g => (g.aircraft || []).some(a => a.id === aircraftId))
 
         if (!owningGroup) {
           if (!cancelled) setNotFound(true)
           return
         }
+        if (!cancelled) {
+          setGroupId(owningGroup.id)
+          setRole(owningGroup.role || 'MEMBER')
+        }
 
-        const profileRes = await fetch(`/api/groups/${owningGroup.id}/aircraft/${aircraftId}/profile`)
+        const [profileRes, inspRes] = await Promise.all([
+          fetch(`/api/groups/${owningGroup.id}/aircraft/${aircraftId}/profile`),
+          fetch(`/api/groups/${owningGroup.id}/aircraft/${aircraftId}/inspections`),
+        ])
         const profileData = await profileRes.json().catch(() => null)
 
         if (profileRes.status === 404) {
@@ -188,6 +518,16 @@ export default function DesktopAircraftProfilePage() {
         }
 
         if (!cancelled) setProfile(profileData)
+
+        const inspData = await inspRes.json().catch(() => null)
+        if (!cancelled) {
+          if (inspRes.ok && inspData) {
+            setInspections(Array.isArray(inspData.inspections) ? inspData.inspections : [])
+            setCurrentTachHours(inspData.currentTachHours ?? null)
+          } else {
+            setInspectionsError((inspData && inspData.error) || 'Failed to load inspections')
+          }
+        }
       } catch {
         // fetch threw — most likely offline / no route to the cloud API
         if (!cancelled) setConnectionError(true)
@@ -395,6 +735,117 @@ export default function DesktopAircraftProfilePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Airworthiness & Inspections */}
+      <Card className={inspections && isGroundedByInspection(inspections) ? 'border-red-500/40' : undefined}>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-4 w-4" />
+              Airworthiness & Inspections
+            </CardTitle>
+            {isAdmin && (
+              <Button size="sm" onClick={() => setInspectionModal({ mode: 'add' })}>
+                <Plus className="mr-2 h-4 w-4" />Add Inspection
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {inspectionsError && inspections === null ? (
+            <p className="text-sm text-destructive py-4 text-center">{inspectionsError}</p>
+          ) : inspections === null ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : inspections.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No inspections tracked yet — add one to start monitoring airworthiness.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {inspectionsError && <p className="text-sm text-destructive">{inspectionsError}</p>}
+
+              {(() => {
+                const grounded = isGroundedByInspection(inspections)
+                const overdueRequiredCount = inspections.filter(c => c.isRequired && c.status === 'OVERDUE').length
+                const dueSoonCount = inspections.filter(c => c.status === 'DUE_SOON').length
+                if (grounded) {
+                  return (
+                    <div className="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      Not airworthy — {overdueRequiredCount} overdue
+                    </div>
+                  )
+                }
+                if (dueSoonCount > 0) {
+                  return (
+                    <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      {dueSoonCount} due soon
+                    </div>
+                  )
+                }
+                return (
+                  <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+                    <CheckCircle className="h-4 w-4 shrink-0" />
+                    All inspections current
+                  </div>
+                )
+              })()}
+
+              <div className="space-y-2">
+                {[...inspections]
+                  .sort((a, b) => STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status])
+                  .map(c => (
+                    <div key={c.id} className="rounded-lg border border-border p-3">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-medium">{c.label}</p>
+                            <Badge className={`text-xs border ${inspectionStatusBadgeClass(c.status)}`}>{inspectionStatusLabel(c.status)}</Badge>
+                            {!c.isRequired && <Badge variant="outline" className="text-xs">Optional</Badge>}
+                          </div>
+                          <p className="text-xs text-muted-foreground">{inspectionCountdown(c)}</p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                            <span>Last done: {fmtInspectionPoint(c.lastDoneDate, c.lastDoneHours)}</span>
+                            <span>Next due: {fmtInspectionPoint(c.dueDate, c.dueHours)}</span>
+                          </div>
+                          {c.notes && <p className="text-xs text-muted-foreground italic">{c.notes}</p>}
+                        </div>
+                        {isAdmin && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <Button size="sm" variant="outline" onClick={() => setInspectionModal({ mode: 'complete', existing: c })}>
+                              Record Completion
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setInspectionModal({ mode: 'edit', existing: c })}>
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => handleRemoveInspection(c)}>
+                              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {inspectionModal && groupId && (
+        <InspectionModal
+          mode={inspectionModal.mode}
+          groupId={groupId}
+          aircraftId={aircraftId}
+          existing={inspectionModal.existing}
+          currentTachHours={currentTachHours}
+          onClose={() => setInspectionModal(null)}
+          onSaved={() => { setInspectionModal(null); refetchInspections() }}
+        />
+      )}
 
       {/* Maintenance history */}
       <Card>
