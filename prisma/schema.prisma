@@ -1409,9 +1409,38 @@ model ClubAircraft {
   blockOuts      BlockOut[]
   logbookEntries LogbookEntry[]
   invoiceItems   InvoiceItem[]
+  inspections    AircraftInspection[]
 
   @@index([organizationId])
   @@map("ClubAircraft")
+}
+
+// Recurring airworthiness inspections for a club aircraft. Each row tracks one
+// inspection type driven by a calendar interval (intervalMonths) and/or an
+// hours interval (intervalHours) from the last completion. Due dates/hours and
+// OK/DUE_SOON/OVERDUE status are computed at read time against "now" and the
+// aircraft's current tach hours (see lib/club/inspections.ts) — not stored.
+model AircraftInspection {
+  id             String    @id @default(uuid()) @db.NVarChar(36)
+  clubAircraftId String    @db.NVarChar(36)
+  organizationId String?   @db.NVarChar(36)
+  type           String    @db.NVarChar(30) // ANNUAL, 100_HOUR, TRANSPONDER, PITOT_STATIC, ELT, VOR, OIL_CHANGE, REGISTRATION, OTHER
+  label          String?   @db.NVarChar(100) // custom label, esp. for OTHER
+  lastDoneDate   DateTime?
+  lastDoneHours  Decimal?  @db.Decimal(8, 2) // tach hours at last completion
+  intervalMonths Int? // calendar recurrence
+  intervalHours  Decimal?  @db.Decimal(8, 2) // hours recurrence
+  isRequired     Boolean   @default(true) // counts toward grounding when overdue
+  notes          String?   @db.NVarChar(Max)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  clubAircraft ClubAircraft @relation(fields: [clubAircraftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([clubAircraftId])
+  @@index([organizationId])
+  @@map("AircraftInspection")
 }
 
 model Booking {
