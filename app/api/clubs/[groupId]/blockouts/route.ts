@@ -49,7 +49,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ blockOuts: formatted });
   } catch (error) {
     console.error('Error fetching blockouts:', error);
-    return NextResponse.json({ error: 'Failed to fetch blockouts', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch blockouts' }, { status: 500 });
   }
 }
 
@@ -81,6 +81,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Title, startTime, and endTime required' }, { status: 400 });
     }
 
+    if (clubAircraftId && !isUuid(clubAircraftId)) {
+      return NextResponse.json({ error: 'Invalid clubAircraftId' }, { status: 400 });
+    }
+
     const start = new Date(startTime);
     const end = new Date(endTime);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
@@ -110,7 +114,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true, blockOut });
   } catch (error) {
     console.error('Error creating blockout:', error);
-    return NextResponse.json({ error: 'Failed to create blockout', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create blockout' }, { status: 500 });
   }
 }
 
@@ -151,6 +155,6 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting blockout:', error);
-    return NextResponse.json({ error: 'Failed to delete blockout', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete blockout' }, { status: 500 });
   }
 }

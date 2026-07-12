@@ -8,6 +8,8 @@ interface RouteParams {
   params: Promise<{ groupId: string }>;
 }
 
+const VALID_ROLES = ['ADMIN', 'MEMBER', 'INSTRUCTOR', 'VIEWER'];
+
 // GET all invites for a group (admin only)
 export async function GET(_request: Request, { params }: RouteParams) {
   try {
@@ -50,11 +52,11 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(formatted);
   } catch (error) {
     console.error('Error fetching invites:', error);
-    return NextResponse.json({ error: 'Failed to fetch invites', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch invites' }, { status: 500 });
   }
 }
 
-// POST create an invite (or direct-add if user exists)
+// POST create an invite
 export async function POST(request: Request, { params }: RouteParams) {
   try {
     const session = await auth();
@@ -79,37 +81,45 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const body = await request.json();
-    const { email } = body;
+    const { email, role, expiresInDays } = body;
 
-    if (!email) {
-      return NextResponse.json({ error: 'Email is required' }, { status: 400 });
+    const inviteRole = role ?? 'VIEWER';
+    if (!VALID_ROLES.includes(inviteRole)) {
+      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    }
+    if (expiresInDays != null && (!Number.isInteger(expiresInDays) || (expiresInDays < 1 && expiresInDays !== -1))) {
+      return NextResponse.json({ error: 'Invalid expiresInDays' }, { status: 400 });
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
+    // Email is optional — omitting it creates an open invite link that
+    // anyone with the URL can redeem.
+    const normalizedEmail = typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null;
 
-    // Check if user is already a member
-    const existingMember = await prisma.organizationMember.findFirst({
-      where: {
-        organizationId: groupId,
-        user: { email: normalizedEmail }
+    if (normalizedEmail) {
+      // Check if a pending invite already exists for this email
+      const existingInvite = await prisma.invite.findFirst({
+        where: {
+          groupId,
+          email: normalizedEmail,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
+        }
+      });
+
+      if (existingInvite) {
+        return NextResponse.json({ error: 'An invitation has already been sent to this email' }, { status: 400 });
       }
-    });
 
-    if (existingMember) {
-      return NextResponse.json({ error: 'This user is already a member of the group' }, { status: 400 });
-    }
+      // Check if user is already a member
+      const existingMember = await prisma.organizationMember.findFirst({
+        where: {
+          organizationId: groupId,
+          user: { email: normalizedEmail }
+        }
+      });
 
-    // Check if a pending invite already exists
-    const existingInvite = await prisma.invite.findFirst({
-      where: {
-        groupId,
-        email: normalizedEmail,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
+      if (existingMember) {
+        return NextResponse.json({ error: 'This user is already a member of the group' }, { status: 400 });
       }
-    });
-
-    if (existingInvite) {
-      return NextResponse.json({ error: 'An invitation has already been sent to this email' }, { status: 400 });
     }
 
     // Enforce max 5 pending (unexpired, unaccepted) invites per club
@@ -127,11 +137,15 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
+    // Determine expiry: -1 means "never" (10 years), otherwise the provided
+    // value, or 7 days by default.
+    const expiryDays = expiresInDays === -1 ? 3650 : Number(expiresInDays ?? 7);
+
     // Note: membership is only ever created when the invited user accepts —
     // nobody may be force-added, so we always create an invite token here,
     // even if a user account with this email already exists.
     const token = randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
+    const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
     const siteUrl = process.env.NEXTAUTH_URL || 'https://koster.im';
 
     await prisma.invite.create({
@@ -139,7 +153,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         groupId,
         token,
         email: normalizedEmail,
-        role: 'MEMBER',
+        role: inviteRole,
         createdBy: userId,
         expiresAt
       }
@@ -150,11 +164,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       token,
       inviteLink: `${siteUrl}/join/${token}`,
       email: normalizedEmail,
-      expiresAt
+      role: inviteRole,
+      expiresAt: expiresInDays === -1 ? null : expiresAt,
+      expiresNever: expiresInDays === -1
     });
   } catch (error) {
     console.error('Error creating invite:', error);
-    return NextResponse.json({ error: 'Failed to create invite: ' + String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create invite' }, { status: 500 });
   }
 }
 
@@ -168,9 +184,8 @@ export async function DELETE(request: Request) {
 
     const url = new URL(request.url);
     const inviteId = url.searchParams.get('inviteId');
-
-    if (!inviteId) {
-      return NextResponse.json({ error: 'inviteId required' }, { status: 400 });
+    if (!inviteId || !isUuid(inviteId)) {
+      return NextResponse.json({ error: 'Valid inviteId required' }, { status: 400 });
     }
 
     // Find the invite

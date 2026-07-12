@@ -7,6 +7,8 @@ interface RouteParams {
   params: Promise<{ groupId: string }>;
 }
 
+const VALID_ROLES = ['ADMIN', 'MEMBER', 'INSTRUCTOR', 'VIEWER'];
+
 // GET members of a group
 export async function GET(_request: Request, { params }: RouteParams) {
   try {
@@ -52,7 +54,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(formatted);
   } catch (error) {
     console.error('Error fetching members:', error);
-    return NextResponse.json({ error: 'Failed to fetch members', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch members' }, { status: 500 });
   }
 }
 
@@ -65,6 +67,10 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
 
     const { groupId } = await params;
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     const userId = session.user.id;
 
     // Check admin role
@@ -79,8 +85,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const body = await request.json();
     const { memberId, role } = body;
 
-    if (!memberId || !role) {
-      return NextResponse.json({ error: 'memberId and role required' }, { status: 400 });
+    if (!memberId || !isUuid(memberId)) {
+      return NextResponse.json({ error: 'Valid memberId required' }, { status: 400 });
+    }
+    if (!VALID_ROLES.includes(role)) {
+      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
     }
 
     const targetMember = await prisma.organizationMember.findFirst({
@@ -121,7 +130,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error updating member:', error);
-    return NextResponse.json({ error: 'Failed to update member', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update member' }, { status: 500 });
   }
 }
 
@@ -134,12 +143,15 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     const { groupId } = await params;
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     const userId = session.user.id;
     const url = new URL(request.url);
     const memberId = url.searchParams.get('memberId');
-
-    if (!memberId) {
-      return NextResponse.json({ error: 'memberId required' }, { status: 400 });
+    if (!memberId || !isUuid(memberId)) {
+      return NextResponse.json({ error: 'Valid memberId required' }, { status: 400 });
     }
 
     // Get target member
@@ -191,6 +203,6 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error removing member:', error);
-    return NextResponse.json({ error: 'Failed to remove member', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to remove member' }, { status: 500 });
   }
 }

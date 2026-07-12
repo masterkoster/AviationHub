@@ -93,7 +93,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     return NextResponse.json(formatted);
   } catch (error) {
     console.error('Error fetching bookings:', error);
-    return NextResponse.json({ error: 'Failed to fetch bookings', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch bookings' }, { status: 500 });
   }
 }
 
@@ -106,6 +106,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const { groupId } = await params;
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     const userId = session.user.id;
 
     // Check membership
@@ -123,6 +127,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!aircraftId || !startTime || !endTime) {
       return NextResponse.json({ error: 'aircraftId, startTime, and endTime are required' }, { status: 400 });
     }
+    if (!isUuid(aircraftId)) {
+      return NextResponse.json({ error: 'Invalid aircraftId' }, { status: 400 });
+    }
+    if (instructorId !== undefined && instructorId !== null && !isUuid(instructorId)) {
+      return NextResponse.json({ error: 'Invalid instructorId' }, { status: 400 });
+    }
 
     const start = new Date(startTime);
     const end = new Date(endTime);
@@ -137,6 +147,18 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     if (!aircraft) {
       return NextResponse.json({ error: 'Aircraft not found in this group' }, { status: 404 });
+    }
+
+    // Check if aircraft is grounded for maintenance
+    const groundingIssue = await prisma.maintenance.findFirst({
+      where: { clubAircraftId: aircraftId, isGrounded: true, status: { in: ['NEEDED', 'IN_PROGRESS'] } }
+    });
+
+    if (groundingIssue) {
+      return NextResponse.json(
+        { error: 'This aircraft is currently Grounded for maintenance. Please contact your admin.' },
+        { status: 403 }
+      );
     }
 
     // Get or create pilot profile for this user
@@ -222,6 +244,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error creating booking:', error);
-    return NextResponse.json({ error: 'Failed to create booking', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 });
   }
 }

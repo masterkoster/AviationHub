@@ -26,15 +26,15 @@ export async function POST(request: Request) {
     const results: Record<string, any> = {};
 
     // Get demo data config
-    const demoConfig = await prisma.$queryRawUnsafe(`
+    const demoConfig = await prisma.$queryRaw`
       SELECT * FROM DemoData WHERE enabled = 1
-    `) as any[];
+    ` as any[];
 
     const enabledTypes = demoConfig.map((d: any) => d.key);
 
     // Default to all if none specified
-    const typesToSeed = dataTypes.length > 0 
-      ? dataTypes 
+    const typesToSeed = dataTypes.length > 0
+      ? dataTypes
       : (seedAll ? enabledTypes : ['clubs']);
 
     // Helper to generate UUIDs deterministically
@@ -52,11 +52,12 @@ export async function POST(request: Request) {
 
       for (let i = 0; i < clubs.length; i++) {
         const clubId = generateId('club', i);
-        await prisma.$executeRawUnsafe(`
-          IF NOT EXISTS (SELECT 1 FROM FlyingGroup WHERE id = '${clubId}')
+        const ownerId = generateId('user', i);
+        await prisma.$executeRaw`
+          IF NOT EXISTS (SELECT 1 FROM FlyingGroup WHERE id = ${clubId})
           INSERT INTO FlyingGroup (id, name, description, ownerId, createdAt)
-          VALUES ('${clubId}', '${clubs[i].name.replace(/'/g, "''")}', '${clubs[i].description.replace(/'/g, "''")}', '${generateId('user', i)}', GETDATE())
-        `);
+          VALUES (${clubId}, ${clubs[i].name}, ${clubs[i].description}, ${ownerId}, GETDATE())
+        `;
       }
       results.clubs = { created: clubs.length };
     }
@@ -75,12 +76,13 @@ export async function POST(request: Request) {
         const a = aircraft[i];
         const aircraftId = generateId('airc', i);
         const clubId = generateId('club', a.clubIndex);
-        
-        await prisma.$executeRawUnsafe(`
-          IF NOT EXISTS (SELECT 1 FROM ClubAircraft WHERE id = '${aircraftId}')
+        const totalHobbsHours = 1000 + i * 200;
+
+        await prisma.$executeRaw`
+          IF NOT EXISTS (SELECT 1 FROM ClubAircraft WHERE id = ${aircraftId})
           INSERT INTO ClubAircraft (id, groupId, nNumber, nickname, make, model, year, hourlyRate, totalHobbsHours, status, bookingWindowDays, createdAt)
-          VALUES ('${aircraftId}', '${clubId}', '${a.nNumber}', '${a.nickname}', '${a.make}', '${a.model}', ${a.year}, ${a.rate}, ${1000 + i * 200}, 'Available', 30, GETDATE())
-        `);
+          VALUES (${aircraftId}, ${clubId}, ${a.nNumber}, ${a.nickname}, ${a.make}, ${a.model}, ${a.year}, ${a.rate}, ${totalHobbsHours}, 'Available', 30, GETDATE())
+        `;
       }
       results.aircraft = { created: aircraft.length };
     }
@@ -99,12 +101,13 @@ export async function POST(request: Request) {
       for (let i = 0; i < users.length; i++) {
         const u = users[i];
         const userId = generateId('user', i);
-        
-        await prisma.$executeRawUnsafe(`
-          IF NOT EXISTS (SELECT 1 FROM [User] WHERE email = '${u.email}')
+        const username = u.email.split('@')[0];
+
+        await prisma.$executeRaw`
+          IF NOT EXISTS (SELECT 1 FROM [User] WHERE email = ${u.email})
           INSERT INTO [User] (id, email, name, username, createdAt)
-          VALUES ('${userId}', '${u.email}', '${u.name}', '${u.email.split('@')[0]}', GETDATE())
-        `);
+          VALUES (${userId}, ${u.email}, ${u.name}, ${username}, GETDATE())
+        `;
 
         // Set some pilot credentials
         if (i > 0 && i < 5) {
@@ -113,10 +116,10 @@ export async function POST(request: Request) {
           const medicalDate = new Date();
           medicalDate.setMonth(medicalDate.getMonth() + 18);
 
-          await prisma.$executeRawUnsafe(`
-            UPDATE [User] SET bfrExpiry = '${bfrDate.toISOString()}', medicalExpiry = '${medicalDate.toISOString()}', medicalClass = '2'
-            WHERE email = '${u.email}'
-          `);
+          await prisma.$executeRaw`
+            UPDATE [User] SET bfrExpiry = ${bfrDate.toISOString()}, medicalExpiry = ${medicalDate.toISOString()}, medicalClass = '2'
+            WHERE email = ${u.email}
+          `;
         }
       }
       results.users = { created: users.length };
@@ -137,12 +140,12 @@ export async function POST(request: Request) {
         const m = memberships[i];
         const userId = generateId('user', m.userIndex);
         const clubId = generateId('club', m.clubIndex);
-        
-        await prisma.$executeRawUnsafe(`
-          IF NOT EXISTS (SELECT 1 FROM GroupMember WHERE userId = '${userId}' AND groupId = '${clubId}')
+
+        await prisma.$executeRaw`
+          IF NOT EXISTS (SELECT 1 FROM GroupMember WHERE userId = ${userId} AND groupId = ${clubId})
           INSERT INTO GroupMember (id, userId, groupId, role, joinedAt)
-          VALUES (NEWID(), '${userId}', '${clubId}', '${m.role}', GETDATE())
-        `);
+          VALUES (NEWID(), ${userId}, ${clubId}, ${m.role}, GETDATE())
+        `;
       }
       results.memberships = { created: memberships.length };
     }
@@ -179,7 +182,7 @@ export async function POST(request: Request) {
         const date = new Date(now);
         date.setDate(date.getDate() + b.daysOffset);
         date.setHours(9 + (i % 8), 0, 0, 0);
-        
+
         const startTime = date.toISOString();
         const endDate = new Date(date);
         endDate.setHours(endDate.getHours() + 1 + (i % 3));
@@ -188,10 +191,10 @@ export async function POST(request: Request) {
         const aircraftId = generateId('airc', b.aircraftIndex);
         const userId = generateId('user', b.userIndex);
 
-        await prisma.$executeRawUnsafe(`
+        await prisma.$executeRaw`
           INSERT INTO Booking (id, aircraftId, userId, startTime, endTime, purpose, createdAt)
-          VALUES (NEWID(), '${aircraftId}', '${userId}', '${startTime}', '${endTime}', '${b.purpose}', GETDATE())
-        `);
+          VALUES (NEWID(), ${aircraftId}, ${userId}, ${startTime}, ${endTime}, ${b.purpose}, GETDATE())
+        `;
       }
       results.bookings = { created: bookings.length };
     }
@@ -199,35 +202,39 @@ export async function POST(request: Request) {
     // Seed Flight Logs
     if (typesToSeed.includes('flights')) {
       const now = new Date();
-      
+
       for (let i = 0; i < 30; i++) {
         const date = new Date(now);
         date.setDate(date.getDate() - Math.floor(Math.random() * 90));
-        
+
         const aircraftIndex = i % 5;
         const userIndex = i % 4;
-        
+
         const aircraftId = generateId('airc', aircraftIndex);
         const userId = generateId('user', userIndex);
         const hobbsTime = 0.5 + Math.random() * 2.5;
-        
+
         const rates = [165, 145, 175, 135, 195];
         const hourlyRate = rates[aircraftIndex];
+        const hobbsStart = Number((1000 + i * 0.1).toFixed(1));
+        const hobbsEnd = Number((1000 + i * 0.1 + hobbsTime).toFixed(1));
+        const calculatedCost = Number((hobbsTime * hourlyRate).toFixed(2));
+        const hobbsTimeRounded = Number(hobbsTime.toFixed(2));
 
-        await prisma.$executeRawUnsafe(`
+        await prisma.$executeRaw`
           INSERT INTO FlightLog (id, aircraftId, userId, date, hobbsTime, hobbsStart, hobbsEnd, calculatedCost, createdAt)
           VALUES (
-            NEWID(), 
-            '${aircraftId}', 
-            '${userId}', 
-            '${date.toISOString()}', 
-            ${hobbsTime.toFixed(2)},
-            ${(1000 + i * 0.1).toFixed(1)},
-            ${(1000 + i * 0.1 + hobbsTime).toFixed(1)},
-            ${(hobbsTime * hourlyRate).toFixed(2)},
+            NEWID(),
+            ${aircraftId},
+            ${userId},
+            ${date.toISOString()},
+            ${hobbsTimeRounded},
+            ${hobbsStart},
+            ${hobbsEnd},
+            ${calculatedCost},
             GETDATE()
           )
-        `);
+        `;
       }
       results.flights = { created: 30 };
     }
@@ -235,29 +242,32 @@ export async function POST(request: Request) {
     // Seed Logbook Entries
     if (typesToSeed.includes('logbook')) {
       const now = new Date();
-      
+
       for (let userIndex = 0; userIndex < 4; userIndex++) {
         for (let i = 0; i < 5; i++) {
           const date = new Date(now);
           date.setDate(date.getDate() - Math.floor(Math.random() * 80));
-          
-          const userId = generateId('user', userIndex);
 
-          await prisma.$executeRawUnsafe(`
+          const userId = generateId('user', userIndex);
+          const totalTime = Number((1 + Math.random() * 2).toFixed(1));
+          const dayLandings = Math.floor(Math.random() * 3) + 1;
+          const nightLandings = Math.random() > 0.5 ? Math.floor(Math.random() * 2) : 0;
+
+          await prisma.$executeRaw`
             INSERT INTO LogbookEntry (id, userId, date, aircraft, routeFrom, routeTo, totalTime, dayLandings, nightLandings, createdAt)
             VALUES (
               NEWID(),
-              '${userId}',
-              '${date.toISOString()}',
+              ${userId},
+              ${date.toISOString()},
               'Cessna 172',
               'KABC',
               'KXYZ',
-              ${(1 + Math.random() * 2).toFixed(1)},
-              ${Math.floor(Math.random() * 3) + 1},
-              ${Math.random() > 0.5 ? Math.floor(Math.random() * 2) : 0},
+              ${totalTime},
+              ${dayLandings},
+              ${nightLandings},
               GETDATE()
             )
-          `);
+          `;
         }
       }
       results.logbook = { created: 20 };
@@ -270,7 +280,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('Error generating demo data:', error);
-    return NextResponse.json({ error: 'Failed to generate demo data', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to generate demo data' }, { status: 500 });
   }
 }
 
@@ -291,9 +301,9 @@ export async function GET() {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
-    const demoConfig = await prisma.$queryRawUnsafe(`
-      SELECT * FROM DemoData ORDER BY key
-    `) as any[];
+    const demoConfig = await prisma.$queryRaw`
+      SELECT * FROM DemoData ORDER BY [key]
+    ` as any[];
 
     return NextResponse.json(demoConfig);
   } catch (error) {

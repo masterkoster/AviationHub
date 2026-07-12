@@ -39,7 +39,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(aircraft);
   } catch (error) {
     console.error('Error fetching aircraft:', error);
-    return NextResponse.json({ error: 'Failed to fetch aircraft', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch aircraft' }, { status: 500 });
   }
 }
 
@@ -52,6 +52,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const { groupId } = await params;
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     const userId = session.user.id;
 
     // Check admin role
@@ -87,6 +91,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json(aircraft);
   } catch (error) {
     console.error('Error adding aircraft:', error);
-    return NextResponse.json({ error: 'Failed to add aircraft', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to add aircraft' }, { status: 500 });
   }
 }

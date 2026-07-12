@@ -19,9 +19,9 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 })
     }
 
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[]
+    const users = await prisma.$queryRaw`
+      SELECT id FROM [User] WHERE email = ${session.user.email}
+    ` as any[]
 
     if (!users || users.length === 0) {
       return NextResponse.json({ error: '[User] not found' }, { status: 404 })
@@ -29,22 +29,22 @@ export async function GET(request: Request, { params }: RouteParams) {
 
     const userId = users[0].id
 
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM OrganizationMember WHERE organizationId = '${groupId}' AND userId = '${userId}'
-    `) as any[]
+    const memberships = await prisma.$queryRaw`
+      SELECT * FROM OrganizationMember WHERE organizationId = ${groupId} AND userId = ${userId}
+    ` as any[]
 
     if (!memberships || memberships.length === 0) {
       return NextResponse.json({ error: 'Not a member' }, { status: 403 })
     }
 
-    const instructors = await prisma.$queryRawUnsafe(`
+    const instructors = await prisma.$queryRaw`
       SELECT DISTINCT u.id, u.name, u.email, ip.certificateNumber, ip.certificateType
       FROM OrganizationMember om
       JOIN [User] u ON om.userId = u.id
       JOIN InstructorProfile ip ON ip.userId = u.id
-      WHERE om.organizationId = '${groupId}'
+      WHERE om.organizationId = ${groupId}
         AND ip.verificationStatus = 'verified'
-    `) as any[]
+    ` as any[]
 
     return NextResponse.json({ instructors })
   } catch (error) {

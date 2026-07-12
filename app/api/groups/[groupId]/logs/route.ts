@@ -121,6 +121,6 @@ export async function GET(_request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error fetching logs:', error);
-    return NextResponse.json({ error: 'Failed to fetch logs and maintenance', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch logs and maintenance' }, { status: 500 });
   }
 }

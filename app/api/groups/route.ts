@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import crypto from 'crypto'
+import { Prisma } from '@prisma/client'
 
 export async function GET() {
   try {
@@ -48,36 +48,85 @@ export async function POST(request: Request) {
 
     const userId = session.user.id
     const body = await request.json()
-    const { name } = body
+    const { name, type, description, website, homeAirport, sizeBracket, showOnMap } = body
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return NextResponse.json({ error: 'Group name is required' }, { status: 400 })
     }
 
-    const orgId = crypto.randomUUID()
-    const memberId = crypto.randomUUID()
-    const orgName = name.trim()
+    const trimmedName = name.trim()
 
-    await prisma.$executeRaw`
-      INSERT INTO [Organization] (id, name, type, ownerId, createdAt, updatedAt)
-      VALUES (${orgId}, ${orgName}, 'club', ${userId}, GETDATE(), GETDATE())
-    `
+    // Two-path creation: partnership (small co-ownership) or club (full profile)
+    const groupType = type === 'partnership' ? 'partnership' : 'club'
 
-    await prisma.$executeRaw`
-      INSERT INTO [OrganizationMember] (id, organizationId, userId, role, joinedAt)
-      VALUES (${memberId}, ${orgId}, ${userId}, 'ADMIN', GETDATE())
-    `
+    const SIZE_BRACKETS = ['1-5', '6-15', '16-40', '40+']
+    const profile = {
+      description:
+        typeof description === 'string' && description.trim()
+          ? description.trim().slice(0, 2000)
+          : null,
+      website:
+        typeof website === 'string' && website.trim()
+          ? website.trim().slice(0, 500)
+          : null,
+      homeAirport:
+        typeof homeAirport === 'string' && /^[A-Za-z0-9]{3,7}$/.test(homeAirport.trim())
+          ? homeAirport.trim().toUpperCase()
+          : null,
+      sizeBracket:
+        typeof sizeBracket === 'string' && SIZE_BRACKETS.includes(sizeBracket) ? sizeBracket : null,
+      // Map opt-in only makes sense for clubs with a public profile
+      showOnMap: groupType === 'club' && showOnMap === true,
+    }
+    if (profile.website && !/^https?:\/\//i.test(profile.website)) {
+      profile.website = `https://${profile.website}`
+    }
+
+    // Case-insensitive under the DB's CI collation; the unique index on
+    // Organization.name is the race-safe backstop (handled in catch below)
+    const existing = await prisma.organization.findFirst({
+      where: { name: trimmedName },
+      select: { id: true },
+    })
+    if (existing) {
+      return NextResponse.json(
+        { error: `A group named "${trimmedName}" already exists` },
+        { status: 409 }
+      )
+    }
+
+    const group = await prisma.organization.create({
+      data: {
+        name: trimmedName,
+        ownerId: userId,
+        type: groupType,
+        ...profile,
+      },
+    })
+
+    await prisma.organizationMember.create({
+      data: {
+        userId: userId,
+        organizationId: group.id,
+        role: 'ADMIN',
+      },
+    })
 
     return NextResponse.json({
-      id: orgId,
-      name: orgName,
-      type: 'club',
-      ownerId: userId,
+      id: group.id,
+      name: group.name,
+      type: group.type,
+      ownerId: group.ownerId,
+      createdAt: group.createdAt,
+      updatedAt: group.updatedAt,
       role: 'ADMIN',
       aircraft: []
     })
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json({ error: 'A group with this name already exists' }, { status: 409 })
+    }
     console.error('Error creating group:', error)
-    return NextResponse.json({ error: 'Failed to create group', details: error instanceof Error ? error.message : String(error) }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to create group' }, { status: 500 })
   }
 }

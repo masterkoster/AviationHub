@@ -16,6 +16,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
     }
 
     const { groupId, aircraftId } = await params;
+    if (!isUuid(groupId) || !isUuid(aircraftId)) {
+      return NextResponse.json({ error: 'Invalid groupId or aircraftId' }, { status: 400 });
+    }
+
     const userId = session.user.id;
 
     // Check membership
@@ -38,7 +42,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(aircraft);
   } catch (error) {
     console.error('Error fetching aircraft:', error);
-    return NextResponse.json({ error: 'Failed to fetch aircraft', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch aircraft' }, { status: 500 });
   }
 }
 
@@ -51,6 +55,10 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
 
     const { groupId, aircraftId } = await params;
+    if (!isUuid(groupId) || !isUuid(aircraftId)) {
+      return NextResponse.json({ error: 'Invalid groupId or aircraftId' }, { status: 400 });
+    }
+
     const userId = session.user.id;
 
     // Check admin role
@@ -63,7 +71,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
 
     const body = await request.json();
-    const { nNumber, nickname, customName, make, model, year, hourlyRate, status, bookingWindowDays, equipment } = body;
+    const { nNumber, nickname, customName, make, model, year, hourlyRate, status, bookingWindowDays, equipment, notes } = body;
+
+    const allowedStatuses = ['Available', 'Maintenance', 'Grounded'];
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    }
 
     const updateData: Record<string, unknown> = {};
     if (nNumber) updateData.nNumber = nNumber.trim().toUpperCase();
@@ -74,6 +87,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if (year !== undefined) updateData.year = year;
     if (hourlyRate !== undefined) updateData.hourlyRate = hourlyRate;
     if (status !== undefined) updateData.status = status;
+    if (notes !== undefined) updateData.aircraftNotes = notes || null;
     // equipment is a JSON-stringified array of { category, name } (see lib/club/aircraft-profile.ts);
     // callers are expected to send either a pre-serialized string or an array we serialize here.
     if (equipment !== undefined) updateData.equipment = typeof equipment === 'string' ? equipment : JSON.stringify(equipment);
@@ -93,7 +107,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     return NextResponse.json(aircraft);
   } catch (error) {
     console.error('Error updating aircraft:', error);
-    return NextResponse.json({ error: 'Failed to update aircraft', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update aircraft' }, { status: 500 });
   }
 }
 
@@ -106,6 +120,10 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     }
 
     const { groupId, aircraftId } = await params;
+    if (!isUuid(groupId) || !isUuid(aircraftId)) {
+      return NextResponse.json({ error: 'Invalid groupId or aircraftId' }, { status: 400 });
+    }
+
     const userId = session.user.id;
 
     // Check admin role
@@ -122,6 +140,6 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting aircraft:', error);
-    return NextResponse.json({ error: 'Failed to delete aircraft', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete aircraft' }, { status: 500 });
   }
 }

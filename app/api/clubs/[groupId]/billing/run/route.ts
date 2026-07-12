@@ -89,6 +89,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error running billing:', error);
-    return NextResponse.json({ error: 'Failed to run billing', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to run billing' }, { status: 500 });
   }
 }

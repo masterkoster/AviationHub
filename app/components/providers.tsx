@@ -2,27 +2,24 @@
 
 import { SessionProvider } from "next-auth/react";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { GlobalNav, NAV_HEIGHT } from "@/components/global-nav";
-import { ModuleNav } from "./module-nav";
+import { AppShell } from "@/components/shell/app-shell";
+import { isShellPath } from "@/components/shell/shell-nav";
 import { AuthModalProvider } from "./AuthModalContext";
 import LoginModal from "./LoginModal";
 import ChatWidget from "./chat-widget";
-import { getModuleByPath } from "@/lib/modules";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isHomePage = pathname === "/";
   const isV1 = pathname.startsWith("/v1");
   const isDesktop = pathname.startsWith("/desktop");
   const isLandingPage = pathname === "/";
-  const currentModule = pathname ? getModuleByPath(pathname) : undefined;
-
-  // Check if current page has a sub-nav (marketplace, fuel-saver)
-  const hasSubNav = pathname.startsWith("/marketplace") || pathname.startsWith("/fuel-saver");
+  const isBare = isV1 || isDesktop || isLandingPage;
+  const inShell = !isBare && isShellPath(pathname);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -36,18 +33,24 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <SessionProvider>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         <AuthModalProvider>
-          <>
-            {!isV1 && !isDesktop && !isLandingPage && <GlobalNav />}
-            {!isHomePage && !isV1 && !isDesktop && !isLandingPage && currentModule && currentModule.menu && currentModule.menu.length > 0 && (
-              <ModuleNav module={currentModule} />
-            )}
-            <div className={isHomePage || isV1 || isDesktop || isLandingPage ? "" : ""} style={isHomePage || isV1 || isDesktop || isLandingPage ? undefined : { paddingTop: NAV_HEIGHT + (hasSubNav ? 40 : 0) }}>
-              {children}
-            </div>
-            {!isV1 && !isDesktop && !isLandingPage && <LoginModal />}
-            {!isV1 && !isDesktop && !isLandingPage && <ChatWidget />}
-            {!isDesktop && <Toaster position="top-right" richColors />}
-          </>
+          {inShell ? (
+            // Unified app shell: persona sidebar, command palette, shortcuts
+            <>
+              <AppShell>{children}</AppShell>
+              <LoginModal />
+            </>
+          ) : (
+            // Public/marketing pages (and bare surfaces: /, /v1, /desktop)
+            <>
+              {!isBare && <GlobalNav />}
+              <div style={isBare ? undefined : { paddingTop: NAV_HEIGHT }}>
+                {children}
+              </div>
+              {!isBare && <LoginModal />}
+              {!isBare && <ChatWidget />}
+            </>
+          )}
+          {!isDesktop && <Toaster position="top-right" richColors />}
         </AuthModalProvider>
       </ThemeProvider>
     </SessionProvider>

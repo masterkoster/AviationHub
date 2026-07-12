@@ -20,17 +20,28 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!token) {
       return NextResponse.json({ error: 'Token is required' }, { status: 400 });
     }
+    if (!/^[0-9a-f]{64}$/i.test(token)) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 400 });
+    }
 
-    // Find invite
+    // Find invite for this group
     const invite = await prisma.invite.findFirst({
       where: {
         groupId,
         token,
-        expiresAt: { gt: new Date() }
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
       }
     });
 
     if (!invite) {
+      // Distinguish an expired invite from one that just doesn't belong to this group
+      const anyInvite = await prisma.invite.findUnique({ where: { token } });
+      if (anyInvite) {
+        if (anyInvite.expiresAt && anyInvite.expiresAt <= new Date()) {
+          return NextResponse.json({ error: 'Invite has expired. Please ask for a new one.' }, { status: 404 });
+        }
+        return NextResponse.json({ error: 'Invalid invite link for this group' }, { status: 404 });
+      }
       return NextResponse.json({ error: 'Invalid or expired invite token' }, { status: 404 });
     }
 
@@ -96,6 +107,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error joining group:', error);
-    return NextResponse.json({ error: 'Failed to join group', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to join group' }, { status: 500 });
   }
 }

@@ -65,7 +65,7 @@ export async function PUT(request: Request) {
 
 async function ensurePilotProfileTable() {
   try {
-    await prisma.$executeRawUnsafe(`
+    await prisma.$executeRaw`
       IF OBJECT_ID('PilotProfile', 'U') IS NULL
       BEGIN
         CREATE TABLE PilotProfile (
@@ -82,7 +82,7 @@ async function ensurePilotProfileTable() {
         );
         CREATE INDEX idx_pilotprofile_homeAirport ON PilotProfile(homeAirport);
       END
-    `);
+    `;
   } catch (error) {
     console.error('Failed to ensure PilotProfile table:', error);
   }

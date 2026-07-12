@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { isUuid } from '@/lib/validate';
 
 export async function GET(request: Request, { params }: { params: Promise<{ groupId: string }> }) {
   try {
@@ -10,6 +11,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ grou
     }
 
     const { groupId } = await params;
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
 
     // Get user by email
     const userEmail = session.user.email;
@@ -31,8 +35,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ grou
     }
 
     // Fetch messages with user info using raw SQL
-    const messages = await prisma.$queryRawUnsafe(`
-      SELECT 
+    const messages = await prisma.$queryRaw`
+      SELECT
         gcm.id,
         gcm.organizationId,
         gcm.senderId,
@@ -41,10 +45,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ grou
         u.name as userName
       FROM GroupChatMessage gcm
       LEFT JOIN [User] u ON gcm.senderId = u.id
-      WHERE gcm.organizationId = '${groupId}'
+      WHERE gcm.organizationId = ${groupId}
       ORDER BY gcm.createdAt ASC
       OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY
-    `) as any[];
+    ` as any[];
 
     // Transform messages
     const colors = ['bg-primary', 'bg-green-500', 'bg-blue-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500'];
@@ -86,6 +90,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
     }
 
     const { groupId } = await params;
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
     const body = await request.json();
     const { message } = body;
 

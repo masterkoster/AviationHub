@@ -63,7 +63,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error fetching group:', error);
-    return NextResponse.json({ error: 'Failed to fetch group', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch group' }, { status: 500 });
   }
 }
 
@@ -76,6 +76,10 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
 
     const { groupId } = await params;
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     const userId = session.user.id;
 
     // Check admin role
@@ -108,7 +112,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error updating group:', error);
-    return NextResponse.json({ error: 'Failed to update group', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update group' }, { status: 500 });
   }
 }
 
@@ -121,6 +125,10 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     }
 
     const { groupId } = await params;
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     const userId = session.user.id;
 
     // Check ownership
@@ -145,6 +153,6 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting group:', error);
-    return NextResponse.json({ error: 'Failed to delete group', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete group' }, { status: 500 });
   }
 }

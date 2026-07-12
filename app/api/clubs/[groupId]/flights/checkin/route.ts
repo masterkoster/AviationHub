@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { getOrCreatePilotProfile } from '@/lib/pilot-profile';
+import { isUuid } from '@/lib/validate';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -17,10 +18,14 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const { groupId } = await params;
 
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
+    }
+
     // Get user
-    const user = await prisma.$queryRawUnsafe(`
-      SELECT id, name FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    const user = await prisma.$queryRaw`
+      SELECT id, name FROM [User] WHERE email = ${session.user.email}
+    ` as any[];
 
     if (!user || user.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -35,13 +40,22 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'flightLogId and hobbsEnd required' }, { status: 400 });
     }
 
+    if (!isUuid(flightLogId)) {
+      return NextResponse.json({ error: 'Invalid flightLogId' }, { status: 400 });
+    }
+
+    const hobbsEndNum = Number(hobbsEnd);
+    if (!Number.isFinite(hobbsEndNum)) {
+      return NextResponse.json({ error: 'Invalid hobbsEnd' }, { status: 400 });
+    }
+
     // Get the flight log
-    const flight = await prisma.$queryRawUnsafe(`
+    const flight = await prisma.$queryRaw`
       SELECT fl.*, a.hourlyRate, a.totalHobbsHours, a.organizationId, a.nNumber, a.customName, a.nickname, a.make, a.model
       FROM FlightLog fl
       JOIN ClubAircraft a ON fl.aircraftId = a.id
-      WHERE fl.id = '${flightLogId}'
-    `) as any[];
+      WHERE fl.id = ${flightLogId}
+    ` as any[];
 
     if (!flight || flight.length === 0) {
       return NextResponse.json({ error: 'Flight not found' }, { status: 404 });
@@ -56,7 +70,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Calculate hobbs time
     const hobbsStart = parseFloat(flightData.hobbsStart);
-    const hobbsEndVal = parseFloat(hobbsEnd);
+    const hobbsEndVal = hobbsEndNum;
     const hobbsTime = hobbsEndVal - hobbsStart;
 
     if (hobbsTime <= 0) {
@@ -75,24 +89,24 @@ export async function POST(request: Request, { params }: RouteParams) {
     const pilotProfile = await getOrCreatePilotProfile(userId);
     const homeAirport = pilotProfile?.homeAirport?.trim() || 'UNK';
 
-    await prisma.$executeRawUnsafe(`
-      UPDATE FlightLog 
-      SET hobbsEnd = ${hobbsEnd},
+    await prisma.$executeRaw`
+      UPDATE FlightLog
+      SET hobbsEnd = ${hobbsEndVal},
           hobbsTime = ${hobbsTime},
           calculatedCost = ${calculatedCost},
-          notes = ${notes ? "'" + notes.replace(/'/g, "''") + "'" : 'NULL'},
-          pilotProfileId = '${pilotProfile.id}',
-          organizationId = ${flightData.organizationId ? "'" + flightData.organizationId + "'" : 'NULL'},
+          notes = ${notes ? String(notes) : null},
+          pilotProfileId = ${pilotProfile.id},
+          organizationId = ${flightData.organizationId ?? null},
           updatedAt = GETDATE()
-      WHERE id = '${flightLogId}'
-    `);
+      WHERE id = ${flightLogId}
+    `;
 
     // Update aircraft total Hobbs
-    await prisma.$executeRawUnsafe(`
-      UPDATE ClubAircraft 
+    await prisma.$executeRaw`
+      UPDATE ClubAircraft
       SET totalHobbsHours = ${newTotal}
-      WHERE id = '${flightData.aircraftId}'
-    `);
+      WHERE id = ${flightData.aircraftId}
+    `;
 
     const aircraftLabel = flightData.nNumber || flightData.customName || flightData.nickname || 'Aircraft';
 
@@ -123,13 +137,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
 
     // Fetch updated flight
-    const updated = await prisma.$queryRawUnsafe(`
+    const updated = await prisma.$queryRaw`
       SELECT fl.*, a.nNumber, a.customName, a.make, a.model, a.hourlyRate, u.name as userName
       FROM FlightLog fl
       JOIN ClubAircraft a ON fl.aircraftId = a.id
       JOIN [User] u ON fl.userId = u.id
-      WHERE fl.id = '${flightLogId}'
-    `) as any[];
+      WHERE fl.id = ${flightLogId}
+    ` as any[];
 
     const f = updated[0];
 

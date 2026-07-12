@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { isUuid } from '@/lib/validate';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -25,6 +26,10 @@ async function updateMaintenance(request: Request, { params }: RouteParams) {
   }
 
   const { id } = await params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+  }
+
   const body = await request.json();
   const { status, cost, notes, isGrounded } = body ?? {};
 
@@ -110,10 +115,7 @@ async function updateMaintenance(request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true, maintenance: serialize(updated) });
   } catch (error) {
     console.error('Error updating maintenance:', error);
-    return NextResponse.json(
-      { error: 'Failed to update maintenance', details: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to update maintenance' }, { status: 500 });
   }
 }
 
@@ -134,6 +136,9 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     }
 
     const { id } = await params;
+    if (!isUuid(id)) {
+      return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+    }
 
     const maintenance = await prisma.maintenance.findUnique({ where: { id } });
     if (!maintenance) {

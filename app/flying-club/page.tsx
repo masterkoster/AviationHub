@@ -94,20 +94,45 @@ interface MaintenanceItem {
 
 // ---- NewGroupModal ----
 
+const SIZE_BRACKET_OPTIONS = [
+  { value: '1-5', label: '1–5 members' },
+  { value: '6-15', label: '6–15 members' },
+  { value: '16-40', label: '16–40 members' },
+  { value: '40+', label: '40+ members' },
+]
+
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: (group: Group) => void }) {
+  const [step, setStep] = useState<'choose' | 'partnership' | 'club'>('choose')
   const [name, setName] = useState('')
+  const [sizeBracket, setSizeBracket] = useState('')
+  const [homeAirport, setHomeAirport] = useState('')
+  const [website, setWebsite] = useState('')
+  const [description, setDescription] = useState('')
+  const [showOnMap, setShowOnMap] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleCreate() {
+  async function handleCreate(type: 'partnership' | 'club') {
     if (!name.trim()) return
     setSaving(true)
     setError(null)
     try {
+      const payload =
+        type === 'partnership'
+          ? { name: name.trim(), type }
+          : {
+              name: name.trim(),
+              type,
+              description: description.trim() || undefined,
+              website: website.trim() || undefined,
+              homeAirport: homeAirport.trim() || undefined,
+              sizeBracket: sizeBracket || undefined,
+              showOnMap,
+            }
       const res = await fetch('/api/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -122,33 +147,158 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     }
   }
 
+  const inputClass =
+    'mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Create New Group</h2>
+          <div className="flex items-center gap-2">
+            {step !== 'choose' && (
+              <Button variant="ghost" size="icon" onClick={() => { setStep('choose'); setError(null) }}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+            )}
+            <h2 className="text-lg font-semibold">
+              {step === 'choose' && 'Create a Group'}
+              {step === 'partnership' && 'Create Partnership'}
+              {step === 'club' && 'Create Flying Club'}
+            </h2>
+          </div>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
         </div>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Group Name</label>
-            <input
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. Sky High Flying Club"
-              onKeyDown={e => e.key === 'Enter' && handleCreate()}
-              autoFocus
-            />
+
+        {step === 'choose' && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Choose the kind of group that fits how you fly.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                onClick={() => setStep('partnership')}
+                className="rounded-lg border border-border bg-background p-4 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <Users className="h-6 w-6 text-primary mb-2" />
+                <p className="font-medium">Partnership</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A few friends who own a plane together and split costs
+                </p>
+              </button>
+              <button
+                onClick={() => setStep('club')}
+                className="rounded-lg border border-border bg-background p-4 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <Plane className="h-6 w-6 text-primary mb-2" />
+                <p className="font-medium">Flying Club</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A club with members, scheduling, and billing
+                </p>
+              </button>
+            </div>
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={saving || !name.trim()}>
-              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : 'Create Group'}
-            </Button>
+        )}
+
+        {step === 'partnership' && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Partnership Name</label>
+              <input
+                className={inputClass}
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="e.g. N12345 Partners"
+                onKeyDown={e => e.key === 'Enter' && handleCreate('partnership')}
+                autoFocus
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button onClick={() => handleCreate('partnership')} disabled={saving || !name.trim()}>
+                {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : 'Create Partnership'}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
+
+        {step === 'club' && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Only the name is required — the rest fills out your club profile.</p>
+            <div>
+              <label className="text-sm font-medium">Club Name *</label>
+              <input
+                className={inputClass}
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="e.g. Sky High Flying Club"
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium">Club size</label>
+                <select
+                  className={inputClass}
+                  value={sizeBracket}
+                  onChange={e => setSizeBracket(e.target.value)}
+                >
+                  <option value="">Select a size</option>
+                  {SIZE_BRACKET_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Home airport</label>
+                <input
+                  className={inputClass}
+                  value={homeAirport}
+                  onChange={e => setHomeAirport(e.target.value.toUpperCase())}
+                  placeholder="e.g. KPTK"
+                  maxLength={7}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Website</label>
+              <input
+                className={inputClass}
+                value={website}
+                onChange={e => setWebsite(e.target.value)}
+                placeholder="yourclub.com"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Bio</label>
+              <textarea
+                className={`${inputClass} min-h-[80px]`}
+                value={description}
+                onChange={e => setDescription(e.target.value.slice(0, 2000))}
+                placeholder="Tell pilots about your club..."
+              />
+            </div>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={showOnMap}
+                onChange={e => setShowOnMap(e.target.checked)}
+              />
+              <span className="text-sm">
+                Show my club on the public club map
+                <span className="block text-xs text-muted-foreground">
+                  Pilots browsing the map can discover your club at its home airport
+                </span>
+              </span>
+            </label>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button onClick={() => handleCreate('club')} disabled={saving || !name.trim()}>
+                {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : 'Create Club'}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
