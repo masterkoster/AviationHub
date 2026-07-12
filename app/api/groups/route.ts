@@ -1,135 +1,83 @@
-import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
-
-export async function POST(request: Request) {
-  try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-
-    if (!users || users.length === 0) {
-      return NextResponse.json({ error: '[User] not found' }, { status: 404 });
-    }
-
-    const userId = users[0].id;
-
-    const body = await request.json();
-    const { name } = body;
-
-    if (!name) {
-      return NextResponse.json({ error: 'Name is required' }, { status: 400 });
-    }
-
-    // Create organization with only valid fields
-    const group = await prisma.organization.create({
-      data: {
-        name,
-        ownerId: userId,
-      },
-    });
-
-    // Add creator as admin member
-    await prisma.organizationMember.create({
-      data: {
-        userId: userId,
-        organizationId: group.id,
-        role: 'ADMIN',
-      },
-    });
-
-    return NextResponse.json({
-      id: group.id,
-      name: group.name,
-      ownerId: group.ownerId,
-      type: group.type,
-      createdAt: group.createdAt,
-      updatedAt: group.updatedAt,
-    });
-  } catch (error) {
-    console.error('Error creating group:', error);
-    return NextResponse.json({ error: 'Failed to create group', details: String(error) }, { status: 500 });
-  }
-}
+import { NextResponse } from 'next/server'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import crypto from 'crypto'
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      console.log('No session found');
-      return NextResponse.json([]);
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    const userId = session.user.id
 
-    if (!users || users.length === 0) {
-      console.log('[User] not found for email:', session.user.email);
-      return NextResponse.json([]);
-    }
+    const groups = await prisma.organization.findMany({
+      where: {
+        members: { some: { userId } }
+      },
+      include: {
+        aircraft: { select: { id: true, nNumber: true, nickname: true, customName: true, make: true, model: true, status: true, hourlyRate: true } },
+        members: { where: { userId }, select: { role: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
 
-    const userId = users[0].id;
+    const formatted = groups.map(g => ({
+      id: g.id,
+      name: g.name,
+      type: g.type,
+      ownerId: g.ownerId,
+      role: g.members[0]?.role || 'MEMBER',
+      aircraft: g.aircraft
+    }))
 
-    // Use raw SQL to get organizations the user is a member of
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT gm.role, o.id, o.name, o.type, o.ownerId, o.createdAt, o.updatedAt
-      FROM OrganizationMember gm
-      JOIN Organization o ON gm.organizationId = o.id
-      WHERE gm.userId = '${userId}'
-    `) as any[];
-
-    // Now fetch aircraft for each group
-    const groupIds = memberships.map((m: any) => m.id);
-    let aircraftMap: Record<string, any[]> = {};
-    
-    if (groupIds.length > 0) {
-      const aircraftList = await prisma.$queryRawUnsafe(`
-        SELECT a.*, o.name as groupName
-        FROM ClubAircraft a
-        JOIN Organization o ON a.organizationId = o.id
-        WHERE a.organizationId IN (${groupIds.map((id: string) => "'" + id + "'").join(',')})
-      `) as any[];
-      
-      // Group aircraft by groupId
-      aircraftList.forEach((a: any) => {
-        if (!aircraftMap[a.organizationId]) aircraftMap[a.organizationId] = [];
-        aircraftMap[a.organizationId].push({
-          id: a.id,
-          nNumber: a.nNumber,
-          nickname: a.nickname,
-          customName: a.customName,
-          make: a.make,
-          model: a.model,
-          status: a.status,
-          hourlyRate: a.hourlyRate ? Number(a.hourlyRate) : null,
-          aircraftNotes: a.aircraftNotes,
-        });
-      });
-    }
-
-    const groups = memberships.map((m: any) => ({
-      id: m.id,
-      name: m.name,
-      type: m.type,
-      ownerId: m.ownerId,
-      createdAt: m.createdAt,
-      updatedAt: m.updatedAt,
-      role: m.role,
-      aircraft: aircraftMap[m.id] || [],
-    }));
-    
-    return NextResponse.json(groups);
+    return NextResponse.json(formatted)
   } catch (error) {
-    console.error('Error fetching groups:', error);
-    // Return empty array instead of error to allow app to work
-    return NextResponse.json([]);
+    console.error('Error fetching groups:', error)
+    return NextResponse.json({ error: 'Failed to fetch groups' }, { status: 500 })
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const userId = session.user.id
+    const body = await request.json()
+    const { name } = body
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return NextResponse.json({ error: 'Group name is required' }, { status: 400 })
+    }
+
+    const orgId = crypto.randomUUID()
+    const memberId = crypto.randomUUID()
+    const orgName = name.trim()
+
+    await prisma.$executeRaw`
+      INSERT INTO [Organization] (id, name, type, ownerId, createdAt, updatedAt)
+      VALUES (${orgId}, ${orgName}, 'club', ${userId}, GETDATE(), GETDATE())
+    `
+
+    await prisma.$executeRaw`
+      INSERT INTO [OrganizationMember] (id, organizationId, userId, role, joinedAt)
+      VALUES (${memberId}, ${orgId}, ${userId}, 'ADMIN', GETDATE())
+    `
+
+    return NextResponse.json({
+      id: orgId,
+      name: orgName,
+      type: 'club',
+      ownerId: userId,
+      role: 'ADMIN',
+      aircraft: []
+    })
+  } catch (error) {
+    console.error('Error creating group:', error)
+    return NextResponse.json({ error: 'Failed to create group', details: error instanceof Error ? error.message : String(error) }, { status: 500 })
   }
 }

@@ -97,11 +97,26 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const { tier, role } = body;
+    const { tier, role, verifyEmail } = body;
 
     const data: any = {};
     if (tier) data.tier = tier;
-    if (role) data.role = role;
+
+    // Only 'owner' may grant/revoke admin (or owner) roles. A plain 'admin'
+    // caller may not change any user's role.
+    if (role) {
+      if (sessionRole !== 'owner') {
+        return NextResponse.json({ error: 'Only owners can change user roles' }, { status: 403 });
+      }
+      if (!['user', 'admin', 'owner'].includes(role)) {
+        return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+      }
+      data.role = role;
+    }
+
+    if (verifyEmail) {
+      data.emailVerified = new Date();
+    }
 
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });

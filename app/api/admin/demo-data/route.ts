@@ -6,16 +6,17 @@ import { prisma } from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const session = await auth();
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user is admin
-    const user = await prisma.$queryRawUnsafe(`
-      SELECT role FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
+    // Check if user is admin or owner
+    const caller = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true },
+    });
 
-    if (!user || user.length === 0 || user[0].role !== 'admin') {
+    if (caller?.role !== 'admin' && caller?.role !== 'owner') {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
@@ -276,6 +277,20 @@ export async function POST(request: Request) {
 // GET /api/admin/demo-data - Get demo data config
 export async function GET() {
   try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const caller = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true },
+    });
+
+    if (caller?.role !== 'admin' && caller?.role !== 'owner') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
+
     const demoConfig = await prisma.$queryRawUnsafe(`
       SELECT * FROM DemoData ORDER BY key
     `) as any[];

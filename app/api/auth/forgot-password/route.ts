@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     }
 
     // For development/debugging - log the URL
-    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
+    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/desktop/reset-password?token=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
     console.log("Password reset link:", resetUrl);
 
     return NextResponse.json({ 

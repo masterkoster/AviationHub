@@ -12,8 +12,14 @@ import { useAnalytics } from '@/desktop/hooks/use-analytics'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { clearActiveUserOnStartup } from '@/desktop/lib/setup'
 import { useShortcuts, type ShortcutEntry } from '@/desktop/hooks/use-shortcuts'
+import { useOnlineStatus } from '@/desktop/hooks/use-online-status'
+import { WifiOff } from 'lucide-react'
+import { OnboardingTour, isTutorialCompleted, getHighlightedHref } from '@/desktop/components/onboarding-tour'
+import { WhatsNewModal } from '@/desktop/components/whats-new-modal'
+import { resolveLocalLogbookUserId } from '@/apps/desktop/src/lib/local-logbook'
+import { initSyncEngine, setActiveSyncUserId, pullCloudChanges, useSyncStatus, syncNow } from '@/apps/desktop/src/lib/sync-engine'
 
-const PUBLIC_PATHS = ['/desktop/login', '/desktop/signup', '/desktop/setup', '/desktop/accounts']
+const PUBLIC_PATHS = ['/desktop/login', '/desktop/signup', '/desktop/setup', '/desktop/accounts', '/desktop/forgot-password', '/desktop/reset-password']
 
 /**
  * Desktop shell — the outermost frame of the desktop app.
@@ -33,8 +39,32 @@ const PUBLIC_PATHS = ['/desktop/login', '/desktop/signup', '/desktop/setup', '/d
 export function DesktopShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { status, mode, needsSetup, initializing } = useDesktopAuth()
+  const { status, mode, needsSetup, initializing, localUser, cloudUser } = useDesktopAuth()
+  const syncSnapshot = useSyncStatus()
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('desktop.sidebar.collapsed') === '1' } catch { return false }
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem('desktop.sidebar.collapsed', sidebarCollapsed ? '1' : '0') } catch {}
+  }, [sidebarCollapsed])
+
+  // ── Tutorial ──
+  const [tutorialOpen, setTutorialOpen] = useState(false)
+  const [tutorialStep, setTutorialStep] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (
+      !initializing &&
+      status === 'authenticated' &&
+      pathname === '/desktop/dashboard' &&
+      !isTutorialCompleted() &&
+      !tutorialOpen
+    ) {
+      setTutorialOpen(true)
+    }
+  }, [initializing, status, pathname, tutorialOpen])
 
   const isPublic = PUBLIC_PATHS.includes(pathname)
 
@@ -42,6 +72,7 @@ export function DesktopShell({ children }: { children: ReactNode }) {
     const nav = (href: string) => () => router.push(href)
     return [
       { combo: 'ctrl+k', handler: () => setPaletteOpen((o) => !o), scope: 'global' },
+      { combo: 'ctrl+b', handler: () => setSidebarCollapsed((c) => !c), scope: 'global' },
       { combo: 'ctrl+1', handler: nav('/desktop/dashboard'), scope: 'global' },
       { combo: 'ctrl+2', handler: nav('/desktop/logbook'), scope: 'global' },
       { combo: 'ctrl+n', handler: nav('/desktop/logbook/new'), scope: 'global' },
@@ -50,8 +81,9 @@ export function DesktopShell({ children }: { children: ReactNode }) {
       { combo: 'ctrl+5', handler: nav('/desktop/aircraft'), scope: 'global' },
       { combo: 'ctrl+6', handler: nav('/desktop/profile'), scope: 'global' },
       { combo: 'ctrl+7', handler: nav('/desktop/map'), scope: 'global' },
-      { combo: 'ctrl+8', handler: nav('/desktop/calendar'), scope: 'global' },
-      { combo: 'ctrl+,', handler: nav('/desktop/profile'), scope: 'global' },
+      { combo: 'ctrl+8', handler: nav('/desktop/weather'), scope: 'global' },
+      { combo: 'ctrl+9', handler: nav('/desktop/calendar'), scope: 'global' },
+      { combo: 'ctrl+,', handler: nav('/desktop/settings'), scope: 'global' },
       {
         combo: 'escape',
         handler: () => {
@@ -65,14 +97,60 @@ export function DesktopShell({ children }: { children: ReactNode }) {
 
   useShortcuts(shortcuts)
 
+  const isOnline = useOnlineStatus()
+
   // Anonymous opt-in analytics (Tauri only, consent-based)
   useAnalytics()
+
+  const handleTutorialComplete = useMemo(() => () => {
+    setTutorialOpen(false)
+    setTutorialStep(null)
+  }, [])
+
+  const handleTutorialStepChange = useMemo(() => (step: number | null) => {
+    setTutorialStep(step)
+  }, [])
 
   // Clear active user on first mount so users always see account selection
   // (PS4/Xbox style — no auto-login from previous session)
   useEffect(() => {
     clearActiveUserOnStartup()
   }, [])
+
+  // Sync engine: wire up global triggers (online event, debounced drain
+  // after writes, 5-minute interval) once for the app's lifetime.
+  useEffect(() => {
+    const cleanup = initSyncEngine()
+    return cleanup
+  }, [])
+
+  // Resolve the active profile's cloud-linked local id and tell the sync
+  // engine about it, pulling any changes made from other devices.
+  useEffect(() => {
+    if (initializing) return
+    if (status !== 'authenticated') {
+      setActiveSyncUserId(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const resolvedId = await resolveLocalLogbookUserId({
+          mode,
+          localUserId: localUser?.id,
+          cloudUser,
+        })
+        if (cancelled) return
+        setActiveSyncUserId(resolvedId)
+        void pullCloudChanges(resolvedId)
+      } catch {
+        // Best-effort — sync simply stays idle for this session if resolution fails.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [initializing, status, mode, localUser, cloudUser])
 
   // Block mouse back button and browser back navigation —
   // desktop apps don't have "back"; only our sidebar + shortcuts navigate.
@@ -111,8 +189,10 @@ export function DesktopShell({ children }: { children: ReactNode }) {
   if (pathname === '/desktop/setup' || pathname === '/desktop/accounts') {
     return (
       <div className="flex h-screen flex-col bg-background">
-        <TitleBar syncStatus="offline" />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <div className="print:hidden">
+          <TitleBar syncStatus="offline" />
+        </div>
+        <main role="main" className="flex-1 overflow-y-auto">{children}</main>
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
         <Toaster />
       </div>
@@ -123,8 +203,17 @@ export function DesktopShell({ children }: { children: ReactNode }) {
   if (isPublic) {
     return (
       <div className="flex h-screen flex-col bg-background">
-        <TitleBar syncStatus={mode === 'local' ? 'offline' : 'synced'} />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <div className="print:hidden">
+          <TitleBar syncStatus={mode === 'local' ? 'offline' : 'synced'} />
+        </div>
+        {/* Offline banner */}
+        {!isOnline && mode === 'cloud' && (
+          <div className="print:hidden flex items-center justify-center gap-2 bg-amber-500/10 border-b border-amber-500/20 px-4 py-1.5 text-xs text-amber-700">
+            <WifiOff className="h-3.5 w-3.5" />
+            You are offline. Cloud data may not be available.
+          </div>
+        )}
+        <main role="main" className="flex-1 overflow-y-auto">{children}</main>
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
         <Toaster />
         <UpdateBanner />
@@ -137,28 +226,53 @@ export function DesktopShell({ children }: { children: ReactNode }) {
   if (initializing) {
     return (
       <div className="flex h-screen flex-col bg-background">
-        <TitleBar syncStatus="offline" />
-        <main className="flex-1" />
+        <div className="print:hidden">
+          <TitleBar syncStatus="offline" />
+        </div>
+        <main role="main" className="flex-1" />
       </div>
     )
   }
 
   return (
     <div className="flex h-screen flex-col bg-background overflow-hidden">
-      <TitleBar
-        onTogglePalette={() => setPaletteOpen((o) => !o)}
-        syncStatus={mode === 'local' ? 'offline' : 'synced'}
-      />
-      <div className="flex flex-1 overflow-hidden">
-        <div className="relative z-[1200] h-full shrink-0">
-          <DesktopSidebar />
+      <div className="print:hidden">
+        <TitleBar
+          onTogglePalette={() => setPaletteOpen((o) => !o)}
+          syncStatus={mode === 'local' ? 'offline' : syncSnapshot.status}
+          pendingCount={syncSnapshot.pendingCount}
+          onSyncClick={mode === 'local' ? undefined : () => { void syncNow() }}
+        />
+      </div>
+      {/* Offline banner */}
+      {!isOnline && mode === 'cloud' && (
+        <div className="print:hidden flex items-center justify-center gap-2 bg-amber-500/10 border-b border-amber-500/20 px-4 py-1.5 text-xs text-amber-700">
+          <WifiOff className="h-3.5 w-3.5" />
+          You are offline. Cloud data may not be available.
         </div>
-        <main className="relative z-0 flex-1 overflow-y-auto bg-background">{children}</main>
+      )}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="relative z-[1200] h-full shrink-0 print:hidden">
+          <DesktopSidebar
+            collapsed={tutorialOpen ? false : sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+            highlightedHref={getHighlightedHref(tutorialStep)}
+          />
+        </div>
+        <main role="main" className="relative z-0 flex-1 overflow-y-auto bg-background animate-in fade-in duration-200">{children}</main>
       </div>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <Toaster />
       <UpdateBanner />
       <AnalyticsConsentModal />
+      {tutorialOpen && (
+        <OnboardingTour
+          onComplete={handleTutorialComplete}
+          onStepChange={handleTutorialStepChange}
+          navigate={(href) => router.push(href)}
+        />
+      )}
+      <WhatsNewModal authenticated={status === 'authenticated'} />
     </div>
   )
 }

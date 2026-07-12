@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   Monitor,
@@ -22,11 +22,13 @@ import {
 import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
 import { completeSetup, type DesktopMode } from '@/desktop/lib/setup'
-import { createLocalUser, diagnoseTauri, type LocalUser } from '@/desktop/lib/local-auth'
+import { createLocalUser, diagnoseTauri, provisionRecoveryPin, type LocalUser } from '@/desktop/lib/local-auth'
 import { importUserData } from '@/desktop/lib/backup'
 import { cloudSignIn } from '@/apps/desktop/src/lib/cloud-session'
+import { PinInputDialog } from '@/desktop/components/pin-input-dialog'
+import { RecoveryPinDisplay } from '@/desktop/components/recovery-pin-display'
 
-type Step = 'welcome' | 'mode' | 'profile' | 'pin' | 'signin' | 'theme' | 'done'
+type Step = 'welcome' | 'mode' | 'profile' | 'pin' | 'recoveryPin' | 'signin' | 'theme' | 'done'
 
 export function SetupWizard() {
   const router = useRouter()
@@ -46,6 +48,11 @@ export function SetupWizard() {
   const [createdUser, setCreatedUser] = useState<LocalUser | null>(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
+  const [recoveryPin, setRecoveryPin] = useState<string | null>(null)
+
+  // Backup-restore PIN dialog
+  const [pinDialogOpen, setPinDialogOpen] = useState(false)
+  const pendingBackupRef = useRef<Uint8Array | null>(null)
 
   // Cloud signin fields
   const [username, setUsername] = useState('')
@@ -75,7 +82,11 @@ export function SetupWizard() {
       const user = await createLocalUser(name, pin, homeAirport)
       setCreatedUser(user)
       await completeSetup({ mode: 'local', localUserId: user.id })
-      setStep('theme')
+      // Generate this profile's immutable recovery PIN now, while we still
+      // have a fresh session — it will only ever be shown this once.
+      const rp = await provisionRecoveryPin(user.id)
+      setRecoveryPin(rp)
+      setStep('recoveryPin')
     } catch (err: unknown) {
       console.error(err)
       const msg = err instanceof Error ? err.message : String(err)
@@ -84,6 +95,10 @@ export function SetupWizard() {
     } finally {
       setCreatingLocal(false)
     }
+  }
+
+  function handleRecoveryPinContinue() {
+    setStep('theme')
   }
 
   async function handleCloudSignIn(e: React.FormEvent) {
@@ -120,25 +135,49 @@ export function SetupWizard() {
       }
       const { readFile } = await import('@tauri-apps/plugin-fs')
       const fileBytes = await readFile(filePath as string, { encoding: 'binary' }) as Uint8Array
-      const pinPrompt = window.prompt('Enter the PIN for this backup file')
-      if (!pinPrompt) {
-        setImporting(false)
-        return
-      }
-      const result = await importUserData(fileBytes, pinPrompt)
+      // Store bytes and open the PIN dialog instead of window.prompt
+      pendingBackupRef.current = fileBytes
+      setImporting(false)
+      setPinDialogOpen(true)
+    } catch (err) {
+      console.error('[setup] import failed', err)
+      setImportError(err instanceof Error ? err.message : String(err))
+      setImporting(false)
+    }
+  }
+
+  async function handlePinSubmit(pin: string): Promise<void> {
+    const fileBytes = pendingBackupRef.current
+    if (!fileBytes) return
+    try {
+      setImporting(true)
+      const result = await importUserData(fileBytes, pin)
       if (!result.success) {
         setImportError(result.error || 'Import failed')
+        setPinDialogOpen(false)
         setImporting(false)
+        pendingBackupRef.current = null
         return
       }
+      setPinDialogOpen(false)
+      pendingBackupRef.current = null
       await completeSetup({ mode: 'local', localUserId: result.userId })
       router.replace('/desktop/dashboard')
       router.refresh()
     } catch (err) {
-      console.error('[setup] import failed', err)
+      console.error('[setup] pin submit failed', err)
+      setPinDialogOpen(false)
       setImportError(err instanceof Error ? err.message : String(err))
-    } finally {
       setImporting(false)
+      pendingBackupRef.current = null
+    }
+  }
+
+  function handlePinDialogOpenChange(open: boolean) {
+    setPinDialogOpen(open)
+    if (!open) {
+      // Dialog dismissed without submitting — clean up pending bytes
+      pendingBackupRef.current = null
     }
   }
 
@@ -214,6 +253,13 @@ export function SetupWizard() {
             />
           )}
 
+          {step === 'recoveryPin' && recoveryPin && (
+            <RecoveryPinDisplay
+              recoveryPin={recoveryPin}
+              onContinue={handleRecoveryPinContinue}
+            />
+          )}
+
           {step === 'signin' && (
             <StepSignIn
               username={username}
@@ -245,6 +291,16 @@ export function SetupWizard() {
             />
           )}
         </div>
+
+        {/* PIN dialog for backup restore */}
+        <PinInputDialog
+          open={pinDialogOpen}
+          onOpenChange={handlePinDialogOpenChange}
+          title="Enter Backup PIN"
+          description="This backup file is encrypted. Enter the PIN that was used when the backup was created."
+          confirmLabel="Restore"
+          onSubmit={handlePinSubmit}
+        />
 
         {/* Footer — pathname unused but kept symmetrical for adjustments */}
         <span className="hidden">{pathname}</span>

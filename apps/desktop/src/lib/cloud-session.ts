@@ -6,6 +6,9 @@ export interface CloudSessionUser {
   id?: string
   name?: string | null
   email?: string | null
+  role?: string
+  tier?: string
+  username?: string
 }
 
 export interface CloudSessionState {
@@ -53,24 +56,20 @@ export async function cloudSignIn(username: string, password: string): Promise<{
     params.set('csrfToken', csrfToken)
     params.set('username', username)
     params.set('password', password)
-    params.set('json', 'true')
 
     const base = getCloudBaseUrl()
-    const res = await fetch(`${base}/api/auth/callback/credentials?json=true`, {
+    const res = await fetch(`${base}/api/auth/callback/credentials`, {
       method: 'POST',
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params,
-      redirect: 'manual',
+      redirect: 'follow',
     })
 
-    const text = await res.text().catch(() => '')
-    const parsed = text ? (JSON.parse(text) as { error?: string }) : null
-
-    if (!res.ok || parsed?.error) {
-      return { ok: false, error: parsed?.error || 'Invalid username or password' }
+    // NextAuth v5 always redirects — success → callbackUrl, failure → /api/auth/error?error=...
+    const finalUrl = res.url || ''
+    if (finalUrl.includes('/error') || finalUrl.includes('error=')) {
+      return { ok: false, error: 'Invalid username or password' }
     }
 
     return { ok: true }

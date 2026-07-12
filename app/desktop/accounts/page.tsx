@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Monitor,
@@ -17,9 +17,16 @@ import { cn } from '@/lib/utils'
 import {
   getAllLocalUsers,
   verifyPin,
+  deleteLocalUser,
+  hasRecoveryPinProvisioned,
+  provisionRecoveryPin,
   type LocalUser,
 } from '@/desktop/lib/local-auth'
 import { setActiveUser, completeSetup } from '@/desktop/lib/setup'
+import { PinConfirmDialog } from '@/desktop/components/pin-confirm-dialog'
+import { SimpleAlert } from '@/desktop/components/alert-dialog'
+import { RecoveryPinRevealDialog } from '@/desktop/components/recovery-pin-reveal-dialog'
+import { notifyDeleted } from '@/desktop/lib/toast-helpers'
 
 const AVATAR_COLORS: Record<string, string> = {
   emerald: 'from-emerald-500 to-emerald-600',
@@ -40,6 +47,16 @@ export default function DesktopAccountsPage() {
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState('')
   const [verifying, setVerifying] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<LocalUser | null>(null)
+  const [alertOpen, setAlertOpen] = useState(false)
+  const [alertTitle, setAlertTitle] = useState('')
+  const [alertDescription, setAlertDescription] = useState('')
+
+  // Recovery-PIN migration: shown once after unlocking a profile that
+  // predates the recovery PIN feature and doesn't have one yet.
+  const [recoveryPinReveal, setRecoveryPinReveal] = useState<string | null>(null)
+  const pendingLoginUserIdRef = useRef<string | null>(null)
 
   async function loadUsers() {
     setLoading(true)
@@ -48,9 +65,83 @@ export default function DesktopAccountsPage() {
     setLoading(false)
   }
 
+  function handleDelete(user: LocalUser) {
+    setDeleteTarget(user)
+  }
+
+  async function handleDeleteConfirm(pin: string) {
+    const user = deleteTarget
+    if (!user) return
+
+    // Verify PIN if the user has one
+    if (user.pin) {
+      const ok = await verifyPin(user.id, pin)
+      if (!ok) {
+        throw new Error('Incorrect PIN')
+      }
+    }
+
+    // PIN verified (or no PIN set) — proceed with deletion
+    setDeletingId(user.id)
+    try {
+      await deleteLocalUser(user.id)
+      notifyDeleted('Account')
+      await loadUsers()
+      setDeleteTarget(null)
+    } catch (err) {
+      // Delete failed — close the PIN dialog and show error alert
+      setDeleteTarget(null)
+      setAlertTitle('Failed to Delete User')
+      setAlertDescription(
+        'Failed to delete user: ' +
+          (err instanceof Error ? err.message : String(err))
+      )
+      setAlertOpen(true)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   useEffect(() => {
     loadUsers()
   }, [])
+
+  /**
+   * Finish logging a local user in. If this profile predates the recovery
+   * PIN feature and doesn't have one yet, generate it now and show it once
+   * before navigating away — this is the "next successful unlock" migration
+   * path for pre-existing profiles.
+   */
+  async function finishLogin(userId: string) {
+    const alreadyHasRecoveryPin = await hasRecoveryPinProvisioned(userId)
+    if (!alreadyHasRecoveryPin) {
+      try {
+        const rp = await provisionRecoveryPin(userId)
+        pendingLoginUserIdRef.current = userId
+        setRecoveryPinReveal(rp)
+        return
+      } catch (err) {
+        // Don't block login if recovery-PIN provisioning fails for some
+        // reason — it can still be generated later from Settings.
+        console.error('[accounts] provisionRecoveryPin failed:', err)
+      }
+    }
+    await setActiveUser(userId)
+    await completeSetup({ mode: 'local', localUserId: userId })
+    router.replace('/desktop/dashboard')
+    router.refresh()
+  }
+
+  async function handleRecoveryPinAcknowledge() {
+    const userId = pendingLoginUserIdRef.current
+    setRecoveryPinReveal(null)
+    pendingLoginUserIdRef.current = null
+    if (!userId) return
+    await setActiveUser(userId)
+    await completeSetup({ mode: 'local', localUserId: userId })
+    router.replace('/desktop/dashboard')
+    router.refresh()
+  }
 
   async function handlePinSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -60,10 +151,7 @@ export default function DesktopAccountsPage() {
     const ok = await verifyPin(selectedUser.id, pinInput)
     setVerifying(false)
     if (ok) {
-      await setActiveUser(selectedUser.id)
-      await completeSetup({ mode: 'local', localUserId: selectedUser.id })
-      router.replace('/desktop/dashboard')
-      router.refresh()
+      await finishLogin(selectedUser.id)
     } else {
       setPinError('Incorrect PIN')
       setPinInput('')
@@ -73,12 +161,7 @@ export default function DesktopAccountsPage() {
   function handleTileClick(user: LocalUser) {
     // If user has no PIN, log in directly
     if (!user.pin) {
-      setActiveUser(user.id).then(() => {
-        completeSetup({ mode: 'local', localUserId: user.id }).then(() => {
-          router.replace('/desktop/dashboard')
-          router.refresh()
-        })
-      })
+      finishLogin(user.id)
       return
     }
     setSelectedUser(user)
@@ -172,6 +255,14 @@ export default function DesktopAccountsPage() {
         <p className="text-sm text-muted-foreground">Select an account to continue</p>
       </div>
 
+      {/* Empty state */}
+      {!loading && users.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center mb-4">
+          <Monitor className="mx-auto h-8 w-8 text-muted-foreground/50" />
+          <p className="mt-2 text-sm text-muted-foreground">No accounts yet. Create your first account to get started.</p>
+        </div>
+      )}
+
       {/* User tiles */}
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -181,28 +272,42 @@ export default function DesktopAccountsPage() {
         <div className="flex flex-wrap items-start justify-center gap-4">
           {/* Existing users */}
           {users.map((user) => (
-            <button
-              key={user.id}
-              onClick={() => handleTileClick(user)}
-              className="group flex flex-col items-center gap-2 transition-transform hover:scale-105"
-            >
-              <div
-                className={cn(
-                  'flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-md transition-all group-hover:shadow-xl',
-                  AVATAR_COLORS[user.avatarColor] || AVATAR_COLORS.emerald
-                )}
+            <div key={user.id} className="group relative flex flex-col items-center gap-2">
+              <button
+                onClick={() => handleTileClick(user)}
+                className="flex flex-col items-center gap-2"
               >
-                <span className="text-2xl font-bold">
-                  {user.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
-              <div className="text-center">
-                <p className="text-sm font-medium">{user.name}</p>
-                <p className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                  <HardDrive className="h-2.5 w-2.5" /> Local
-                </p>
-              </div>
-            </button>
+                <div
+                  className={cn(
+                    'relative flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-md transition-all group-hover:shadow-xl',
+                    AVATAR_COLORS[user.avatarColor] || AVATAR_COLORS.emerald
+                  )}
+                >
+                  <span className="text-2xl font-bold">
+                    {user.name.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium">{user.name}</p>
+                  <p className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                    <HardDrive className="h-2.5 w-2.5" /> Local
+                  </p>
+                </div>
+              </button>
+              {/* Delete button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDelete(user) }}
+                disabled={deletingId === user.id}
+                className="absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-sm transition-all hover:bg-destructive hover:text-destructive-foreground group-hover:opacity-100 disabled:opacity-50"
+                title="Delete this account"
+              >
+                {deletingId === user.id ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+              </button>
+            </div>
           ))}
 
           {/* Create new local account tile */}
@@ -214,8 +319,8 @@ export default function DesktopAccountsPage() {
               <Plus className="h-8 w-8" />
             </div>
             <div className="text-center">
-              <p className="text-sm font-medium">New Account</p>
-              <p className="text-[10px] text-muted-foreground">Local or cloud</p>
+              <p className="text-sm font-medium">Add Pilot</p>
+              <p className="text-[10px] text-muted-foreground">Create an account</p>
             </div>
           </button>
         </div>
@@ -234,16 +339,43 @@ export default function DesktopAccountsPage() {
           className="flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium hover:bg-muted"
         >
           <Cloud className="h-4 w-4" />
-          Sign in with Cloud Account
+          Sign in with your account
         </button>
       </div>
 
       {/* Delete hint */}
       {!loading && users.length > 0 && (
         <p className="mt-8 text-center text-[10px] text-muted-foreground">
-          Local accounts are stored on this device. Each has its own PIN.
+          Profiles are stored on this computer. Each pilot unlocks theirs with their own PIN.
         </p>
       )}
+
+      {/* PinConfirmDialog — replaces confirm() + prompt() flow */}
+      <PinConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        title="Delete Account"
+        description={`Delete "${deleteTarget?.name ?? ''}" and ALL their data? This cannot be undone.`}
+        hasPin={!!deleteTarget?.pin}
+        onConfirm={handleDeleteConfirm}
+      />
+
+      {/* SimpleAlert — replaces alert() for delete errors */}
+      <SimpleAlert
+        open={alertOpen}
+        onOpenChange={setAlertOpen}
+        title={alertTitle}
+        description={alertDescription}
+      />
+
+      {/* Recovery-PIN migration reveal — shown once for pre-existing profiles */}
+      <RecoveryPinRevealDialog
+        open={recoveryPinReveal !== null}
+        recoveryPin={recoveryPinReveal}
+        onAcknowledge={handleRecoveryPinAcknowledge}
+      />
     </div>
   )
 }

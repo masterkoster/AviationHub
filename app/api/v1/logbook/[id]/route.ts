@@ -91,6 +91,13 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       if (body[key] !== undefined) data[key] = Boolean(body[key])
     }
 
+    // Void tracking — desktop sync engine pushes local voids through this
+    // same PUT (there's no separate hard-delete endpoint).
+    if (body.isVoided !== undefined) data.isVoided = Boolean(body.isVoided)
+    if (body.voidedAt) data.voidedAt = new Date(body.voidedAt)
+    if (body.voidedBy !== undefined) data.voidedBy = body.voidedBy || null
+    if (body.voidReason !== undefined) data.voidReason = body.voidReason || null
+
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
     }

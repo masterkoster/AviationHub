@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Download, X, Loader2 } from 'lucide-react'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
+import { Store } from '@tauri-apps/plugin-store'
 
 export function UpdateBanner() {
   const [updateInfo, setUpdateInfo] = useState<{
@@ -13,10 +14,29 @@ export function UpdateBanner() {
     error?: string
   }>({ available: false })
   const [dismissed, setDismissed] = useState(false)
+  const storeLoaded = useRef(false)
 
+  // On mount, check for persisted dismiss and check for updates
   useEffect(() => {
     let cancelled = false
-    async function checkUpdate() {
+
+    async function init() {
+      // Check if a persisted dismiss is still active
+      try {
+        if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+          const store = await Store.load('setup.json')
+          storeLoaded.current = true
+          const dismissedUntil = await store.get<number>('update_dismissed_until')
+          if (dismissedUntil && dismissedUntil > Date.now()) {
+            if (!cancelled) setDismissed(true)
+            return
+          }
+        }
+      } catch {
+        // Store not available — proceed with normal update check
+      }
+
+      // Check for updates
       try {
         if (typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)) return
         const update = await check()
@@ -27,9 +47,23 @@ export function UpdateBanner() {
         // Not in Tauri or updater not available — silent
       }
     }
-    checkUpdate()
+
+    init()
     return () => { cancelled = true }
   }, [])
+
+  async function persistDismiss() {
+    try {
+      if (storeLoaded.current || ('__TAURI_INTERNALS__' in window)) {
+        const store = await Store.load('setup.json')
+        await store.set('update_dismissed_until', Date.now() + 86_400_000) // 24 hours
+        await store.save()
+      }
+    } catch {
+      // Store not available — session-only dismiss is fine
+    }
+    setDismissed(true)
+  }
 
   async function handleInstall() {
     try {
@@ -96,6 +130,12 @@ export function UpdateBanner() {
             className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
           >
             Later
+          </button>
+          <button
+            onClick={persistDismiss}
+            className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+          >
+            Remind Me Tomorrow
           </button>
         </div>
       </div>

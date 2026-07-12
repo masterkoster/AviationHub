@@ -11,19 +11,23 @@ datasource db {
 }
 
 model Organization {
-  id        String   @id @default(uuid()) @db.NVarChar(36)
-  name      String   @db.NVarChar(255)
-  type      String   @default("club") @db.NVarChar(20)
-  ownerId   String   @db.NVarChar(36)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid()) @db.NVarChar(36)
+  name        String   @db.NVarChar(255)
+  description String?  @db.NVarChar(Max)
+  type        String   @default("club") @db.NVarChar(20)
+  ownerId     String   @db.NVarChar(36)
+  logoUrl     String?  @db.NVarChar(500)
+  bannerUrl   String?  @db.NVarChar(500)
+  publicSlug  String?  @unique @db.NVarChar(100)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  owner               User                 @relation("OrganizationOwner", fields: [ownerId], references: [id], onDelete: NoAction)
+  owner               User                    @relation("OrganizationOwner", fields: [ownerId], references: [id], onDelete: NoAction)
   members             OrganizationMember[]
   aircraft            ClubAircraft[]
   bookings            Booking[]
   invoices            Invoice[]
-  logbooks            LogbookEntry[]       @relation("OrganizationLogbooks")
+  logbooks            LogbookEntry[]          @relation("OrganizationLogbooks")
   blockOuts           BlockOut[]
   groupChatMessages   GroupChatMessage[]
   flightLogs          FlightLog[]
@@ -32,6 +36,9 @@ model Organization {
   billingRuns         BillingRun[]
   integrations        Integration[]
   maintenanceRequests MaintenanceRequest[]
+  posts               OrganizationPost[]
+  documents           OrganizationDocument[]
+  invites             Invite[]
 
   @@map("Organization")
 }
@@ -51,6 +58,60 @@ model OrganizationMember {
   @@unique([organizationId, userId])
   @@index([organizationId, role])
   @@map("OrganizationMember")
+}
+
+model Invite {
+  id        String   @id @default(uuid()) @db.NVarChar(36)
+  groupId   String   @db.NVarChar(36)
+  token     String   @unique @db.NVarChar(64)
+  email     String?  @db.NVarChar(255)
+  role      String   @default("VIEWER") @db.NVarChar(20)
+  createdBy String   @db.NVarChar(36)
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [groupId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([groupId])
+  @@index([token])
+  @@map("Invite")
+}
+
+model OrganizationPost {
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  organizationId String   @db.NVarChar(36)
+  authorId       String   @db.NVarChar(36)
+  title          String   @db.NVarChar(200)
+  content        String   @db.NVarChar(Max)
+  pinned         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  author       User         @relation("OrganizationPostAuthor", fields: [authorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organizationId, pinned, createdAt])
+  @@map("OrganizationPost")
+}
+
+model OrganizationDocument {
+  id             String   @id @default(uuid()) @db.NVarChar(36)
+  organizationId String   @db.NVarChar(36)
+  name           String   @db.NVarChar(255)
+  description    String?  @db.NVarChar(500)
+  category       String   @default("general") @db.NVarChar(50)
+  mimeType       String   @db.NVarChar(100)
+  fileSize       Int
+  fileData       Bytes
+  uploadedById   String   @db.NVarChar(36)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  uploadedBy   User         @relation("OrganizationDocumentUploader", fields: [uploadedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organizationId, category])
+  @@map("OrganizationDocument")
 }
 
 model User {
@@ -95,6 +156,8 @@ model User {
 
   aircraft                    UserAircraft[]
   documents                   Document[]
+  organizationPosts           OrganizationPost[]       @relation("OrganizationPostAuthor")
+  organizationDocuments       OrganizationDocument[]   @relation("OrganizationDocumentUploader")
   errorReports                ErrorReport[]
   logbookEntriesAsInstructor  LogbookEntry[]            @relation("LogbookEntryInstructor")
   bookingsAsInstructor        Booking[]                @relation("BookingInstructor")
@@ -127,6 +190,7 @@ model User {
   LogbookStartingTotal        LogbookStartingTotal?
   GroupChatMessage            GroupChatMessage[]
 
+  @@index([resetToken])
   @@map("User")
 }
 
@@ -273,6 +337,7 @@ model PilotProfile {
   UserPresence           UserPresence?
   logbookStartingTotalId String?               @db.NVarChar(36)
   PilotLicense           PilotLicense[]
+  sharedRoutes           SharedRoute[]
 
   @@index([userId])
   @@map("PilotProfile")
@@ -507,6 +572,7 @@ model Conversation {
   participants ConversationParticipant[]
   messages     Message[]
 
+  @@index([listingId])
   @@map("Conversation")
 }
 
@@ -565,6 +631,7 @@ model FlightTrack {
 
   pilotProfile PilotProfile? @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
 
+  @@index([pilotProfileId])
   @@map("FlightTrack")
 }
 
@@ -1303,6 +1370,7 @@ model ClubAircraft {
   aircraftNotes     String?   @db.NVarChar(Max)
   status            String?   @db.NVarChar(50)
   bookingWindowDays Int       @default(30)
+  equipment         String?   @db.NVarChar(Max)
 
   organization   Organization?  @relation(fields: [organizationId], references: [id], onDelete: NoAction)
   bookings       Booking[]
@@ -1547,15 +1615,16 @@ model AircraftCache {
 }
 
 model WeatherCache {
-  icao         String   @id @db.NVarChar(10)
-  station_type String?  @db.NVarChar(20) // METAR, TAF
-  raw_data     String   @db.NVarChar(Max)
-  parsed_data  String?  @db.NVarChar(Max) // JSON parsed
-  valid_from   DateTime
-  valid_until  DateTime
-  scraped_at   DateTime @default(now())
+  id          String   @id @db.NVarChar(50) // "metar-KORD", "taf-KORD", "windtemp-chi"
+  region      String?  @db.NVarChar(10)
+  icao        String?  @db.NVarChar(10)
+  data_type   String   @db.NVarChar(20) // "metar", "taf", "windtemp"
+  data        String   @db.NVarChar(Max) // JSON payload
+  fetched_at  DateTime @default(now())
+  expires_at  DateTime
 
-  @@index([valid_until])
+  @@index([icao, data_type, expires_at])
+  @@index([region, data_type, expires_at])
   @@map("WeatherCache")
 }
 
@@ -1895,6 +1964,27 @@ model SyncLog {
 
 // Flying Club Currency Tracking - FAA Standard Currency Rules
 
+// Community-shared flight routes from the Discover hub
+model SharedRoute {
+  id               String   @id @default(uuid()) @db.NVarChar(36)
+  pilotProfileId   String   @db.NVarChar(36)
+  name             String   @db.NVarChar(200)
+  description      String?  @db.NVarChar(Max)
+  waypointsJson    String   @db.NVarChar(Max)
+  totalDistanceNm  Float    @default(0)
+  aircraftCategory String   @db.NVarChar(20) // SE, ME, SEA
+  isPublic         Boolean  @default(true)
+  downloadsCount   Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  pilotProfile PilotProfile @relation(fields: [pilotProfileId], references: [id], onDelete: Cascade)
+
+  @@index([pilotProfileId])
+  @@index([isPublic, createdAt])
+  @@map("SharedRoute")
+}
+
 model PilotCurrency {
   id             String @id @default(uuid()) @db.NVarChar(36)
   pilotProfileId String @db.NVarChar(36)
@@ -2184,4 +2274,30 @@ model MechanicFileRequest {
   @@index([mechanicId])
   @@index([status])
   @@map("MechanicFileRequest")
+}
+
+model StateMediaCache {
+  state_code   String   @id @db.NVarChar(10)
+  images_json  String   @db.NVarChar(Max)
+  fetched_at   DateTime @default(now())
+
+  @@map("StateMediaCache")
+}
+
+model FaaAircraftCache {
+  n_number            String   @id @db.NVarChar(10)
+  serial_number       String?  @db.NVarChar(50)
+  manufacturer        String?  @db.NVarChar(100)
+  model               String?  @db.NVarChar(100)
+  year                Int?
+  category            String?  @db.NVarChar(50)
+  engine_type         String?  @db.NVarChar(50)
+  registration_status String?  @db.NVarChar(50)
+  owner_name          String?  @db.NVarChar(200)
+  owner_city          String?  @db.NVarChar(100)
+  owner_state         String?  @db.NVarChar(50)
+  expiration_date     String?  @db.NVarChar(20)
+  scraped_at          DateTime @default(now())
+
+  @@map("FaaAircraftCache")
 }

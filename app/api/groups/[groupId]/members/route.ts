@@ -8,10 +8,10 @@ interface RouteParams {
 }
 
 // GET members of a group
-export async function GET(request: Request, { params }: RouteParams) {
+export async function GET(_request: Request, { params }: RouteParams) {
   try {
     const session = await auth();
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -19,68 +19,37 @@ export async function GET(request: Request, { params }: RouteParams) {
     if (!isUuid(groupId)) {
       return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
     }
-    
-    // Get user by email using raw SQL
-    let userId: string | null = null;
-    try {
-      const users = await prisma.$queryRawUnsafe(`
-        SELECT id FROM [User] WHERE email = '${session.user.email}'
-      `) as any[];
-      if (users && users.length > 0) {
-        userId = users[0].id;
-      }
-    } catch (e) {
-      console.error('Error fetching user:', e);
-      return NextResponse.json({ error: 'Failed to find user', details: String(e) }, { status: 500 });
-    }
-    
-    if (!userId) {
-      return NextResponse.json({ error: '[User] not found' }, { status: 404 });
-    }
-    
-    // Check membership using raw SQL
-    let memberships: any[] = [];
-    try {
-      memberships = await prisma.$queryRawUnsafe(`
-        SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}'
-      `) as any[];
-    } catch (e) {
-      console.error('Error checking membership:', e);
-      return NextResponse.json({ error: 'Failed to check membership', details: String(e) }, { status: 500 });
-    }
 
-    if (!memberships || memberships.length === 0) {
+    const userId = session.user.id;
+
+    // Check membership
+    const membership = await prisma.organizationMember.findFirst({
+      where: { organizationId: groupId, userId }
+    });
+
+    if (!membership) {
       return NextResponse.json({ error: 'Not a member' }, { status: 403 });
     }
 
-    // Get members using raw SQL
-    let members: any[] = [];
-    try {
-      members = await prisma.$queryRawUnsafe(`
-        SELECT gm.*, u.name as userName, u.email as userEmail
-        FROM GroupMember gm
-        JOIN [User] u ON gm.userId = u.id
-        WHERE gm.groupId = '${groupId}'
-      `) as any[];
-    } catch (e) {
-      console.error('Error fetching members:', e);
-      return NextResponse.json({ error: 'Failed to fetch members', details: String(e) }, { status: 500 });
-    }
+    // Get members
+    const members = await prisma.organizationMember.findMany({
+      where: { organizationId: groupId },
+      include: {
+        user: { select: { id: true, name: true, email: true } }
+      },
+      orderBy: { joinedAt: 'desc' }
+    });
 
-    const formattedMembers = (members || []).map((m: any) => ({
+    const formatted = members.map(m => ({
       id: m.id,
       userId: m.userId,
-      groupId: m.groupId,
+      groupId: m.organizationId,
       role: m.role,
       joinedAt: m.joinedAt,
-      user: {
-        id: m.userId,
-        name: m.userName,
-        email: m.userEmail
-      }
+      user: m.user
     }));
 
-    return NextResponse.json(formattedMembers);
+    return NextResponse.json(formatted);
   } catch (error) {
     console.error('Error fetching members:', error);
     return NextResponse.json({ error: 'Failed to fetch members', details: String(error) }, { status: 500 });
@@ -91,38 +60,63 @@ export async function GET(request: Request, { params }: RouteParams) {
 export async function PUT(request: Request, { params }: RouteParams) {
   try {
     const session = await auth();
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { groupId } = await params;
-    
-    // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
-    if (!users || users.length === 0) {
-      return NextResponse.json({ error: '[User] not found' }, { status: 404 });
-    }
-    
-    const userId = users[0].id;
-    
-    // Check admin role
-    const memberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}' AND role = 'ADMIN'
-    `) as any[];
+    const userId = session.user.id;
 
-    if (!memberships || memberships.length === 0) {
+    // Check admin role
+    const adminMembership = await prisma.organizationMember.findFirst({
+      where: { organizationId: groupId, userId, role: 'ADMIN' }
+    });
+
+    if (!adminMembership) {
       return NextResponse.json({ error: 'Only admins can update members' }, { status: 403 });
     }
 
     const body = await request.json();
     const { memberId, role } = body;
 
-    await prisma.$executeRawUnsafe(`
-      UPDATE GroupMember SET role = '${role}' WHERE id = '${memberId}'
-    `);
+    if (!memberId || !role) {
+      return NextResponse.json({ error: 'memberId and role required' }, { status: 400 });
+    }
+
+    const targetMember = await prisma.organizationMember.findFirst({
+      where: { id: memberId, organizationId: groupId }
+    });
+
+    if (!targetMember) {
+      return NextResponse.json({ error: 'Member not found' }, { status: 404 });
+    }
+
+    const organization = await prisma.organization.findUnique({
+      where: { id: groupId },
+      select: { ownerId: true }
+    });
+
+    if (organization && targetMember.userId === organization.ownerId) {
+      return NextResponse.json({ error: 'Cannot change the club owner\'s role' }, { status: 400 });
+    }
+
+    // Prevent demoting yourself if you are the last ADMIN
+    if (targetMember.userId === userId && targetMember.role === 'ADMIN' && role !== 'ADMIN') {
+      const adminCount = await prisma.organizationMember.count({
+        where: { organizationId: groupId, role: 'ADMIN' }
+      });
+      if (adminCount <= 1) {
+        return NextResponse.json(
+          { error: 'You are the last admin — promote another member before stepping down' },
+          { status: 400 }
+        );
+      }
+    }
+
+    await prisma.organizationMember.update({
+      where: { id: memberId },
+      data: { role }
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -135,23 +129,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {
     const session = await auth();
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { groupId } = await params;
-    
-    // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
-    if (!users || users.length === 0) {
-      return NextResponse.json({ error: '[User] not found' }, { status: 404 });
-    }
-    
-    const userId = users[0].id;
-    
+    const userId = session.user.id;
     const url = new URL(request.url);
     const memberId = url.searchParams.get('memberId');
 
@@ -160,27 +143,50 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     // Get target member
-    const targetMembers = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE id = '${memberId}' AND groupId = '${groupId}'
-    `) as any[];
+    const targetMember = await prisma.organizationMember.findFirst({
+      where: { id: memberId, organizationId: groupId }
+    });
 
-    if (!targetMembers || targetMembers.length === 0) {
+    if (!targetMember) {
       return NextResponse.json({ error: 'Member not found' }, { status: 404 });
     }
 
-    const targetMember = targetMembers[0];
     const isSelfRemoval = targetMember.userId === userId;
-    
-    // Check if user is admin
-    const adminMemberships = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE groupId = '${groupId}' AND userId = '${userId}' AND role = 'ADMIN'
-    `) as any[];
 
-    if ((!adminMemberships || adminMemberships.length === 0) && !isSelfRemoval) {
-      return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+    const organization = await prisma.organization.findUnique({
+      where: { id: groupId },
+      select: { ownerId: true }
+    });
+
+    if (organization && targetMember.userId === organization.ownerId) {
+      return NextResponse.json({ error: 'Cannot remove the club owner' }, { status: 400 });
     }
 
-    await prisma.$executeRawUnsafe(`DELETE FROM GroupMember WHERE id = '${memberId}'`);
+    // Check if user is admin (unless self-removal)
+    if (!isSelfRemoval) {
+      const adminMembership = await prisma.organizationMember.findFirst({
+        where: { organizationId: groupId, userId, role: 'ADMIN' }
+      });
+      if (!adminMembership) {
+        return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+      }
+    }
+
+    // Prevent the last ADMIN from leaving while other members remain
+    if (targetMember.role === 'ADMIN') {
+      const [adminCount, totalCount] = await Promise.all([
+        prisma.organizationMember.count({ where: { organizationId: groupId, role: 'ADMIN' } }),
+        prisma.organizationMember.count({ where: { organizationId: groupId } })
+      ]);
+      if (adminCount <= 1 && totalCount > 1) {
+        return NextResponse.json(
+          { error: 'You are the last admin — promote another member before leaving' },
+          { status: 400 }
+        );
+      }
+    }
+
+    await prisma.organizationMember.delete({ where: { id: memberId } });
 
     return NextResponse.json({ success: true });
   } catch (error) {

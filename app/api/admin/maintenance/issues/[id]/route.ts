@@ -57,7 +57,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     switch (action) {
       case 'resolve':
-        updateData.status = 'DONE';
+        // Use 'COMPLETED' (not 'DONE') — this is the only status value that
+        // lib/club/aircraft-profile.ts and the maintenance queue treat as
+        // "closed". Writing 'DONE' here left the item (and any grounding it
+        // carried) permanently stuck open.
+        updateData.status = 'COMPLETED';
         updateData.resolvedDate = new Date();
         updateData.isGrounded = false;
         if (cost !== undefined) updateData.cost = cost;
@@ -66,7 +70,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
       case 'dismiss':
         // Mark as resolved without creating work order
-        updateData.status = 'DONE';
+        updateData.status = 'COMPLETED';
         updateData.resolvedDate = new Date();
         updateData.isGrounded = false;
         if (notes) updateData.notes = (issue.notes || '') + '\n[Dismissed by admin] ' + notes;

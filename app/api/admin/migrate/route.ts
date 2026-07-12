@@ -8,8 +8,8 @@ export async function POST() {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Only admins can run migrations
-    if (session.user.role !== 'admin') {
+    // Only admins/owners can run migrations
+    if (session.user.role !== 'admin' && session.user.role !== 'owner') {
       return NextResponse.json({ error: 'Admin only' }, { status: 403 });
     }
 

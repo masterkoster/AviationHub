@@ -6,7 +6,11 @@ import { cn } from '@/lib/utils'
 
 interface TitleBarProps {
   onTogglePalette?: () => void
-  syncStatus?: 'synced' | 'syncing' | 'offline' | 'error'
+  syncStatus?: 'synced' | 'syncing' | 'pending' | 'offline' | 'error'
+  /** Number of local changes waiting to sync — shown on the badge when > 0. */
+  pendingCount?: number
+  /** When provided, the sync badge becomes a click-to-sync-now button. */
+  onSyncClick?: () => void
 }
 
 /**
@@ -17,7 +21,7 @@ interface TitleBarProps {
  * - Command palette trigger (center)
  * - Sync status + window controls (right)
  */
-export function TitleBar({ onTogglePalette, syncStatus = 'synced' }: TitleBarProps) {
+export function TitleBar({ onTogglePalette, syncStatus = 'synced', pendingCount = 0, onSyncClick }: TitleBarProps) {
   const { isTauri, isMaximized, minimize, toggleMaximize, close, startDrag } = useWindowControls()
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -33,6 +37,7 @@ export function TitleBar({ onTogglePalette, syncStatus = 'synced' }: TitleBarPro
     <div
       data-tauri-drag-region
       onMouseDown={handleMouseDown}
+      role="banner"
       className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-card px-2 select-none"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
@@ -67,7 +72,7 @@ export function TitleBar({ onTogglePalette, syncStatus = 'synced' }: TitleBarPro
 
       {/* Right: Sync status + Window Controls */}
       <div className="flex items-center gap-1">
-        <SyncBadge status={syncStatus} />
+        <SyncBadge status={syncStatus} pendingCount={pendingCount} onClick={onSyncClick} />
         {/* Window controls */}
         <div className="flex items-center">
           <TitleBarButton onClick={minimize} title="Minimize" disabled={!isTauri}>
@@ -110,6 +115,7 @@ function TitleBarButton({
       }}
       disabled={disabled}
       title={title}
+      aria-label={title}
       className={cn(
         'flex h-7 w-9 items-center justify-center text-muted-foreground transition-colors',
         disabled && 'opacity-40 cursor-not-allowed',
@@ -122,18 +128,43 @@ function TitleBarButton({
   )
 }
 
-function SyncBadge({ status }: { status: NonNullable<TitleBarProps['syncStatus']> }) {
+function SyncBadge({
+  status,
+  pendingCount = 0,
+  onClick,
+}: {
+  status: NonNullable<TitleBarProps['syncStatus']>
+  pendingCount?: number
+  onClick?: () => void
+}) {
   const map = {
     synced: { label: 'Synced', color: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
     syncing: { label: 'Syncing', color: 'bg-amber-500 animate-pulse', text: 'text-amber-600 dark:text-amber-400' },
+    pending: { label: pendingCount > 0 ? `${pendingCount} pending` : 'Pending', color: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400' },
     offline: { label: 'Offline', color: 'bg-muted-foreground', text: 'text-muted-foreground' },
     error: { label: 'Sync error', color: 'bg-destructive', text: 'text-destructive' },
   }
   const s = map[status]
-  return (
-    <div className="mr-1 flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium" title={s.label}>
+  const content = (
+    <>
       <span className={cn('h-1.5 w-1.5 rounded-full', s.color)} />
       <span className={s.text}>{s.label}</span>
+    </>
+  )
+  if (onClick) {
+    return (
+      <button
+        onClick={onClick}
+        className="mr-1 flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-medium hover:bg-muted/60 transition-colors"
+        title={`${s.label} — click to sync now`}
+      >
+        {content}
+      </button>
+    )
+  }
+  return (
+    <div className="mr-1 flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium" title={s.label}>
+      {content}
     </div>
   )
 }

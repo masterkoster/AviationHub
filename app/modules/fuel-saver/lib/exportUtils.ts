@@ -96,16 +96,51 @@ export function downloadGPX(plan: FlightPlanData): void {
 
 /**
  * FPL Format - Simple text format for Garmin 430/530/G1000
- * One ICAO code per line
+ * One ICAO code per line, with optional W&B metadata header
  */
-export function generateFPL(waypoints: Waypoint[]): string {
-  return waypoints.map(wp => wp.icao).join('\n');
+export interface WbExportData {
+  emptyWeight: number
+  emptyCg: number
+  frontSeats: number
+  rearSeats: number
+  baggage: number
+  fuelGal: number
+  fuelWeight: number
+  totalWeight: number
+  cg: number
+  cgMin: number
+  cgMax: number
+  withinLimits: boolean
+  armPilot: number
+  armPassenger: number
+  armBaggage: number
+  armFuel: number
 }
 
-export function downloadFPL(waypoints: Waypoint[]): void {
-  const fpl = generateFPL(waypoints);
+export function generateFPL(waypoints: Waypoint[], wb?: WbExportData): string {
+  const lines: string[] = []
+
+  if (wb) {
+    lines.push(`-- WEIGHT & BALANCE --`)
+    lines.push(`Empty Weight: ${wb.emptyWeight} lbs @ CG ${wb.emptyCg}"`)
+    lines.push(`Front Seats: ${wb.frontSeats} lbs (arm ${wb.armPilot}")`)
+    lines.push(`Rear Seats: ${wb.rearSeats} lbs (arm ${wb.armPassenger}")`)
+    lines.push(`Baggage: ${wb.baggage} lbs (arm ${wb.armBaggage}")`)
+    lines.push(`Fuel: ${wb.fuelGal} gal / ${wb.fuelWeight} lbs (arm ${wb.armFuel}")`)
+    lines.push(`Total Weight: ${wb.totalWeight} lbs`)
+    lines.push(`CG: ${wb.cg.toFixed(2)}" (limits: ${wb.cgMin}" - ${wb.cgMax}")`)
+    lines.push(`Status: ${wb.withinLimits ? 'WITHIN LIMITS' : 'OUT OF LIMITS'}`)
+    lines.push(`-- ROUTE --`)
+  }
+
+  lines.push(...waypoints.map(wp => wp.icao))
+  return lines.join('\n')
+}
+
+export function downloadFPL(waypoints: Waypoint[], wb?: WbExportData): void {
+  const fpl = generateFPL(waypoints, wb);
   const filename = 'flight-plan';
-  
+
   downloadFile(fpl, `${filename}.fpl`, 'text/plain');
 }
 

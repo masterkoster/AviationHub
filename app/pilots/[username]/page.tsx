@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 type PilotProfile = {
@@ -39,8 +40,9 @@ function initials(name?: string | null) {
   return (first + last).toUpperCase();
 }
 
-export default function PilotPublicProfilePage({ params }: { params: { username: string } }) {
-  const handle = params.username;
+export default function PilotPublicProfilePage() {
+  const params = useParams<{ username: string }>();
+  const handle = typeof params?.username === 'string' ? params.username : '';
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<PilotProfile | null>(null);
   const [airport, setAirport] = useState<AirportDetails | null>(null);

@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server'
-import sqlite3 from 'sqlite3'
-import { open } from 'sqlite'
-import path from 'path'
 import { stateData } from '@/lib/stateData'
+import { prisma } from '@/lib/prisma'
 
 type MediaItem = {
   title: string
@@ -20,25 +18,6 @@ type WikimediaPage = {
     url?: string
     extmetadata?: Record<string, { value?: string }>
   }>
-}
-
-let db: Awaited<ReturnType<typeof open>> | null = null
-
-async function getDb() {
-  if (!db) {
-    db = await open({
-      filename: path.join(process.cwd(), 'data', 'aviation_hub.db'),
-      driver: sqlite3.Database,
-    })
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS state_media_cache (
-        state_code TEXT PRIMARY KEY,
-        images_json TEXT NOT NULL,
-        fetched_at TEXT NOT NULL
-      )
-    `)
-  }
-  return db
 }
 
 function cleanHtml(value: string): string {
@@ -159,11 +138,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ state: 
       return NextResponse.json({ error: 'Invalid state code' }, { status: 400 })
     }
 
-    const db = await getDb()
-    const cached = await db.get<{ images_json: string; fetched_at: string }>(
-      'SELECT images_json, fetched_at FROM state_media_cache WHERE state_code = ?',
-      stateCode
-    )
+    // Check Prisma cache (Azure SQL)
+    const cached = await prisma.stateMediaCache.findUnique({
+      where: { state_code: stateCode }
+    })
 
     const now = Date.now()
     const ttlMs = 7 * 24 * 60 * 60 * 1000
@@ -180,19 +158,25 @@ export async function GET(_req: Request, { params }: { params: Promise<{ state: 
     }
 
     const images = await fetchWikimediaImages(stateCode)
-    const fetchedAt = new Date().toISOString()
+    const fetchedAt = new Date()
 
+    // Cache in Azure SQL (only if we got results)
     if (images.length > 0) {
-      await db.run(
-        `INSERT INTO state_media_cache (state_code, images_json, fetched_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(state_code) DO UPDATE SET images_json=excluded.images_json, fetched_at=excluded.fetched_at`,
-        stateCode,
-        JSON.stringify(images),
-        fetchedAt
-      )
+      await prisma.stateMediaCache.upsert({
+        where: { state_code: stateCode },
+        create: {
+          state_code: stateCode,
+          images_json: JSON.stringify(images),
+          fetched_at: fetchedAt,
+        },
+        update: {
+          images_json: JSON.stringify(images),
+          fetched_at: fetchedAt,
+        },
+      })
     }
 
+    // Stale fallback: if fresh fetch returned 0 images but we have stale cache
     if (images.length === 0 && cached) {
       return NextResponse.json({
         state: stateCode,

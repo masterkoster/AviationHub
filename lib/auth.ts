@@ -1,17 +1,7 @@
 import NextAuth from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { PrismaClient } from "@prisma/client"
 import bcrypt from "bcrypt"
-
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
-
-const prisma = globalForPrisma.prisma ?? new PrismaClient({
-  log: process.env.NODE_ENV === "development" ? ["error"] : ["error"],
-});
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+import { prisma } from "@/lib/prisma"
 
 // Auth secret
 const authSecretEnv = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
@@ -46,17 +36,18 @@ export const authOptions: any = {
           const input = (credentials.username as string).trim().toLowerCase()
           const rememberMe = credentials.rememberMe === 'true' || credentials.rememberMe === true
           
-          // Try to find user by username first, then by email
-          let user: any = await prisma.user.findUnique({
-            where: { username: input }
-          })
-          
-          // If not found by username, try email (for backward compatibility)
-          if (!user) {
-            user = await prisma.user.findUnique({
-              where: { email: input }
-            })
+          // Try to find user by username first, then by email (raw SQL to bypass Prisma schema drift)
+          let rows = await prisma.$queryRaw<any[]>`
+            SELECT TOP 1 id, username, email, name, image, password, emailVerified, role, tier
+            FROM [User] WHERE username = ${input}
+          `
+          if (rows.length === 0) {
+            rows = await prisma.$queryRaw<any[]>`
+              SELECT TOP 1 id, username, email, name, image, password, emailVerified, role, tier
+              FROM [User] WHERE email = ${input}
+            `
           }
+          const user = rows[0] ?? null
           
           if (!user || !user.password) {
             return null
@@ -66,18 +57,12 @@ export const authOptions: any = {
           
           // Check if password is bcrypt hash (starts with $2) or plain text
           if (user.password.startsWith('$2')) {
-            // It's a hashed password
             isValid = await bcrypt.compare(credentials.password as string, user.password)
           } else {
-            // Plain text password - direct comparison
             isValid = user.password === credentials.password
-            // If valid, upgrade to hashed password
             if (isValid) {
               const hashed = await bcrypt.hash(credentials.password as string, 10)
-              await prisma.user.update({
-                where: { id: user.id },
-                data: { password: hashed }
-              })
+              await prisma.$executeRaw`UPDATE [User] SET password = ${hashed} WHERE id = ${user.id}`
             }
           }
           
@@ -102,8 +87,7 @@ export const authOptions: any = {
     })
   ],
   secret: authSecret,
-  url: siteUrl,
-  session: { 
+  session: {
     strategy: "jwt" as const,
     // Default: 30 days for remembered sessions
     maxAge: 30 * 24 * 60 * 60, 

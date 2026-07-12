@@ -9,10 +9,9 @@ import { ModuleNav } from "./module-nav";
 import { AuthModalProvider } from "./AuthModalContext";
 import LoginModal from "./LoginModal";
 import ChatWidget from "./chat-widget";
-import OfflineBanner from "./offline-banner";
-import ConflictModal from "./conflicts-modal";
 import { getModuleByPath } from "@/lib/modules";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -21,7 +20,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const isDesktop = pathname.startsWith("/desktop");
   const isLandingPage = pathname === "/";
   const currentModule = pathname ? getModuleByPath(pathname) : undefined;
-  const [showConflicts, setShowConflicts] = useState(false);
 
   // Check if current page has a sub-nav (marketplace, fuel-saver)
   const hasSubNav = pathname.startsWith("/marketplace") || pathname.startsWith("/fuel-saver");
@@ -46,14 +44,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
             <div className={isHomePage || isV1 || isDesktop || isLandingPage ? "" : ""} style={isHomePage || isV1 || isDesktop || isLandingPage ? undefined : { paddingTop: NAV_HEIGHT + (hasSubNav ? 40 : 0) }}>
               {children}
             </div>
-            {!isV1 && !isDesktop && !isLandingPage && <OfflineBanner onSyncNow={() => setShowConflicts(true)} />}
-            <ConflictModal
-              isOpen={showConflicts}
-              onClose={() => setShowConflicts(false)}
-              onResolved={() => {}}
-            />
             {!isV1 && !isDesktop && !isLandingPage && <LoginModal />}
             {!isV1 && !isDesktop && !isLandingPage && <ChatWidget />}
+            {!isDesktop && <Toaster position="top-right" richColors />}
           </>
         </AuthModalProvider>
       </ThemeProvider>

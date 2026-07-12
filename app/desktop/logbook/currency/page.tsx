@@ -12,7 +12,18 @@ import {
   type LocalCurrencyRule,
   type CurrencyStatus,
 } from '@/apps/desktop/src/lib/local-currency'
+import { ConfirmDialog } from '@/desktop/components/confirm-dialog'
+import { ErrorCard } from '@/desktop/components/error-card'
 import { Plus, Pencil, Trash2, X, Save, Shield, AlertTriangle, CheckCircle, Clock } from 'lucide-react'
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbSeparator,
+  BreadcrumbPage,
+} from '@/components/ui/breadcrumb'
+import { notifyCreated, notifySaved, notifyDeleted, notifyError } from '@/desktop/lib/toast-helpers'
 
 type CloudCurrencyRule = {
   code: string
@@ -36,14 +47,19 @@ export default function DesktopCurrencyPage() {
   const [localRules, setLocalRules] = useState<LocalCurrencyRule[]>([])
   const [cloudRules, setCloudRules] = useState<CloudCurrencyRule[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formData, setFormData] = useState({ name: '', code: '', required: '', completed: '', unit: '', nextDue: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const loadRules = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       if (mode === 'local' && localUser) {
         await initializeDefaultCurrencyRules(localUser.id)
@@ -55,6 +71,7 @@ export default function DesktopCurrencyPage() {
       }
     } catch (err) {
       console.error('[desktop/currency] load failed', err)
+      setLoadError(err instanceof Error ? err.message : 'Failed to load currency rules')
     } finally {
       setLoading(false)
     }
@@ -84,13 +101,25 @@ export default function DesktopCurrencyPage() {
     setShowForm(true)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this currency rule?')) return
+  const handleDelete = (id: string) => {
+    setDeleteTargetId(id)
+    setConfirmOpen(true)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return
+    setDeleting(true)
     try {
-      await deleteLocalCurrencyRule(id)
+      await deleteLocalCurrencyRule(deleteTargetId)
+      notifyDeleted('Rule')
       await loadRules()
     } catch (err) {
       console.error('[desktop/currency] delete failed', err)
+      notifyError('Currency Rule', err instanceof Error ? err.message : 'Failed to delete rule')
+    } finally {
+      setDeleting(false)
+      setConfirmOpen(false)
+      setDeleteTargetId(null)
     }
   }
 
@@ -115,6 +144,7 @@ export default function DesktopCurrencyPage() {
           unit: formData.unit.trim() || undefined,
           nextDue: formData.nextDue || null,
         })
+        notifySaved('Rule')
       } else {
         await createLocalCurrencyRule({
           userId: localUser.id,
@@ -125,6 +155,7 @@ export default function DesktopCurrencyPage() {
           unit: formData.unit.trim() || undefined,
           nextDue: formData.nextDue || null,
         })
+        notifyCreated('Rule')
       }
       resetForm()
       await loadRules()
@@ -173,6 +204,17 @@ export default function DesktopCurrencyPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-6">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/desktop/logbook">Logbook</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Currency</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Currency</h1>
@@ -180,7 +222,7 @@ export default function DesktopCurrencyPage() {
             {mode === 'local' ? 'Track your FAA currency requirements' : 'Cloud-synced currency tracking'}
           </p>
         </div>
-        {mode === 'local' && !showForm && (
+        {mode === 'local' && !showForm && !loading && !loadError && (
           <button
             onClick={() => setShowForm(true)}
             className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
@@ -209,6 +251,7 @@ export default function DesktopCurrencyPage() {
                 placeholder="Night Passenger Currency"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 maxLength={100}
+                autoFocus
               />
             </div>
             <div>
@@ -254,7 +297,7 @@ export default function DesktopCurrencyPage() {
               />
             </div>
           </div>
-          {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+          {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"
@@ -276,7 +319,18 @@ export default function DesktopCurrencyPage() {
       )}
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading currency rules...</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-border bg-card p-4">
+              <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+              <div className="mt-2 h-4 w-32 animate-pulse rounded bg-muted" />
+              <div className="mt-3 h-2 w-full animate-pulse rounded bg-muted" />
+              <div className="mt-1 h-2 w-3/4 animate-pulse rounded bg-muted" />
+            </div>
+          ))}
+        </div>
+      ) : loadError ? (
+        <ErrorCard message={loadError} onRetry={loadRules} />
       ) : mode === 'local' ? (
         localRules.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
@@ -299,6 +353,7 @@ export default function DesktopCurrencyPage() {
                   <div className="flex gap-1">
                     <button
                       onClick={() => handleEdit(rule)}
+                      aria-label="Edit rule"
                       className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                       title="Edit"
                     >
@@ -306,6 +361,7 @@ export default function DesktopCurrencyPage() {
                     </button>
                     <button
                       onClick={() => handleDelete(rule.id)}
+                      aria-label="Delete rule"
                       className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       title="Delete"
                     >
@@ -340,6 +396,16 @@ export default function DesktopCurrencyPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        onConfirm={handleConfirmDelete}
+        title="Delete Rule"
+        description="Delete this currency rule?"
+        destructive
+        loading={deleting}
+      />
     </div>
   )
 }

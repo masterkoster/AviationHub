@@ -9,6 +9,15 @@ import {
   type AgendaItemType,
   type AgendaItemStatus,
 } from '@/apps/desktop/src/lib/local-agenda'
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbSeparator,
+  BreadcrumbPage,
+} from '@/components/ui/breadcrumb'
+import { notifySaved } from '@/desktop/lib/toast-helpers'
 
 export default function CalendarItemEditPage() {
   const { id } = useParams<{ id: string }>()
@@ -17,6 +26,8 @@ export default function CalendarItemEditPage() {
   const userId = mode === 'local' ? localUser?.id : (cloudUser?.id || 'cloud-default')
 
   const [loaded, setLoaded] = useState(false)
+  const [notFound, setNotFound] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [itemType, setItemType] = useState<AgendaItemType>('personal')
   const [status, setStatus] = useState<AgendaItemStatus>('planned')
   const [title, setTitle] = useState('')
@@ -28,7 +39,11 @@ export default function CalendarItemEditPage() {
     async function load() {
       if (!userId || !id) return
       const row = await getAgendaItemById(userId, id)
-      if (!row) return
+      if (!row) {
+        setNotFound(true)
+        setLoaded(true)
+        return
+      }
       setItemType(row.itemType)
       setStatus(row.status)
       setTitle(row.title)
@@ -43,27 +58,60 @@ export default function CalendarItemEditPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!userId || !id) return
-    await updateAgendaItem({
-      userId,
-      id,
-      itemType,
-      title,
-      details,
-      startsAt: startsAt ? new Date(startsAt).toISOString() : null,
-      dueAt: null,
-      status,
-      relatedHref,
-    })
-    router.replace(`/desktop/calendar/${id}`)
-    router.refresh()
+    if (!title.trim()) return
+    setSaving(true)
+    try {
+      await updateAgendaItem({
+        userId,
+        id,
+        itemType,
+        title,
+        details,
+        startsAt: startsAt ? new Date(startsAt).toISOString() : null,
+        dueAt: null,
+        status,
+        relatedHref,
+      })
+      notifySaved('Trip')
+      router.replace(`/desktop/calendar/${id}`)
+      router.refresh()
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!loaded) {
     return <div className="mx-auto max-w-2xl p-6 text-sm text-muted-foreground">Loading item...</div>
   }
 
+  if (notFound) {
+    return (
+      <div className="mx-auto max-w-2xl p-6">
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <p className="text-lg font-semibold">Item not found</p>
+          <p className="mt-1 text-sm text-muted-foreground">This calendar item does not exist or has been deleted.</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-2xl p-6">
+      <Breadcrumb className="mb-4">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/desktop/calendar">Calendar</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{title || 'Untitled'}</BreadcrumbPage>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Edit</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       <h1 className="text-2xl font-bold">Edit Calendar Item</h1>
       <form onSubmit={onSubmit} className="mt-4 space-y-4 rounded-lg border border-border bg-card p-4">
         <Field label="Type">
@@ -93,7 +141,7 @@ export default function CalendarItemEditPage() {
         </Field>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => router.back()} className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted">Cancel</button>
-          <button className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Save</button>
+          <button disabled={saving} className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Save</button>
         </div>
       </form>
     </div>

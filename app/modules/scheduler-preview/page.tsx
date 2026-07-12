@@ -118,8 +118,12 @@ export default function SchedulerPreviewPage() {
 
     async function loadGroupData() {
       try {
+        // Pad a month on each side of the visible week so prev/next navigation
+        // within that range doesn't need a refetch.
+        const rangeStart = addDays(weekStart, -30).toISOString()
+        const rangeEnd = addDays(weekStart, 37).toISOString()
         const [bookingsRes, instructorsRes] = await Promise.all([
-          fetch(`/api/groups/${selectedGroupId}/bookings`),
+          fetch(`/api/groups/${selectedGroupId}/bookings?start=${rangeStart}&end=${rangeEnd}`),
           fetch(`/api/groups/${selectedGroupId}/instructors`),
         ])
 
@@ -148,7 +152,7 @@ export default function SchedulerPreviewPage() {
 
     loadGroupData()
     return () => { cancelled = true }
-  }, [selectedGroupId])
+  }, [selectedGroupId, weekStart])
 
   const weekDays = useMemo(() => (
     Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))

@@ -27,13 +27,26 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const limit = Math.min(parseInt(searchParams.get('limit') || '200'), 500)
     const cursor = searchParams.get('cursor')
+    const updatedSince = searchParams.get('updatedSince')
+    const includeVoided = searchParams.get('includeVoided') === '1'
+
+    // updatedSince powers the desktop sync engine's incremental pull — it
+    // needs voided entries too (so local voids that happened on another
+    // device propagate) and orders oldest-first for stable upserts.
+    const where: Record<string, unknown> = {
+      pilotProfile: { userId: session.user.id },
+      ...(includeVoided ? {} : { isVoided: false }),
+    }
+    if (updatedSince) {
+      const since = new Date(updatedSince)
+      if (!isNaN(since.getTime())) {
+        where.updatedAt = { gte: since }
+      }
+    }
 
     const entries = await prisma.logbookEntry.findMany({
-      where: {
-        pilotProfile: { userId: session.user.id },
-        isVoided: false,
-      },
-      orderBy: { date: 'desc' },
+      where,
+      orderBy: updatedSince ? { updatedAt: 'asc' } : { date: 'desc' },
       take: limit,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     })

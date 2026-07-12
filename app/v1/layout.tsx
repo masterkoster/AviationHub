@@ -12,7 +12,9 @@ import {
   ShieldCheck,
   Plane,
   User,
+  Settings,
   LogOut,
+  Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -23,7 +25,9 @@ const NAV = [
   { label: 'Totals', href: '/v1/logbook/totals', icon: BarChart3 },
   { label: 'Currency', href: '/v1/logbook/currency', icon: ShieldCheck },
   { label: 'Aircraft', href: '/v1/aircraft', icon: Plane },
+
   { label: 'Profile', href: '/v1/profile', icon: User },
+  { label: 'Settings', href: '/v1/settings', icon: Settings },
 ]
 
 export default function V1Layout({ children }: { children: React.ReactNode }) {

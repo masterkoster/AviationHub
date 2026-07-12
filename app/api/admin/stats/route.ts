@@ -15,28 +15,45 @@ export async function GET() {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
-    const totalUsers = await prisma.user.count();
-    const tierCounts = await prisma.user.groupBy({
-      by: ['tier'],
-      _count: { _all: true },
-      orderBy: { tier: 'asc' },
-    });
-    const freeUsers = Number(tierCounts.find((t) => t.tier === 'free')?._count?._all || 0);
-    const proUsers = Number(tierCounts.find((t) => t.tier === 'pro')?._count?._all || 0);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const newUsers30Days = await prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } });
-    const openErrorReports = await prisma.errorReport.count({ where: { status: 'open' } });
-    const totalFlightPlans = await prisma.flightPlan.count();
-    const totalGroups = await prisma.organization.count();
-    const totalAircraft = await prisma.clubAircraft.count();
+    const now = new Date();
 
-    const listingCounts = await prisma.marketplaceListing.groupBy({
-      by: ['status'],
-      _count: { _all: true },
-    });
+    // Independent count/aggregate queries run concurrently rather than as
+    // sequential round-trips.
+    const [
+      totalUsers,
+      tierCounts,
+      newUsersThisWeek,
+      newUsers30Days,
+      openErrorReports,
+      totalFlightPlans,
+      totalGroups,
+      totalAircraft,
+      bookingsLast30Days,
+      listingCounts,
+      totalListings,
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.groupBy({ by: ['tier'], _count: { _all: true }, orderBy: { tier: 'asc' } }),
+      prisma.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+      prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+      prisma.errorReport.count({ where: { status: 'open' } }),
+      prisma.flightPlan.count(),
+      prisma.organization.count(),
+      prisma.clubAircraft.count(),
+      prisma.booking.count({ where: { startTime: { gte: thirtyDaysAgo, lte: now } } }),
+      prisma.marketplaceListing.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.marketplaceListing.count(),
+    ]);
+
+    const freeUsers = Number(tierCounts.find((t) => t.tier === 'free')?._count?._all || 0);
+    const proUsers = Number(tierCounts.find((t) => t.tier === 'pro')?._count?._all || 0);
+
     const listingCountMap = new Map(listingCounts.map((l) => [l.status, l._count._all]));
 
     // Estimate revenue (assuming $39.99/year for pro users)
@@ -47,11 +64,14 @@ export async function GET() {
       totalUsers,
       freeUsers,
       proUsers,
+      newUsersThisWeek,
       newUsers30Days,
       openErrorReports,
       totalFlightPlans,
       totalGroups,
       totalAircraft,
+      bookingsLast30Days,
+      totalListings,
       listingActive: Number(listingCountMap.get('active') || 0),
       listingPending: Number(listingCountMap.get('pending') || 0),
       listingFlagged: Number(listingCountMap.get('flagged') || 0),

@@ -1,8 +1,16 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import LayerPanel from './components/layer-panel'
+import type { LayerState, RadarSource, BasemapMode } from './components/layer-panel'
+import MetarStations from './components/metar-stations'
+import type { MetarStation } from './components/metar-stations'
+import WeatherPopup from './components/weather-popup'
+import HazardLayer from './components/hazard-layer'
+import RadarLegend from './components/radar-legend'
+import { fetchRadarFrames } from '@/desktop/lib/weather-fetch'
 
 // Fix Leaflet default icons (works in production builds)
 const markerIconUrl = new URL('leaflet/dist/images/marker-icon.png', import.meta.url).toString();
@@ -29,9 +37,12 @@ export default function WeatherRadarMap() {
   const frameIndexRef = useRef(0);
   const playTokenRef = useRef(0);
 
-  const [radarMode, setRadarMode] = useState<'mrms' | 'nexrad'>('mrms');
+  const [radarMode, setRadarMode] = useState<RadarSource>('mrms');
   const [clockMs, setClockMs] = useState(() => Date.now());
   const radarTileErrorRef = useRef(0);
+  const [layers, setLayers] = useState<LayerState>({ radar: true, metar: false, hazards: false });
+  const [selectedStation, setSelectedStation] = useState<MetarStation | null>(null);
+  const [rainviewerFrames, setRainviewerFrames] = useState<Array<{ time: number; path: string }> | null>(null);
 
   const MRMS_STEP_MIN = 2;
   const MRMS_WINDOW_MIN = 120;
@@ -146,8 +157,24 @@ export default function WeatherRadarMap() {
     layer.setUrl(url);
   }, [basemap]);
 
+  // ── RainViewer frame fetch ──
+  useEffect(() => {
+    if (radarMode !== 'rainviewer') return
+    let cancelled = false
+    fetchRadarFrames().then((data) => {
+      if (!cancelled && data.past.length > 0) setRainviewerFrames(data.past)
+    })
+    return () => { cancelled = true }
+  }, [radarMode])
+
   const currentFrame = frames[frameIndex] || null;
   const currentTileUrl = useMemo(() => {
+    if (radarMode === 'rainviewer') {
+      if (!rainviewerFrames?.length) return null
+      // Use latest frame
+      const frame = rainviewerFrames[rainviewerFrames.length - 1]
+      return `https://tilecache.rainviewer.com/v2/radar/${frame.time}/256/{z}/{x}/{y}/2/1_1.png`
+    }
     if (!currentFrame) return null;
     if (currentFrame.kind === 'mrms') {
       const layer = `mrms::lcref-${currentFrame.ts}`;
@@ -157,13 +184,18 @@ export default function WeatherRadarMap() {
     const m = currentFrame.minutesAgo;
     const layer = m === 0 ? 'nexrad-n0q' : `nexrad-n0q-m${String(m).padStart(2, '0')}m`;
     return `https://mesonet{s}.agron.iastate.edu/cache/tile.py/1.0.0/${layer}-900913/{z}/{x}/{y}.png`;
-  }, [currentFrame]);
+  }, [currentFrame, radarMode, rainviewerFrames]);
 
   useEffect(() => {
     frameIndexRef.current = frameIndex;
   }, [frameIndex]);
 
   function tileUrlForFrame(frame: any) {
+    if (radarMode === 'rainviewer') {
+      if (!rainviewerFrames?.length) return null
+      const f = rainviewerFrames[rainviewerFrames.length - 1]
+      return `https://tilecache.rainviewer.com/v2/radar/${f.time}/256/{z}/{x}/{y}/2/1_1.png`
+    }
     if (frame?.kind === 'mrms') {
       const layer = `mrms::lcref-${frame.ts}`;
       return `https://mesonet{s}.agron.iastate.edu/cache/tile.py/1.0.0/${encodeURIComponent(layer)}-900913/{z}/{x}/{y}.png`;
@@ -250,7 +282,8 @@ export default function WeatherRadarMap() {
     const inactiveLayer = active === 'A' ? radarLayerBRef.current : radarLayerARef.current;
     if (!activeLayer || !inactiveLayer) return;
 
-    activeLayer.setUrl(tileUrlForFrame(currentFrame));
+    const url = tileUrlForFrame(currentFrame);
+    if (url) activeLayer.setUrl(url);
     activeLayer.setOpacity(radarOpacity);
     inactiveLayer.setOpacity(0);
   }, [currentFrame, isPlaying, mapReady, radarOpacity]);
@@ -322,8 +355,10 @@ export default function WeatherRadarMap() {
         const inactiveLayer = activeKey === 'A' ? radarLayerBRef.current : radarLayerARef.current;
         if (!activeLayer || !inactiveLayer) return;
 
-        activeLayer.setUrl(tileUrlForFrame(cur));
-        inactiveLayer.setUrl(tileUrlForFrame(next));
+        const curUrl = tileUrlForFrame(cur);
+        const nextUrl = tileUrlForFrame(next);
+        if (curUrl) activeLayer.setUrl(curUrl);
+        if (nextUrl) inactiveLayer.setUrl(nextUrl);
         activeLayer.setOpacity(radarOpacity);
         inactiveLayer.setOpacity(0);
 
@@ -449,46 +484,46 @@ export default function WeatherRadarMap() {
       {/* Map Container */}
       <div id="weather-radar-map" className="h-full w-full" />
 
-      {/* Top glass bar (Windy-ish) */}
+      {/* Overlay layers (null-rendering — they manage Leaflet map layers) */}
+      <MetarStations
+        map={mapRef.current}
+        enabled={layers.metar}
+        onStationClick={setSelectedStation}
+      />
+      <HazardLayer
+        map={mapRef.current}
+        enabled={layers.hazards}
+      />
+
+      {/* Weather popup (on station click) */}
+      {selectedStation && (
+        <div className="absolute top-24 right-4 z-[1000] pointer-events-auto" style={{ maxWidth: 'calc(100% - 2rem)' }}>
+          <WeatherPopup station={selectedStation} onClose={() => setSelectedStation(null)} />
+        </div>
+      )}
+
+      {/* Legend toggle */}
+      <RadarLegend show={showLegend} onClose={() => setShowLegend(false)} />
+
+      {/* Top bar — radar source + timestamp */}
       <div className="absolute top-0 left-0 right-0 z-[1000] px-4 pt-4 pointer-events-none">
         <div className="mx-auto max-w-6xl">
           <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-slate-200/10 bg-slate-900/60 backdrop-blur-xl shadow-xl px-3 py-3">
             <div className="flex items-center gap-2">
               <div className="h-2 w-2 rounded-full bg-emerald-400" />
-              <div className="text-sm font-semibold text-white">Radar</div>
+              <div className="text-sm font-semibold text-white">
+                {radarMode === 'mrms' ? 'MRMS' : radarMode === 'nexrad' ? 'NEXRAD' : 'RainViewer'}
+              </div>
               <div className="text-xs text-slate-300">{frameLabel}{frameRelativeLabel ? ` • ${frameRelativeLabel}` : ''}</div>
             </div>
-
             <div className="flex-1" />
-
-            <div className="hidden sm:flex items-center gap-2">
-              <button
-                onClick={() => setRadarMode((m) => (m === 'mrms' ? 'nexrad' : 'mrms'))}
-                className="text-xs px-3 py-2 rounded-full bg-slate-800/70 hover:bg-slate-700/70 text-slate-200 border border-slate-700"
-                title="Toggle radar source"
-              >
-                {radarMode === 'mrms' ? 'Smooth' : 'Standard'}
-              </button>
-              <button
-                onClick={() => setPreloadEnabled((v) => !v)}
-                className="text-xs px-3 py-2 rounded-full bg-slate-800/70 hover:bg-slate-700/70 text-slate-200 border border-slate-700"
-                title="Preload tiles before fading"
-              >
-                Preload: {preloadEnabled ? 'On' : 'Off'}
-              </button>
-              <button
-                onClick={() => setBasemap((b) => (b === 'light' ? 'dark' : 'light'))}
-                className="text-xs px-3 py-2 rounded-full bg-slate-800/70 hover:bg-slate-700/70 text-slate-200 border border-slate-700"
-              >
-                Base: {basemap === 'light' ? 'Light' : 'Dark'}
-              </button>
-              <button
-                onClick={() => setShowLegend((v) => !v)}
-                className="text-xs px-3 py-2 rounded-full bg-slate-800/70 hover:bg-slate-700/70 text-slate-200 border border-slate-700"
-              >
-                Legend
-              </button>
-            </div>
+            <button
+              onClick={() => setPreloadEnabled((v) => !v)}
+              className="text-xs px-3 py-2 rounded-full bg-slate-800/70 hover:bg-slate-700/70 text-slate-200 border border-slate-700"
+              title="Preload tiles before fading"
+            >
+              Preload: {preloadEnabled ? 'On' : 'Off'}
+            </button>
           </div>
         </div>
       </div>
@@ -496,6 +531,17 @@ export default function WeatherRadarMap() {
       {/* Left tool rail */}
       <div className="absolute top-24 left-4 z-[1000] pointer-events-auto">
         <div className="flex flex-col gap-2 rounded-2xl border border-slate-200/10 bg-slate-900/60 backdrop-blur-xl shadow-xl p-2">
+          {/* Layer panel button + dropdown */}
+          <LayerPanel
+            layers={layers}
+            onToggle={(layer) => setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }))}
+            radarSource={radarMode}
+            onRadarSourceChange={setRadarMode}
+            basemap={basemap}
+            onBasemapChange={setBasemap}
+            radarOpacity={radarOpacity}
+            onRadarOpacityChange={setRadarOpacity}
+          />
           <button
             onClick={jumpToMyLocation}
             className="h-10 w-10 rounded-xl bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700 text-slate-200 text-sm"

@@ -1,6 +1,84 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import bcrypt from 'bcrypt';
+
+// POST /api/admin/users - Create a new user
+export async function POST(request: Request) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const sessionRole = (session.user as any)?.role;
+    if (sessionRole !== 'admin' && sessionRole !== 'owner') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { username, email, password, name, role, tier } = body;
+
+    // Validate required fields
+    if (!username || !email || !password) {
+      return NextResponse.json({ error: 'Username, email, and password are required' }, { status: 400 });
+    }
+
+    if (password.length < 6) {
+      return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
+    }
+
+    // Validate email format (basic)
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
+    }
+
+    // Validate username format (alphanumeric + underscores, 3-50 chars)
+    if (!/^[a-zA-Z0-9_]{3,50}$/.test(username)) {
+      return NextResponse.json({ error: 'Username must be 3-50 characters (letters, numbers, underscores)' }, { status: 400 });
+    }
+
+    // Check for existing user with same email or username
+    const existing = await prisma.user.findFirst({
+      where: { OR: [{ email }, { username }] },
+      select: { id: true, email: true, username: true },
+    });
+
+    if (existing) {
+      const field = existing.email === email ? 'Email' : 'Username';
+      return NextResponse.json({ error: `${field} already in use` }, { status: 409 });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user
+    const newUser = await prisma.user.create({
+      data: {
+        username,
+        email,
+        password: hashedPassword,
+        name: name || null,
+        role: role || 'user',
+        tier: tier || 'free',
+      },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        name: true,
+        role: true,
+        tier: true,
+        createdAt: true,
+      },
+    });
+
+    return NextResponse.json({ user: newUser }, { status: 201 });
+  } catch (error) {
+    console.error('Error creating user:', error);
+    return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
+  }
+}
 
 // GET /api/admin/users - List users with search and pagination
 export async function GET(request: Request) {

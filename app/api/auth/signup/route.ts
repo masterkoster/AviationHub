@@ -1,19 +1,39 @@
 import { NextResponse } from "next/server"
-import { PrismaClient } from "@prisma/client"
 import bcrypt from "bcrypt"
 import crypto from "crypto"
 import { sendVerificationEmail } from "@/lib/email"
 import { createUserEncryptionKey } from "@/lib/server-encryption"
-
-// Singleton pattern to prevent multiple instances
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined }
-
-export const prisma = globalForPrisma.prisma ?? new PrismaClient()
-
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
+import { prisma } from "@/lib/prisma"
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const username = searchParams.get('checkUsername')
+
+  if (!username) {
+    return NextResponse.json({ error: 'Username parameter required' }, { status: 400 })
+  }
+
+  const normalized = username.trim().toLowerCase()
+
+  // Validate format
+  if (!/^[a-z0-9_]{3,20}$/.test(normalized)) {
+    return NextResponse.json({ available: false })
+  }
+
+  try {
+    const rows = await prisma.$queryRaw<{ cnt: bigint }[]>`
+      SELECT COUNT(1) AS cnt FROM [User] WHERE username = ${normalized}
+    `
+    const taken = Number(rows[0]?.cnt ?? 0) > 0
+    return NextResponse.json({ available: !taken })
+  } catch (err) {
+    console.error('[username-check] Database error:', err)
+    return NextResponse.json({ available: null, error: 'Could not verify username availability' }, { status: 503 })
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -60,45 +80,29 @@ export async function POST(request: Request) {
     }
     
     // Check if email exists
-    let existingEmail
     try {
-      existingEmail = await prisma.user.findUnique({
-        where: { email: normalizedEmail }
-      })
+      const emailRows = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT TOP 1 id FROM [User] WHERE email = ${normalizedEmail}
+      `
+      if (emailRows.length > 0) {
+        return NextResponse.json({ error: "Email already in use" }, { status: 400 })
+      }
     } catch (dbError) {
       console.error("Database error checking email:", dbError)
-      return NextResponse.json(
-        { error: "Database error. Please try again." },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: "Unable to process request. Please try again." }, { status: 500 })
     }
-    
-    if (existingEmail) {
-      return NextResponse.json(
-        { error: "Email already exists" },
-        { status: 400 }
-      )
-    }
-    
+
     // Check if username exists
-    let existingUsername
     try {
-      existingUsername = await prisma.user.findUnique({
-        where: { username: normalizedUsername }
-      })
+      const usernameRows = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT TOP 1 id FROM [User] WHERE username = ${normalizedUsername}
+      `
+      if (usernameRows.length > 0) {
+        return NextResponse.json({ error: "Username already taken — please choose another" }, { status: 400 })
+      }
     } catch (dbError) {
       console.error("Database error checking username:", dbError)
-      return NextResponse.json(
-        { error: "Database error. Please try again." },
-        { status: 500 }
-      )
-    }
-    
-    if (existingUsername) {
-      return NextResponse.json(
-        { error: "Username already taken. Please choose another." },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "Unable to process request. Please try again." }, { status: 500 })
     }
     
     const hashedPassword = await bcrypt.hash(password, 10)
@@ -124,9 +128,9 @@ export async function POST(request: Request) {
       }
     })
     
-    // Generate encryption key for message encryption
-    await createUserEncryptionKey(user.id)
-    
+    // Generate encryption key — non-fatal if UserKey table not yet migrated
+    try { await createUserEncryptionKey(user.id) } catch (keyErr) { console.error('createUserEncryptionKey failed (non-fatal):', keyErr) }
+
     // Send verification email
     const emailResult = await sendVerificationEmail(
       normalizedEmail,
@@ -151,17 +155,6 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error("Signup error:", error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    // Check for specific Prisma/database errors
-    if (errorMessage.includes('column') || errorMessage.includes('table')) {
-      return NextResponse.json(
-        { error: "Database schema mismatch. Please contact support." },
-        { status: 500 }
-      )
-    }
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 })
   }
 }

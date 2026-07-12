@@ -53,14 +53,22 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: csp },
         ],
       },
+      // Marketing/public pages — cache at CDN edge for 24h, stale-while-revalidate for 7 days
       {
         source: "/",
         headers: [
-          { key: "Cache-Control", value: "no-store, max-age=0, must-revalidate" },
+          { key: "Cache-Control", value: "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800" },
         ],
       },
       {
-        source: "/((?!_next/|api/|icons/|manifest.json).*)",
+        source: "/(pricing|terms|privacy|support|faq|welcome|data-status)",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800" },
+        ],
+      },
+      // Auth-gated app pages — never cache
+      {
+        source: "/(dashboard|settings|profile|trips|logbook|aircraft|calendar|map|desktop)(:?/.*)?",
         headers: [
           { key: "Cache-Control", value: "no-store, max-age=0, must-revalidate" },
         ],

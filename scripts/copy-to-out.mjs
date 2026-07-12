@@ -10,7 +10,7 @@
  *   .next/server/app/page.html                    →  out/index.html
  *   .next/static/                                 →  out/_next/static/
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'fs'
+import { cpSync, rmSync, existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'fs'
 import { join, dirname, relative } from 'path'
 import { fileURLToPath } from 'url'
 
@@ -23,8 +23,8 @@ console.log('[copy-to-out] Copying Next.js build to out/ for Tauri...')
 
 // Create/recreate out directory
 if (existsSync(outDir)) {
-  // Remove it to avoid stale files
-  cpSync(outDir, join(root, 'out_bak'), { recursive: true, force: true })
+  // Remove it to avoid stale files (was: cpSync — bug! must rmSync)
+  rmSync(outDir, { recursive: true, force: true })
 }
 mkdirSync(outDir, { recursive: true })
 
@@ -107,9 +107,10 @@ if (!existsSync(rootIndex)) {
     writeFileSync(rootIndex, `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>AviationHub</title>
 </head><body><h1>AviationHub Desktop</h1>
-<p>Loading...</p>
+<p>Build incomplete — run <code>npm run build</code> and try again.</p>
+<p style="color:#888;font-size:14px;margin-top:8px;">No desktop routes found in Next.js output.</p>
 </body></html>`)
-    console.log('[copy-to-out] Created minimal index.html (no desktop routes found)')
+    console.log('[copy-to-out] Created fallback index.html (no desktop routes found)')
   }
 }
 

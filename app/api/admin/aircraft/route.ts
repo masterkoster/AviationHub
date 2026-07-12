@@ -23,10 +23,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const groupId = searchParams.get('groupId');
 
-    // Fetch aircraft across all groups (or a specific group)
+    // Fetch aircraft across all groups (or a specific group). Cap the
+    // unscoped (all-groups) query so it can't grow unbounded.
     const aircraft = await prisma.clubAircraft.findMany({
       where: groupId ? { organizationId: groupId } : undefined,
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      take: groupId ? undefined : 500,
     });
 
     const groupIds = [...new Set(aircraft.map(a => a.organizationId).filter(Boolean))] as string[];
@@ -81,9 +83,19 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user is admin or owner
+    const caller = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true }
+    });
+
+    if (caller?.role !== 'admin' && caller?.role !== 'owner') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const body = await request.json();

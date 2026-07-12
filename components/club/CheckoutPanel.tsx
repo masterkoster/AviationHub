@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plane, Clock, DollarSign, AlertTriangle, CheckCircle } from 'lucide-react';
+import { fmtNum } from '@/lib/utils';
 
 interface CheckoutPanelProps {
   groupId: string;
@@ -25,7 +26,7 @@ interface ActiveFlight {
     id: string;
     name: string;
   };
-  hobbsStart: number;
+  hobbsStart: number | string;
   checkedOutAt: string;
 }
 
@@ -128,7 +129,7 @@ export default function CheckoutPanel({ groupId, userId }: CheckoutPanelProps) {
 
       if (res.ok) {
         const data = await res.json();
-        alert(`Flight complete! Hobbs: ${data.flight.hobbsTime.toFixed(1)}, Cost: $${data.flight.calculatedCost.toFixed(2)}`);
+        alert(`Flight complete! Hobbs: ${fmtNum(data.flight.hobbsTime, 1)}, Cost: $${fmtNum(data.flight.calculatedCost, 2)}`);
         setActiveFlight(null);
         setHobbsEnd('');
         setCheckinNotes('');
@@ -157,7 +158,8 @@ export default function CheckoutPanel({ groupId, userId }: CheckoutPanelProps) {
 
   // Show checkin form if aircraft is checked out
   if (activeFlight) {
-    const hoursOut = activeFlight.hobbsStart 
+    const hobbsStartNum = Number(activeFlight.hobbsStart);
+    const hoursOut = Number.isFinite(hobbsStartNum)
       ? (new Date().getTime() - new Date(activeFlight.checkedOutAt).getTime()) / (1000 * 60 * 60)
       : 0;
 
@@ -189,12 +191,12 @@ export default function CheckoutPanel({ groupId, userId }: CheckoutPanelProps) {
             </div>
             <div>
               <Label className="text-muted-foreground">Hobbs Start</Label>
-              <p className="font-medium">{activeFlight.hobbsStart.toFixed(1)}</p>
+              <p className="font-medium">{fmtNum(activeFlight.hobbsStart, 1)}</p>
             </div>
             <div>
               <Label className="text-muted-foreground">Current Hobbs</Label>
               <p className="font-medium text-lg">
-                {(activeFlight.hobbsStart + hoursOut).toFixed(1)}
+                {fmtNum(hobbsStartNum + hoursOut, 1)}
               </p>
             </div>
           </div>

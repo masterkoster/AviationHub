@@ -50,9 +50,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Aircraft and description required' }, { status: 400 });
     }
 
+    // Set reportedByPilotId (not just reportedByUserId) so the admin maintenance
+    // queue can resolve a display name for the reporter, and mark isPlaneSpecific
+    // since this squawk is always tied to a specific clubAircraftId.
+    const reporterProfile = await getOrCreatePilotProfile(user.id);
+
     await prisma.$executeRaw`
-      INSERT INTO Maintenance (id, clubAircraftId, reportedByUserId, organizationId, description, notes, status, isGrounded, reportedDate, createdAt, updatedAt)
-      VALUES (NEWID(), ${aircraftId}, ${user.id}, ${groupId || null}, ${description}, ${notes || null}, 'NEEDED', ${isGrounded ? 1 : 0}, GETDATE(), GETDATE(), GETDATE())
+      INSERT INTO Maintenance (id, clubAircraftId, reportedByUserId, reportedByPilotId, organizationId, description, notes, status, isGrounded, isPlaneSpecific, reportedDate, createdAt, updatedAt)
+      VALUES (NEWID(), ${aircraftId}, ${user.id}, ${reporterProfile.id}, ${groupId || null}, ${description}, ${notes || null}, 'NEEDED', ${isGrounded ? 1 : 0}, 1, GETDATE(), GETDATE(), GETDATE())
     `;
 
     if (postToMarketplace && 'maintenanceRequest' in prisma) {
@@ -69,7 +74,7 @@ export async function POST(request: Request) {
         nNumber: allowTailNumber ? aircraft.nNumber : null,
       } : null
 
-      const profile = await getOrCreatePilotProfile(user.id)
+      const profile = reporterProfile
       const logbookEntries = await prisma.logbookEntry.findMany({
         where: { pilotProfileId: profile.id },
         orderBy: { date: 'desc' },

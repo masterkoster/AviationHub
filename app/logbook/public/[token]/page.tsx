@@ -8,8 +8,9 @@ async function getSharedLogbook(token: string) {
   return res.json()
 }
 
-export default async function PublicLogbookPage({ params }: { params: { token: string } }) {
-  const data = await getSharedLogbook(params.token)
+export default async function PublicLogbookPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params
+  const data = await getSharedLogbook(token)
   if (!data) return notFound()
 
   const { profile, entries, totals, scope } = data

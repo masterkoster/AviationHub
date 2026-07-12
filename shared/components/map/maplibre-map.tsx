@@ -70,6 +70,7 @@ interface MapLibreMapProps {
   performanceMode?: boolean
   maxAirportsToRender?: number
   clusterAirports?: boolean
+  weatherCategories?: Record<string, string>
 }
 
 const AIRPORT_SOURCE = 'airports'
@@ -81,8 +82,30 @@ const AIRPORT_CLUSTER_COUNT = 'airports-cluster-count'
 const AIRPORT_LABELS = 'airports-labels'
 const WAYPOINTS_SOURCE = 'waypoints'
 const WAYPOINTS_LAYER = 'waypoints-layer'
+const WAYPOINTS_LABELS = 'waypoints-labels'
 const ROUTE_SOURCE = 'route-source'
 const ROUTE_LAYER = 'route-layer'
+const LEG_LABELS_SOURCE = 'leg-labels-source'
+const LEG_LABELS_LAYER = 'leg-labels-layer'
+
+function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 3440.065
+  const φ1 = lat1 * Math.PI / 180
+  const φ2 = lat2 * Math.PI / 180
+  const Δφ = (lat2 - lat1) * Math.PI / 180
+  const Δλ = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function trueHeading(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180)
+  const x =
+    Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+    Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon)
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+}
 
 function formatMoney(v?: number): string {
   if (typeof v !== 'number' || Number.isNaN(v)) return '—'
@@ -246,6 +269,7 @@ export default function MapLibreMap({
   baseLayer = 'osm',
   maxAirportsToRender = 2000,
   clusterAirports = true,
+  weatherCategories = {},
 }: MapLibreMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<Map | null>(null)
@@ -302,10 +326,11 @@ export default function MapLibreMap({
           name: a.name,
           city: a.city || '',
           type: a.type || '',
+          flightCategory: weatherCategories[a.icao] || '',
         },
       })),
     }),
-    [boundedAirports]
+    [boundedAirports, weatherCategories]
   )
 
   const waypointsGeoJSON = useMemo(
@@ -342,6 +367,32 @@ export default function MapLibreMap({
                 properties: {},
               },
             ]
+          : [],
+    }),
+    [waypoints]
+  )
+
+  const legLabelsGeoJSON = useMemo(
+    () => ({
+      type: 'FeatureCollection' as const,
+      features:
+        waypoints.length >= 2
+          ? waypoints.slice(0, -1).map((w, i) => {
+              const next = waypoints[i + 1]
+              const nm = haversineNm(w.latitude, w.longitude, next.latitude, next.longitude)
+              const hdg = trueHeading(w.latitude, w.longitude, next.latitude, next.longitude)
+              return {
+                type: 'Feature' as const,
+                geometry: {
+                  type: 'Point' as const,
+                  coordinates: [
+                    (w.longitude + next.longitude) / 2,
+                    (w.latitude + next.latitude) / 2,
+                  ] as [number, number],
+                },
+                properties: { label: `${Math.round(nm)} nm · ${Math.round(hdg)}°` },
+              }
+            })
           : [],
     }),
     [waypoints]
@@ -425,7 +476,14 @@ export default function MapLibreMap({
           ? ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'large_airport']]
           : ['==', ['get', 'type'], 'large_airport'],
         paint: {
-          'circle-color': '#ef4444',
+          'circle-color': [
+            'match', ['get', 'flightCategory'],
+            'VFR', '#22c55e',
+            'MVFR', '#38bdf8',
+            'IFR', '#ef4444',
+            'LIFR', '#d946ef',
+            '#ef4444',
+          ],
           'circle-radius': 6,
           'circle-stroke-width': 1,
           'circle-stroke-color': '#111827',
@@ -440,7 +498,14 @@ export default function MapLibreMap({
           ? ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'medium_airport']]
           : ['==', ['get', 'type'], 'medium_airport'],
         paint: {
-          'circle-color': '#f59e0b',
+          'circle-color': [
+            'match', ['get', 'flightCategory'],
+            'VFR', '#22c55e',
+            'MVFR', '#38bdf8',
+            'IFR', '#ef4444',
+            'LIFR', '#d946ef',
+            '#f59e0b',
+          ],
           'circle-radius': 4.5,
           'circle-stroke-width': 1,
           'circle-stroke-color': '#111827',
@@ -455,7 +520,14 @@ export default function MapLibreMap({
           ? ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'small_airport']]
           : ['==', ['get', 'type'], 'small_airport'],
         paint: {
-          'circle-color': '#22c55e',
+          'circle-color': [
+            'match', ['get', 'flightCategory'],
+            'VFR', '#22c55e',
+            'MVFR', '#38bdf8',
+            'IFR', '#ef4444',
+            'LIFR', '#d946ef',
+            '#22c55e',
+          ],
           'circle-radius': 3.2,
           'circle-stroke-width': 0.8,
           'circle-stroke-color': '#111827',
@@ -511,9 +583,41 @@ export default function MapLibreMap({
         source: WAYPOINTS_SOURCE,
         paint: {
           'circle-color': '#3b82f6',
-          'circle-radius': 5,
+          'circle-radius': 8,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 1.5,
+        },
+      })
+      map.addLayer({
+        id: WAYPOINTS_LABELS,
+        type: 'symbol',
+        source: WAYPOINTS_SOURCE,
+        layout: {
+          'text-field': ['to-string', ['get', 'order']],
+          'text-size': 10,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: {
+          'text-color': '#ffffff',
+        },
+      })
+
+      map.addSource(LEG_LABELS_SOURCE, { type: 'geojson', data: legLabelsGeoJSON })
+      map.addLayer({
+        id: LEG_LABELS_LAYER,
+        type: 'symbol',
+        source: LEG_LABELS_SOURCE,
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': 11,
+          'text-allow-overlap': false,
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+        },
+        paint: {
+          'text-color': '#93c5fd',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1.5,
         },
       })
 
@@ -728,7 +832,9 @@ export default function MapLibreMap({
     if (source) source.setData(waypointsGeoJSON)
     const routeSource = map.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined
     if (routeSource) routeSource.setData(routeGeoJSON)
-  }, [waypointsGeoJSON, routeGeoJSON])
+    const legSource = map.getSource(LEG_LABELS_SOURCE) as GeoJSONSource | undefined
+    if (legSource) legSource.setData(legLabelsGeoJSON)
+  }, [waypointsGeoJSON, routeGeoJSON, legLabelsGeoJSON])
 
   useEffect(() => {
     const map = mapRef.current

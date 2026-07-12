@@ -1,14 +1,12 @@
 'use client'
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { 
   User,
@@ -16,28 +14,14 @@ import {
   Heart,
   MapPin,
   Plane,
-  Bell,
-  Shield,
-  Globe,
-  Database,
-  Settings,
   Save,
-  Download,
   Trash2,
-  Key,
-  Clock,
   Edit,
   Plus,
-  X,
-  ChevronRight,
-  LayoutDashboard,
-  AlertCircle,
-  CheckCircle2
+  AlertCircle
 } from "lucide-react"
 
 export default function ProfilePage() {
-  const router = useRouter()
-  const [isAdmin, setIsAdmin] = useState(false)
   const [unsavedChanges, setUnsavedChanges] = useState(false)
   
   // Modal states
@@ -78,26 +62,7 @@ export default function ProfilePage() {
 
   const [aircraft, setAircraft] = useState<any[]>([])
 
-  const [notifications, setNotifications] = useState({
-    maintenanceAlerts: true,
-    currencyReminders: true,
-    weatherAlerts: false,
-    emailNotifications: true,
-    smsNotifications: false,
-    pushNotifications: true
-  })
 
-  const [units, setUnits] = useState({
-    distance: "nautical",
-    temperature: "fahrenheit",
-    timeFormat: "24h",
-    dateFormat: "MM/DD/YYYY"
-  })
-
-  const [security, setSecurity] = useState({
-    twoFactorEnabled: false,
-    loginAlerts: true
-  })
   
   useEffect(() => {
     let cancelled = false
@@ -115,8 +80,6 @@ export default function ProfilePage() {
           const contact = data.contact || {}
           const profile = data.profile || {}
           const medicalData = data.medical || {}
-          const prefs = data.preferences || {}
-          const notif = data.notifications || {}
           const lic = Array.isArray(data.licenses) ? data.licenses : []
 
           const nameParts = (user?.name || '').split(' ')
@@ -147,22 +110,6 @@ export default function ProfilePage() {
               examinerName: medicalData?.examinerName || '',
               issueDate: medicalData?.issueDate ? medicalData.issueDate.split('T')[0] : '',
               expirationDate: medicalData?.expirationDate ? medicalData.expirationDate.split('T')[0] : '',
-            })
-
-            setUnits({
-              distance: prefs?.distanceUnit || 'nautical',
-              temperature: prefs?.temperatureUnit || 'fahrenheit',
-              timeFormat: prefs?.timeFormat || '24h',
-              dateFormat: prefs?.dateFormat || 'MM/DD/YYYY',
-            })
-
-            setNotifications({
-              maintenanceAlerts: !!notif?.maintenanceAlerts,
-              currencyReminders: !!notif?.currencyReminders,
-              weatherAlerts: !!notif?.weatherAlerts,
-              emailNotifications: !!notif?.emailNotifications,
-              smsNotifications: !!notif?.smsNotifications,
-              pushNotifications: !!notif?.pushNotifications,
             })
 
             setLicenses(lic.map((l: any, idx: number) => ({
@@ -201,8 +148,6 @@ export default function ProfilePage() {
           homeAirport,
           medical,
           licenses,
-          notifications,
-          units,
         }),
       })
       if (!res.ok) {
@@ -297,7 +242,7 @@ export default function ProfilePage() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
               <User className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="text-lg font-semibold">Profile & Settings</span>
+            <span className="text-lg font-semibold">Profile</span>
           </div>
           
           <div className="ml-auto flex items-center gap-4">
@@ -320,26 +265,17 @@ export default function ProfilePage() {
           {/* Profile Header */}
           <div className="flex items-start justify-between">
             <div className="space-y-1">
-              <h1 className="text-3xl font-bold tracking-tight">Profile & Settings</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Profile</h1>
               <p className="text-muted-foreground">
-                Manage your pilot information, preferences, and account settings
+                Manage your pilot information, licenses, and aircraft
               </p>
             </div>
-            {isAdmin && (
-              <Button 
-                variant="outline" 
-                className="gap-2"
-                onClick={() => router.push('/admin')}
-              >
-                <LayoutDashboard className="h-4 w-4" />
-                Admin Dashboard
-              </Button>
-            )}
+
           </div>
 
           {/* Tabs */}
           <Tabs defaultValue="personal" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 lg:grid-cols-7">
+            <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5">
               <TabsTrigger value="personal" className="gap-2">
                 <User className="h-4 w-4" />
                 <span className="hidden md:inline">Personal</span>
@@ -360,14 +296,7 @@ export default function ProfilePage() {
                 <Plane className="h-4 w-4" />
                 <span className="hidden md:inline">Aircraft</span>
               </TabsTrigger>
-              <TabsTrigger value="preferences" className="gap-2">
-                <Settings className="h-4 w-4" />
-                <span className="hidden md:inline">Settings</span>
-              </TabsTrigger>
-              <TabsTrigger value="security" className="gap-2">
-                <Shield className="h-4 w-4" />
-                <span className="hidden md:inline">Security</span>
-              </TabsTrigger>
+
             </TabsList>
 
             {/* Personal Information */}
@@ -771,319 +700,7 @@ export default function ProfilePage() {
               </Card>
             </TabsContent>
 
-            {/* Preferences & Settings */}
-            <TabsContent value="preferences" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Notification Preferences</CardTitle>
-                  <CardDescription>Control when and how you receive alerts</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="maintenance">Maintenance Alerts</Label>
-                      <p className="text-xs text-muted-foreground">Get notified about upcoming maintenance items</p>
-                    </div>
-                      <Switch 
-                       id="maintenance"
-                       checked={notifications.maintenanceAlerts}
-                       onCheckedChange={(checked) => {
-                        setNotifications({...notifications, maintenanceAlerts: checked})
-                        setUnsavedChanges(true)
-                       }}
-                     />
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="currency">Currency Reminders</Label>
-                      <p className="text-xs text-muted-foreground">Reminders for expiring licenses and currency</p>
-                    </div>
-                      <Switch 
-                       id="currency"
-                       checked={notifications.currencyReminders}
-                       onCheckedChange={(checked) => {
-                        setNotifications({...notifications, currencyReminders: checked})
-                        setUnsavedChanges(true)
-                       }}
-                     />
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="weather">Weather Alerts</Label>
-                      <p className="text-xs text-muted-foreground">Get notified about weather changes at your home airport</p>
-                    </div>
-                      <Switch 
-                       id="weather"
-                       checked={notifications.weatherAlerts}
-                       onCheckedChange={(checked) => {
-                        setNotifications({...notifications, weatherAlerts: checked})
-                        setUnsavedChanges(true)
-                       }}
-                     />
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="email">Email Notifications</Label>
-                      <p className="text-xs text-muted-foreground">Receive notifications via email</p>
-                    </div>
-                      <Switch 
-                       id="email"
-                       checked={notifications.emailNotifications}
-                       onCheckedChange={(checked) => {
-                        setNotifications({...notifications, emailNotifications: checked})
-                        setUnsavedChanges(true)
-                       }}
-                     />
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="sms">SMS Notifications</Label>
-                      <p className="text-xs text-muted-foreground">Receive notifications via text message</p>
-                    </div>
-                      <Switch 
-                       id="sms"
-                       checked={notifications.smsNotifications}
-                       onCheckedChange={(checked) => {
-                        setNotifications({...notifications, smsNotifications: checked})
-                        setUnsavedChanges(true)
-                       }}
-                     />
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="push">Push Notifications</Label>
-                      <p className="text-xs text-muted-foreground">Receive browser push notifications</p>
-                    </div>
-                      <Switch 
-                       id="push"
-                       checked={notifications.pushNotifications}
-                       onCheckedChange={(checked) => {
-                        setNotifications({...notifications, pushNotifications: checked})
-                        setUnsavedChanges(true)
-                       }}
-                     />
-                  </div>
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Units & Display</CardTitle>
-                  <CardDescription>Customize measurement units and display formats</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="distance">Distance Units</Label>
-                    <select 
-                      id="distance"
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      value={units.distance}
-                      onChange={(e) => {
-                        setUnits({...units, distance: e.target.value})
-                        setUnsavedChanges(true)
-                      }}
-                    >
-                      <option value="nautical">Nautical Miles</option>
-                      <option value="statute">Statute Miles</option>
-                      <option value="kilometers">Kilometers</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="temperature">Temperature Units</Label>
-                    <select 
-                      id="temperature"
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      value={units.temperature}
-                      onChange={(e) => {
-                        setUnits({...units, temperature: e.target.value})
-                        setUnsavedChanges(true)
-                      }}
-                    >
-                      <option value="fahrenheit">Fahrenheit (°F)</option>
-                      <option value="celsius">Celsius (°C)</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="timeFormat">Time Format</Label>
-                    <select 
-                      id="timeFormat"
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      value={units.timeFormat}
-                      onChange={(e) => {
-                        setUnits({...units, timeFormat: e.target.value})
-                        setUnsavedChanges(true)
-                      }}
-                    >
-                      <option value="12h">12-hour (3:45 PM)</option>
-                      <option value="24h">24-hour (15:45)</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="dateFormat">Date Format</Label>
-                    <select 
-                      id="dateFormat"
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      value={units.dateFormat}
-                      onChange={(e) => {
-                        setUnits({...units, dateFormat: e.target.value})
-                        setUnsavedChanges(true)
-                      }}
-                    >
-                      <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                      <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                      <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                    </select>
-                  </div>
-
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => window.location.reload()}>Cancel</Button>
-                    <Button className="gap-2" onClick={handleSavePersonalInfo}>
-                      <Save className="h-4 w-4" />
-                      Save Changes
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Dashboard Customization</CardTitle>
-                  <CardDescription>Manage your dashboard widgets and layout</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Button variant="outline" className="w-full justify-between">
-                    <span>Customize Dashboard Widgets</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                  <p className="text-sm text-muted-foreground">
-                    Your current widget preferences are saved automatically when you customize your dashboard
-                  </p>
-                </CardContent>
-              </Card>
-
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => window.location.reload()}>Cancel</Button>
-                <Button className="gap-2" onClick={handleSavePersonalInfo}>
-                  <Save className="h-4 w-4" />
-                  Save Changes
-                </Button>
-              </div>
-            </TabsContent>
-
-            {/* Security & Privacy */}
-            <TabsContent value="security" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Account Security</CardTitle>
-                  <CardDescription>Manage your password and security settings</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-4">
-                    <Button variant="outline" className="w-full justify-between">
-                      <div className="flex items-center gap-2">
-                        <Key className="h-4 w-4" />
-                        <span>Change Password</span>
-                      </div>
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <Separator />
-
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="2fa">Two-Factor Authentication</Label>
-                      <p className="text-xs text-muted-foreground">Add an extra layer of security to your account</p>
-                    </div>
-                    <Switch 
-                      id="2fa"
-                      checked={security.twoFactorEnabled}
-                      onCheckedChange={(checked) => 
-                        setSecurity({...security, twoFactorEnabled: checked})
-                      }
-                    />
-                  </div>
-
-                  <Separator />
-
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="loginAlerts">Login Alerts</Label>
-                      <p className="text-xs text-muted-foreground">Get notified of new logins to your account</p>
-                    </div>
-                    <Switch 
-                      id="loginAlerts"
-                      checked={security.loginAlerts}
-                      onCheckedChange={(checked) => 
-                        setSecurity({...security, loginAlerts: checked})
-                      }
-                    />
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <Button variant="outline" className="w-full justify-between">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4" />
-                        <span>View Login History</span>
-                      </div>
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Data & Privacy</CardTitle>
-                  <CardDescription>Manage your data and privacy settings</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Button variant="outline" className="w-full justify-between">
-                    <div className="flex items-center gap-2">
-                      <Download className="h-4 w-4" />
-                      <span>Export Your Data</span>
-                    </div>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-
-                  <Button variant="outline" className="w-full justify-between">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4" />
-                      <span>Privacy Settings</span>
-                    </div>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-
-                  <Separator />
-
-                  <div className="rounded-lg bg-destructive/10 border border-destructive/50 p-4 space-y-3">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium text-destructive">Danger Zone</p>
-                        <p className="text-xs text-muted-foreground">
-                          Once you delete your account, there is no going back. Please be certain.
-                        </p>
-                      </div>
-                    </div>
-                    <Button variant="destructive" size="sm" className="gap-2">
-                      <Trash2 className="h-4 w-4" />
-                      Delete Account
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
           </Tabs>
         </div>
       </main>

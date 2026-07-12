@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
 
     const campaigns = await prisma.outreachCampaign.findMany({
       orderBy: { createdAt: 'desc' },
+      take: 200,
       include: {
         _count: {
           select: { emails: true },

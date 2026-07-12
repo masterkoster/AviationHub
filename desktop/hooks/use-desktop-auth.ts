@@ -40,6 +40,16 @@ export function useDesktopAuth(): DesktopAuth {
     let cancelled = false
 
     async function load() {
+      // Safety net: force initializing to false after 10s so the app never
+      // hangs on "Loading..." forever (e.g. if Store.load() deadlocks).
+      const FORCE_TIMEOUT_MS = 10000
+      const forceTimeout = setTimeout(() => {
+        if (!cancelled) {
+          console.warn('[useDesktopAuth] load timed out — forcing unauthenticated state')
+          setState({ status: 'unauthenticated', mode: null, localUser: null, cloudUser: null, needsSetup: false, initializing: false })
+        }
+      }, FORCE_TIMEOUT_MS)
+
       const isTauri =
         typeof window !== 'undefined' &&
         Boolean(
@@ -48,6 +58,7 @@ export function useDesktopAuth(): DesktopAuth {
         )
 
       if (!isTauri) {
+        clearTimeout(forceTimeout)
         const cloud = await getCloudSession()
         if (cancelled) return
         setState({
@@ -64,6 +75,7 @@ export function useDesktopAuth(): DesktopAuth {
       try {
         const setupDone = await isSetupComplete()
         if (cancelled) return
+        clearTimeout(forceTimeout) // Store loaded — remaining calls are all fast
 
         if (!setupDone) {
           setState({

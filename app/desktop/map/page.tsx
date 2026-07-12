@@ -6,43 +6,45 @@ import {
   Loader2,
   Globe,
   Search,
-  Plus,
-  X,
   Plane,
   Download,
-  Upload,
-  Save,
-  FolderOpen,
-  Copy,
-  Trash2,
-  Fuel,
-  ExternalLink,
   XCircle,
+  ExternalLink,
   MapPin,
   Star,
-  ClipboardList,
-  Scale,
-  Wind,
-  Thermometer,
-  Eye,
-  Gauge,
-  RefreshCw,
-  Clock,
 } from 'lucide-react'
 import { MapControls, DEFAULT_MAP_OPTIONS, type MapLayerOptions } from '@/shared/components/map/map-controls'
 import { TileCacheBanner } from '@/desktop/components/tile-cache-banner'
 import { MapErrorBoundary } from '@/desktop/components/map-error-boundary'
-import { downloadFPL, downloadGPX, downloadJSON } from '@/app/modules/fuel-saver/lib/exportUtils'
+import {
+  downloadFPL, downloadGPX, downloadJSON,
+  type WbExportData,
+} from '@/app/modules/fuel-saver/lib/exportUtils'
 import {
   getSavedRoutes,
   saveRoute,
   deleteRoute,
   duplicateRoute,
-  type StoredRoute,
 } from '@/apps/desktop/src/lib/route-planner-storage'
 import { saveFlightPlan } from '@/apps/desktop/src/lib/flight-plan-storage'
-import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
+import { fetchMetarBatch, fetchTafBatch } from '@/desktop/lib/weather-fetch'
+import { loadPilotCertStatus, evaluateWeatherRules } from '@/desktop/lib/weather-rules'
+import type { MetarData, PilotCertStatus, WeatherWarning } from '@/desktop/lib/weather-types'
+import { ConfirmDialog } from '@/desktop/components/confirm-dialog'
+import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
+import { getLocalAircraft, type LocalAircraft } from '@/apps/desktop/src/lib/local-logbook'
 import type { StateInfo } from '@/lib/stateData'
+import type { Airport, Waypoint, StoredRoute, AirportDetails, AirportWeather, RouteWeatherSummary } from './types'
+import { MapToolbar, type PanelId } from './components/map-toolbar'
+import { MapStatusBar } from './components/map-status-bar'
+import { MapPanelContainer } from './components/map-panel-container'
+import { RoutePanel } from './panels/route-panel'
+import { FlightPlanPanel } from './panels/flight-plan-panel'
+import { WbPanel } from './panels/wb-panel'
+import { WeatherPanel } from './panels/weather-panel'
+import { FiltersPanel } from './panels/filters-panel'
+import { SavedPanel } from './panels/saved-panel'
+import { ExportPanel } from './panels/export-panel'
 
 const DesktopMapRenderer = dynamic(() => import('@/shared/components/map/maplibre-map'), {
   ssr: false,
@@ -53,90 +55,13 @@ const DesktopMapRenderer = dynamic(() => import('@/shared/components/map/maplibr
   ),
 })
 
-interface Airport {
-  icao: string
-  iata?: string
-  name: string
-  city?: string
-  latitude: number
-  longitude: number
-  type?: string
-}
-
-interface Waypoint {
-  id: string
-  icao: string
-  name: string
-  latitude: number
-  longitude: number
-}
-
-interface AirportDetails {
-  icao: string
-  iata?: string
-  name: string
-  city?: string
-  state?: string
-  elevation_ft?: number
-  runways?: Array<{ length_ft?: number; width_ft?: number; surface?: string }>
-  frequencies?: Array<{ frequency_mhz?: number; type?: string }>
-  hasTower?: boolean | null
-  attendance?: string | null
-  phone?: string | null
-  manager?: string | null
-  fuel?: {
-    price100ll?: number
-    priceJetA?: number
-    source?: string
-    sourceUrl?: string
-    lastReported?: string
-    providerName?: string | null
-    providerPhone?: string | null
-    community100ll?: { price: number; daysAgo: number; fbo?: string | null } | null
-    communityJetA?: { price: number; daysAgo: number; fbo?: string | null } | null
-    priceDivergence?: { difference?: string } | null
-  } | null
-  landingFee?: { amount?: number } | null
-}
-
-interface AirportWeather {
-  icao: string
-  metar?: {
-    observationTime?: string
-    rawText?: string
-    tempC?: number
-    dewpointC?: number
-    windDirKts?: number
-    windSpeedKts?: number
-    windGustKts?: number
-    visibilitySm?: number
-    altHg?: number
-    flightCategory?: string
-  } | null
-  taf?: {
-    rawText?: string
-  } | null
-  fetchedAt?: string
-  error?: string
-}
-
-interface RouteWeatherSummary {
-  totalDistance?: number
-  totalTimeStillAir?: number
-  totalTimeWithWind?: number
-  fuelImpact?: number
-  fuelImpactPercent?: number
-  significant?: boolean
-  segments?: Array<{
-    from: string
-    to: string
-    distance: number
-    windSpeed: number
-    windFrom: number
-    groundSpeed: number
-    timeStillAir: number
-    timeWithWind: number
-  }>
+/** Haversine distance between two lat/lon points in nautical miles */
+function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 3440.065 // Earth radius in NM
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
 interface DesktopStateInfo extends StateInfo {
@@ -227,13 +152,23 @@ const REGION_BOUNDS = {
 } as const
 
 export default function DesktopMapPage() {
+  const { mode, localUser } = useDesktopAuth()
+  const [userAircraft, setUserAircraft] = useState<LocalAircraft[]>([])
+  const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(null)
+
   const [airports, setAirports] = useState<Airport[]>([])
-  const [waypoints, setWaypoints] = useState<Waypoint[]>([])
+  const [waypoints, setWaypoints] = useState<Waypoint[]>(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const raw = localStorage.getItem('map_draft_waypoints')
+      return raw ? (JSON.parse(raw) as Waypoint[]) : []
+    } catch { return [] }
+  })
   const [selectedAirport, setSelectedAirport] = useState<Airport | null>(null)
   const [selectedAirportDetails, setSelectedAirportDetails] = useState<AirportDetails | null>(null)
   const [loadingAirportDetails, setLoadingAirportDetails] = useState(false)
   const [selectedStateInfo, setSelectedStateInfo] = useState<DesktopStateInfo | null>(null)
-  const [stateCache, setStateCache] = useState<Record<string, DesktopStateInfo>>({})
+  const stateCacheRef = useRef<Record<string, DesktopStateInfo>>({})
   const [mapCenter, setMapCenter] = useState<[number, number]>(DEFAULT_CENTER)
   const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM)
   const [mapOptions, setMapOptions] = useState<MapLayerOptions>(DEFAULT_MAP_OPTIONS)
@@ -246,12 +181,24 @@ export default function DesktopMapPage() {
   const [airportSizeMode, setAirportSizeMode] = useState<'all' | 'only-large' | 'only-medium' | 'only-small'>('all')
   const [airportLimit, setAirportLimit] = useState(400)
   const [regionMode, setRegionMode] = useState<'map-view' | 'all-us' | 'east-coast' | 'west-coast'>('map-view')
-  const [menuTab, setMenuTab] = useState<'route' | 'filters' | 'weather'>('route')
-  const [routeName, setRouteName] = useState('')
-  const [activeRouteId, setActiveRouteId] = useState<string | null>(null)
+  const [activePanel, setActivePanel] = useState<PanelId | null>(null)
+  const [routeName, setRouteName] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return localStorage.getItem('map_draft_route_name') ?? ''
+  })
+  const [activeRouteId, setActiveRouteId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem('map_draft_route_id') ?? null
+  })
   const [savedRoutes, setSavedRoutes] = useState<StoredRoute[]>([])
   const [pendingImport, setPendingImport] = useState<Waypoint[] | null>(null)
   const [importError, setImportError] = useState('')
+  const [showAllWaypoints, setShowAllWaypoints] = useState(false)
+
+  // Confirm dialog state
+  const [clearWaypointsOpen, setClearWaypointsOpen] = useState(false)
+  const [deleteRouteOpen, setDeleteRouteOpen] = useState(false)
+  const [routeToDelete, setRouteToDelete] = useState<StoredRoute | null>(null)
 
   // Flight plan details (desktop planner panel)
   const [callsign, setCallsign] = useState('N12345')
@@ -275,33 +222,82 @@ export default function DesktopMapPage() {
   const searchRef = useRef<HTMLInputElement>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
 
+  // Load user aircraft
+  useEffect(() => {
+    if (mode !== 'local' || !localUser) return
+    let cancelled = false
+    async function load() {
+      const list = await getLocalAircraft(localUser!.id)
+      if (!cancelled) setUserAircraft(list)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [mode, localUser])
+
+  useEffect(() => {
+    if (localUser?.name) {
+      setPilotName(localUser.name)
+    }
+  }, [localUser])
+
+  function handleSelectAircraftForPlan(aircraftId: string) {
+    const ac = userAircraft.find(a => a.id === aircraftId)
+    if (!ac) return
+    setSelectedAircraftId(aircraftId)
+
+    setCallsign(ac.nNumber)
+    const name = ac.nickname ? `${ac.nickname} (${ac.model || ac.nNumber})` : (ac.model || ac.nNumber)
+    setAircraftName(name)
+
+    if (ac.fuelCapacity != null) setWbFuelGal(ac.fuelCapacity)
+
+    setFuelPercent(100)
+  }
+
   // Weather state
   const [weatherData, setWeatherData] = useState<Record<string, AirportWeather | null>>({})
   const [weatherLoading, setWeatherLoading] = useState(false)
   const [routeWeather, setRouteWeather] = useState<RouteWeatherSummary | null>(null)
   const [weatherError, setWeatherError] = useState('')
+  const [pilotStatus, setPilotStatus] = useState<PilotCertStatus | null>(null)
+  const [weatherWarnings, setWeatherWarnings] = useState<WeatherWarning[]>([])
 
-  const fuelMaxGal = 56
-  const burnGph = 9.9
-  const cruiseKts = 122
+  const weatherCategories = useMemo(() => {
+    const cats: Record<string, string> = {}
+    for (const [icao, wx] of Object.entries(weatherData)) {
+      if (wx?.metar?.flightCategory) cats[icao] = wx.metar.flightCategory
+    }
+    return cats
+  }, [weatherData])
+
+  const selectedAc = userAircraft.find(a => a.id === selectedAircraftId)
+  const fuelMaxGal = selectedAc?.fuelCapacity ?? 56
+  const burnGph = selectedAc?.fuelBurn ?? 9.9
+  const cruiseKts = selectedAc?.cruiseSpeed ?? 122
   const fuelGal = (fuelMaxGal * fuelPercent) / 100
   const estRangeNm = (fuelGal / burnGph) * cruiseKts
 
-  const wbEmptyWeight = 1689
-  const wbEmptyCg = 39
+  const wbEmptyWeight = selectedAc?.emptyWeight ?? 1689
+  const wbEmptyCg = selectedAc?.emptyCg ?? 39
+  const armPilotStation = selectedAc?.armPilot ?? 37
+  const armPassengerStation = selectedAc?.armPassenger ?? 73
+  const armBaggageStation = selectedAc?.armBaggage ?? 95
+  const armBaggage2Station = 123
+  const armFuelStation = selectedAc?.armFuel ?? 48
+  const wbForwardLimit = selectedAc?.cgMin ?? 35
+  const wbAftLimit = selectedAc?.cgMax ?? 47.3
+
   const wbFuelWeight = wbFuelGal * 6
   const wbPayloadWeight = wbFrontSeats + wbRearSeat1 + wbRearSeat2 + wbBaggage1 + wbBaggage2
   const wbTotalWeight = wbEmptyWeight + wbPayloadWeight + wbFuelWeight
   const wbMoment =
     wbEmptyWeight * wbEmptyCg +
-    wbFrontSeats * 37 +
-    (wbRearSeat1 + wbRearSeat2) * 73 +
-    wbBaggage1 * 95 +
-    wbBaggage2 * 123 +
-    wbFuelWeight * 48
+    wbFrontSeats * armPilotStation +
+    (wbRearSeat1 + wbRearSeat2) * armPassengerStation +
+    wbBaggage1 * armBaggageStation +
+    wbBaggage2 * armBaggage2Station +
+    wbFuelWeight * armFuelStation
   const wbCg = wbTotalWeight > 0 ? wbMoment / wbTotalWeight : 0
-  const wbForwardLimit = 35
-  const wbAftLimit = 47.3
   const wbWithinLimits = wbCg >= wbForwardLimit && wbCg <= wbAftLimit
   const wbCgPercent = Math.min(
     100,
@@ -317,10 +313,55 @@ export default function DesktopMapPage() {
     loadSavedRoutes()
   }, [])
 
+  // Load pilot cert status for weather warnings
+  useEffect(() => {
+    if (mode !== 'local' || !localUser?.id) return
+    let cancelled = false
+    loadPilotCertStatus(localUser.id)
+      .then((status) => {
+        if (!cancelled) setPilotStatus(status)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [mode, localUser?.id])
+
   async function loadSavedRoutes() {
     const routes = await getSavedRoutes()
     setSavedRoutes(routes)
   }
+
+  useEffect(() => {
+    try { localStorage.setItem('map_draft_waypoints', JSON.stringify(waypoints)) } catch {}
+  }, [waypoints])
+
+  // Auto-fetch weather when waypoints change (debounced 600ms)
+  useEffect(() => {
+    if (waypoints.length === 0) {
+      setWeatherData({})
+      setRouteWeather(null)
+      setWeatherWarnings([])
+      return
+    }
+    if (weatherTimerRef.current) clearTimeout(weatherTimerRef.current)
+    weatherTimerRef.current = setTimeout(() => {
+      fetchRouteWeather()
+    }, 600)
+    return () => {
+      if (weatherTimerRef.current) clearTimeout(weatherTimerRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waypoints])
+
+  useEffect(() => {
+    try { localStorage.setItem('map_draft_route_name', routeName) } catch {}
+  }, [routeName])
+
+  useEffect(() => {
+    try {
+      if (activeRouteId) localStorage.setItem('map_draft_route_id', activeRouteId)
+      else localStorage.removeItem('map_draft_route_id')
+    } catch {}
+  }, [activeRouteId])
 
   const fetchAirportsInBounds = useCallback(async () => {
     setLoadingAirports(true)
@@ -367,6 +408,7 @@ export default function DesktopMapPage() {
   }, [regionMode])
 
   const boundsTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const weatherTimerRef = useRef<NodeJS.Timeout | null>(null)
   const handleBoundsChange = useCallback(
     (newBounds: typeof bounds) => {
       setBounds(newBounds)
@@ -445,8 +487,8 @@ export default function DesktopMapPage() {
     const normalized = stateCode.toUpperCase().replace(/^US-/, '')
     if (!normalized) return
 
-    if (stateCache[normalized]) {
-      setSelectedStateInfo(stateCache[normalized])
+    if (stateCacheRef.current[normalized]) {
+      setSelectedStateInfo(stateCacheRef.current[normalized])
       return
     }
 
@@ -468,13 +510,13 @@ export default function DesktopMapPage() {
           ...info,
           media,
         }
-        setStateCache((prev) => ({ ...prev, [normalized]: enriched }))
+        stateCacheRef.current = { ...stateCacheRef.current, [normalized]: enriched }
         setSelectedStateInfo(enriched)
       })
       .catch(() => {
         // ignore failures
       })
-  }, [stateCache])
+  }, [])
 
   const handleRemoveWaypoint = (icao: string) => {
     setWaypoints((prev) => prev.filter((w) => w.icao !== icao))
@@ -492,51 +534,81 @@ export default function DesktopMapPage() {
     setWeatherError('')
 
     try {
-      // Fetch METAR/TAF for each waypoint via cloud API
+      // Fetch METAR/TAF for each waypoint from NOAA directly
       const results: Record<string, AirportWeather | null> = {}
       const icaoList = [...new Set(waypoints.map((w) => w.icao))].filter((icao) => icao.length >= 3 && icao.length <= 4)
 
-      await Promise.all(
-        icaoList.map(async (icao) => {
-          try {
-            const data = await cloudApi.getWeather(icao)
-            const metarArr = Array.isArray(data?.data) ? data.data : null
-            const tafArr = Array.isArray(data?.taf) ? data.taf : null
-            results[icao] = {
-              icao,
-              metar: metarArr?.[0]
-                ? {
-                    observationTime: (metarArr[0].obsTime || metarArr[0].reportTime) as string | undefined,
-                    rawText: (metarArr[0].rawOb || metarArr[0].raw_text) as string | undefined,
-                    tempC: metarArr[0].temp as number | undefined,
-                    dewpointC: metarArr[0].dewp as number | undefined,
-                    windDirKts: metarArr[0].wdir as number | undefined,
-                    windSpeedKts: metarArr[0].wspd as number | undefined,
-                    windGustKts: metarArr[0].wgst as number | undefined,
-                    visibilitySm: metarArr[0].vislt as number | undefined,
-                    altHg: metarArr[0].altim as number | undefined,
-                    flightCategory: (metarArr[0].fltCat || metarArr[0].flight_category) as string | undefined,
-                  }
-                : null,
-              taf: tafArr?.[0] ? { rawText: (tafArr[0].rawTAF || tafArr[0].raw_text) as string | undefined } : null,
-              fetchedAt: new Date().toISOString(),
-            }
-          } catch {
-            results[icao] = { icao, metar: null, taf: null, error: 'Fetch failed' }
-          }
-        })
-      )
+      // Batch-fetch METARs and TAFs from NOAA (parallel for speed)
+      const [metarMap, tafMap] = await Promise.all([
+        fetchMetarBatch(icaoList),
+        fetchTafBatch(icaoList),
+      ])
+
+      for (const icao of icaoList) {
+        const metar = metarMap[icao]
+        const taf = tafMap[icao]
+        results[icao] = {
+          icao,
+          metar: metar && metar.rawText
+            ? {
+                observationTime: metar.observationTime,
+                rawText: metar.rawText,
+                tempC: metar.tempC,
+                dewpointC: metar.dewpointC,
+                windDirKts: metar.windDirDeg,
+                windSpeedKts: metar.windSpeedKts,
+                windGustKts: metar.windGustKts,
+                visibilitySm: metar.visibilitySm,
+                altHg: metar.altimeterHg,
+                flightCategory: metar.flightCategory,
+              }
+            : null,
+          taf: taf && taf.rawText ? { rawText: taf.rawText } : null,
+          fetchedAt: new Date().toISOString(),
+        }
+      }
       setWeatherData(results)
 
-      // If 2+ waypoints, fetch route weather impact via cloud API
+      // Run rules engine for departure airport warnings
+      if (pilotStatus && waypoints.length > 0) {
+        const depIcao = waypoints[0].icao
+        const depMetar = metarMap[depIcao]
+        if (depMetar) {
+          const rulesResult = evaluateWeatherRules({
+            metar: depMetar,
+            pilotStatus,
+            departureIcao: depIcao,
+            departureTime: new Date(),
+          })
+          setWeatherWarnings(rulesResult.warnings)
+        }
+      }
+
+      // If 2+ waypoints, fetch route weather impact via local API
       if (waypoints.length >= 2) {
         try {
-          const routeData = await cloudApi.getRouteWeather({
-            waypoints: waypoints.map((w) => ({ icao: w.icao, lat: w.latitude, lon: w.longitude })),
-            altitude: cruiseAltFt,
-            aircraftTAS: cruiseKts,
+          const res = await fetch('/api/route-weather', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              waypoints: waypoints.map((w) => ({ icao: w.icao, lat: w.latitude, lon: w.longitude })),
+              altitude: cruiseAltFt,
+              aircraftTAS: cruiseKts,
+              fuelBurnGph: burnGph,
+            }),
           })
-          setRouteWeather(routeData as RouteWeatherSummary)
+          if (res.ok) {
+            const data = await res.json()
+            setRouteWeather({
+              totalDistance: data.summary?.totalDistance,
+              totalTimeStillAir: data.summary?.totalTimeStillAir,
+              totalTimeWithWind: data.summary?.totalTimeWithWind,
+              fuelImpact: data.summary?.fuelImpact,
+              fuelImpactPercent: data.summary?.fuelImpactPercent,
+              significant: data.summary?.significant,
+              segments: data.segments,
+            })
+          }
         } catch {
           // non-fatal
         }
@@ -546,7 +618,7 @@ export default function DesktopMapPage() {
     } finally {
       setWeatherLoading(false)
     }
-  }, [waypoints, cruiseAltFt, cruiseKts])
+  }, [waypoints, cruiseAltFt, cruiseKts, burnGph, pilotStatus])
 
   const filteredAirports = useMemo(() => {
     return airports.filter((a) => {
@@ -590,7 +662,25 @@ export default function DesktopMapPage() {
       return
     }
     if (kind === 'fpl') {
-      downloadFPL(waypoints)
+      const wbData: WbExportData = {
+        emptyWeight: wbEmptyWeight,
+        emptyCg: wbEmptyCg,
+        frontSeats: wbFrontSeats,
+        rearSeats: wbRearSeat1 + wbRearSeat2,
+        baggage: wbBaggage1 + wbBaggage2,
+        fuelGal: wbFuelGal,
+        fuelWeight: wbFuelWeight,
+        totalWeight: wbTotalWeight,
+        cg: wbCg,
+        cgMin: wbForwardLimit,
+        cgMax: wbAftLimit,
+        withinLimits: wbWithinLimits,
+        armPilot: armPilotStation,
+        armPassenger: armPassengerStation,
+        armBaggage: armBaggageStation,
+        armFuel: armFuelStation,
+      }
+      downloadFPL(waypoints, wbData)
       return
     }
     downloadJSON({ name: 'Desktop Route', waypoints })
@@ -718,13 +808,30 @@ export default function DesktopMapPage() {
     }
   }
 
-  async function handleDeleteRoute(route: StoredRoute) {
-    await deleteRoute(route.id)
-    if (activeRouteId === route.id) {
+  function handleDeleteRoute(route: StoredRoute) {
+    setRouteToDelete(route)
+    setDeleteRouteOpen(true)
+  }
+
+  async function confirmDeleteRoute() {
+    if (!routeToDelete) return
+    await deleteRoute(routeToDelete.id)
+    if (activeRouteId === routeToDelete.id) {
       setActiveRouteId(null)
       setRouteName('')
     }
     await loadSavedRoutes()
+    setDeleteRouteOpen(false)
+    setRouteToDelete(null)
+  }
+
+  function handleClearWaypoints() {
+    setClearWaypointsOpen(true)
+  }
+
+  function confirmClearWaypoints() {
+    setWaypoints([])
+    setClearWaypointsOpen(false)
   }
 
   async function handleDuplicateRoute(route: StoredRoute) {
@@ -754,9 +861,76 @@ export default function DesktopMapPage() {
     }
   }
 
+
+  // ── Reorder waypoints (for RoutePanel drag-reorder) ──
+  const handleReorder = useCallback((from: number, to: number) => {
+    setWaypoints((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }, [])
+
+  // ── Optimize waypoints (nearest neighbor shortest path) ──
+  const handleOptimize = useCallback(() => {
+    setWaypoints((prev) => {
+      if (prev.length < 3) return prev
+      const sorted = [...prev]
+      const start = sorted[0]
+      const result: Waypoint[] = [start]
+      const remaining = sorted.slice(1)
+
+      while (remaining.length > 0) {
+        const last = result[result.length - 1]
+        let nearestIdx = 0
+        let nearestDist = haversineNm(last.latitude, last.longitude, remaining[0].latitude, remaining[0].longitude)
+        for (let i = 1; i < remaining.length; i++) {
+          const d = haversineNm(last.latitude, last.longitude, remaining[i].latitude, remaining[i].longitude)
+          if (d < nearestDist) { nearestDist = d; nearestIdx = i }
+        }
+        result.push(remaining[nearestIdx])
+        remaining.splice(nearestIdx, 1)
+      }
+      return result
+    })
+  }, [])
+
+  // ── Round trip: append first waypoint to end ──
+  const handleRoundTrip = useCallback(() => {
+    setWaypoints((prev) => {
+      if (prev.length < 2) return prev
+      const first = prev[0]
+      const last = prev[prev.length - 1]
+      // If first and last are already the same, remove the duplicate
+      if (first.icao === last.icao) {
+        return prev.slice(0, -1)
+      }
+      return [...prev, { ...first, id: `${first.id}-rtn` }]
+    })
+  }, [])
+
+  // ── File flight plan on 1800wxbrief (deep-link) ──
+  function handleFileFlightPlan() {
+    const route = waypoints.map((w) => w.icao).join(' ')
+    const url = `https://www.1800wxbrief.com/Website?geocode=icao&route=${encodeURIComponent(route)}`
+    openExternalUrl(url)
+  }
+
+  const panelTitles: Record<PanelId, string> = {
+    route: 'Route',
+    plan: 'Flight Plan',
+    wb: 'Weight and Balance',
+    weather: 'Weather',
+    fuel: 'Fuel',
+    layers: 'Layers and Filters',
+    saved: 'Saved Routes',
+    export: 'Export and File',
+  }
+
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
+      {/* Top bar */}
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border bg-card px-4">
         <div className="flex items-center gap-2">
           <Globe className="h-4 w-4 text-primary" />
@@ -772,497 +946,14 @@ export default function DesktopMapPage() {
             </span>
           )}
         </div>
-          <div className="text-[11px] text-muted-foreground">
-            <kbd className="rounded border border-border bg-muted px-1 font-mono">Ctrl 7</kbd>
-          </div>
+        <div className="text-[11px] text-muted-foreground">
+          <kbd className="rounded border border-border bg-muted px-1 font-mono">Ctrl 7</kbd>
+        </div>
       </div>
 
-      {/* Body */}
+      {/* Body: full-screen map + toolbar + slide-out panel */}
       <div className="relative flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-card xl:w-80">
-          {/* Airport search */}
-          <div className="border-b border-border p-2.5">
-            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-              ADD WAYPOINT
-            </label>
-            <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-              <input
-                ref={searchRef}
-                type="text"
-                value={airportSearch}
-                onChange={(e) => setAirportSearch(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="Type ICAO or name..."
-                className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-2 text-xs outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-            {airportResults.length > 0 && (
-              <ul className="mt-1 max-h-44 overflow-y-auto rounded-md border border-border bg-popover text-xs shadow-sm">
-                {airportResults.map((a, i) => (
-                  <li key={a.icao}>
-                    <button
-                      onClick={() => handleAddWaypoint(a)}
-                      onMouseEnter={() => setHighlightIdx(i)}
-                      className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left ${
-                        i === highlightIdx ? 'bg-primary/10 text-primary' : 'hover:bg-muted'
-                      }`}
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <Plus className="h-3 w-3 text-muted-foreground" />
-                        <span className="font-mono font-medium">{a.icao}</span>
-                      </span>
-                      <span className="truncate text-muted-foreground">{a.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Waypoint list */}
-          <div className="flex-1 overflow-y-auto p-2.5">
-            <div className="mb-2 grid grid-cols-3 gap-1 rounded-md border border-border bg-muted/20 p-1">
-              <button onClick={() => setMenuTab('route')} className={`rounded px-2 py-1 text-[11px] ${menuTab === 'route' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>Route</button>
-              <button onClick={() => setMenuTab('filters')} className={`rounded px-2 py-1 text-[11px] ${menuTab === 'filters' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>Filters</button>
-              <button onClick={() => setMenuTab('weather')} className={`rounded px-2 py-1 text-[11px] ${menuTab === 'weather' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>Weather</button>
-            </div>
-
-            {menuTab === 'filters' && (
-              <>
-                <div className="mb-2 rounded-md border border-border bg-muted/20 p-2">
-                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Airport Size Filter</p>
-                  <div className="grid grid-cols-2 gap-1">
-                    <button onClick={() => applyAirportSizeMode('all')} className={`rounded px-2 py-1 text-[11px] ${airportSizeMode === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/70'}`}>All</button>
-                    <button onClick={() => applyAirportSizeMode('only-large')} className={`rounded px-2 py-1 text-[11px] ${airportSizeMode === 'only-large' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/70'}`}>Only Large</button>
-                    <button onClick={() => applyAirportSizeMode('only-medium')} className={`rounded px-2 py-1 text-[11px] ${airportSizeMode === 'only-medium' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/70'}`}>Only Medium</button>
-                    <button onClick={() => applyAirportSizeMode('only-small')} className={`rounded px-2 py-1 text-[11px] ${airportSizeMode === 'only-small' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/70'}`}>Only Small</button>
-                  </div>
-                </div>
-
-                <div className="mb-2 rounded-md border border-border bg-muted/20 p-2">
-                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Region</p>
-                  <div className="grid grid-cols-2 gap-1">
-                    <button onClick={() => setRegionMode('map-view')} className={`rounded px-2 py-1 text-[11px] ${regionMode === 'map-view' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/70'}`}>Map View</button>
-                    <button onClick={() => setRegionMode('all-us')} className={`rounded px-2 py-1 text-[11px] ${regionMode === 'all-us' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/70'}`}>All US</button>
-                    <button onClick={() => setRegionMode('east-coast')} className={`rounded px-2 py-1 text-[11px] ${regionMode === 'east-coast' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/70'}`}>East Coast</button>
-                    <button onClick={() => setRegionMode('west-coast')} className={`rounded px-2 py-1 text-[11px] ${regionMode === 'west-coast' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/70'}`}>West Coast</button>
-                  </div>
-                </div>
-
-                <div className="mb-2 rounded-md border border-border bg-muted/20 p-2">
-                  <div className="mb-1 flex items-center justify-between">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Airport Count</p>
-                    <span className="text-[11px] font-medium">{airportLimit}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={100}
-                    max={2000}
-                    step={50}
-                    value={airportLimit}
-                    onChange={(e) => setAirportLimit(Number(e.target.value))}
-                    className="w-full"
-                  />
-                  <p className="mt-1 text-[10px] text-muted-foreground">Higher values show more airports but may reduce performance.</p>
-                </div>
-              </>
-            )}
-
-            {menuTab === 'weather' && (
-              <div className="mb-2 rounded-md border border-border bg-muted/20 p-2">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Route Weather</p>
-                  <button
-                    onClick={() => fetchRouteWeather()}
-                    disabled={weatherLoading || waypoints.length < 2}
-                    className="flex items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] hover:bg-muted disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-3 w-3 ${weatherLoading ? 'animate-spin' : ''}`} />
-                    Refresh
-                  </button>
-                </div>
-
-                {waypoints.length < 2 ? (
-                  <p className="text-[11px] text-muted-foreground">Add at least 2 waypoints to see route weather.</p>
-                ) : weatherLoading ? (
-                  <p className="text-[11px] text-muted-foreground">Loading weather data...</p>
-                ) : (
-                  <>
-                    {routeWeather && (
-                      <div className="mb-3 space-y-1.5 rounded border border-border bg-card p-2">
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Impact Summary</p>
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1 text-[11px]">
-                            <Fuel className="h-3.5 w-3.5 text-amber-500" />
-                            <span className={(routeWeather.fuelImpactPercent ?? 0) > 5 ? 'text-amber-600' : 'text-muted-foreground'}>
-                              {(routeWeather.fuelImpactPercent ?? 0) > 0 ? '+' : ''}{(routeWeather.fuelImpactPercent ?? 0).toFixed(1)}% fuel
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 text-[11px]">
-                            <Clock className="h-3.5 w-3.5 text-sky-500" />
-                            {(() => {
-                              const timeDiff = (routeWeather.totalTimeWithWind ?? 0) - (routeWeather.totalTimeStillAir ?? 0)
-                              return (
-                                <span className={Math.abs(timeDiff) > 10 ? 'text-sky-600' : 'text-muted-foreground'}>
-                                  {timeDiff > 0 ? '+' : ''}{timeDiff.toFixed(0)} min
-                                </span>
-                              )
-                            })()}
-                          </div>
-                        </div>
-                        {routeWeather.segments && routeWeather.segments.length > 0 && (
-                          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Wind className="h-3.5 w-3.5" />
-                            {(() => {
-                              const avgSpeed = routeWeather.segments.reduce((sum, s) => sum + s.windSpeed, 0) / routeWeather.segments.length
-                              const avgDir = routeWeather.segments.reduce((sum, s) => sum + s.windFrom, 0) / routeWeather.segments.length
-                              return `Avg wind: ${avgSpeed.toFixed(0)} kts @ ${avgDir.toFixed(0)}°`
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      {waypoints.map((wp) => {
-                        const wx = weatherData[wp.icao]
-                        if (!wx) return null
-                        const category = wx.metar?.flightCategory || 'Unknown'
-                        const categoryColors: Record<string, string> = {
-                          VFR: 'text-emerald-600 bg-emerald-500/10',
-                          MVFR: 'text-sky-600 bg-sky-500/10',
-                          IFR: 'text-red-600 bg-red-500/10',
-                          LIFR: 'text-fuchsia-600 bg-fuchsia-500/10',
-                        }
-                        const catClass = categoryColors[category] || 'text-muted-foreground bg-muted'
-                        return (
-                          <div key={wp.id} className="rounded border border-border bg-card p-2">
-                            <div className="flex items-center justify-between">
-                              <span className="font-mono text-xs font-semibold">{wp.icao}</span>
-                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${catClass}`}>
-                                {category}
-                              </span>
-                            </div>
-                            {wx.metar ? (
-                              <div className="mt-1.5 space-y-1 text-[11px]">
-                                <div className="flex items-center gap-1.5 text-muted-foreground">
-                                  <Wind className="h-3 w-3" />
-                                  {wx.metar.windDirKts ?? '---'}° @ {wx.metar.windSpeedKts ?? 0} kts {wx.metar.windGustKts ? `G${wx.metar.windGustKts}` : ''}
-                                </div>
-                                <div className="flex items-center gap-1.5 text-muted-foreground">
-                                  <Eye className="h-3 w-3" />
-                                  Vis: {wx.metar.visibilitySm ?? '---'} SM
-                                </div>
-                                <div className="flex items-center gap-1.5 text-muted-foreground">
-                                  <Thermometer className="h-3 w-3" />
-                                  {wx.metar.tempC ?? '--'}°C / {wx.metar.dewpointC ?? '--'}°C
-                                </div>
-                                <div className="flex items-center gap-1.5 text-muted-foreground">
-                                  <Gauge className="h-3 w-3" />
-                                  {wx.metar.altHg?.toFixed(2) ?? '---'} inHg
-                                </div>
-                                <p className="mt-1 font-mono text-[9px] leading-tight text-muted-foreground/70">{wx.metar.rawText}</p>
-                              </div>
-                            ) : (
-                              <p className="mt-1 text-[11px] text-muted-foreground">No METAR available</p>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-
-                    {Object.keys(weatherData).length === 0 && !weatherLoading && (
-                      <p className="text-[11px] text-muted-foreground">Click Refresh to load weather for route airports.</p>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            {menuTab === 'route' && (
-              <>
-
-            <div className="mb-2 rounded-md border border-border bg-muted/20 p-2">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Quick Actions</p>
-                <div className="flex items-center gap-1 text-[10px]">
-                  <button className="rounded border border-border bg-card px-2 py-0.5 hover:bg-muted">Add</button>
-                  <button className="rounded border border-border bg-card px-2 py-0.5 hover:bg-muted">Plan</button>
-                  <button
-                    onClick={async () => {
-                      await saveFlightPlan({
-                        name: routeName || 'My Cross Country',
-                        callsign,
-                        pilotName,
-                        aircraftName,
-                        departureAt,
-                        cruiseAltFt,
-                        soulsOnBoard,
-                        alternateIcao,
-                        remarks,
-                        fuelPercent,
-                        waypoints: waypoints.map((w) => ({ icao: w.icao, name: w.name })),
-                      })
-                    }}
-                    className="rounded border border-border bg-card px-2 py-0.5 hover:bg-muted"
-                  >
-                    Save Flight Plan
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-1 text-[11px]">
-                <div className="rounded border border-border bg-card px-2 py-1">
-                  <p className="text-muted-foreground">Fuel</p>
-                  <p className="font-semibold">{fuelPercent}%</p>
-                </div>
-                <div className="rounded border border-border bg-card px-2 py-1">
-                  <p className="text-muted-foreground">W&amp;B</p>
-                  <p className={`font-semibold ${wbWithinLimits ? 'text-emerald-600' : 'text-destructive'}`}>{wbWithinLimits ? 'Within limits' : 'Out of limits'}</p>
-                </div>
-                <div className="rounded border border-border bg-card px-2 py-1">
-                  <p className="text-muted-foreground">CG</p>
-                  <p className="font-semibold">{wbCg.toFixed(1)}&quot;</p>
-                </div>
-                <div className="rounded border border-border bg-card px-2 py-1">
-                  <p className="text-muted-foreground">Range</p>
-                  <p className="font-semibold">{Math.round(estRangeNm)} nm</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mb-2 rounded-md border border-border bg-muted/20 p-2">
-              <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"><ClipboardList className="h-3.5 w-3.5" /> Flight Plan</p>
-              <div className="space-y-2 text-xs">
-                <FieldRow label="Callsign"><input value={callsign} onChange={(e) => setCallsign(e.target.value)} className="planner-input" /></FieldRow>
-                <FieldRow label="Pilot"><input value={pilotName} onChange={(e) => setPilotName(e.target.value)} className="planner-input" /></FieldRow>
-                <FieldRow label="Aircraft"><input value={aircraftName} onChange={(e) => setAircraftName(e.target.value)} className="planner-input" /></FieldRow>
-                <FieldRow label="Departure"><input type="datetime-local" value={departureAt} onChange={(e) => setDepartureAt(e.target.value)} className="planner-input" /></FieldRow>
-                <div className="grid grid-cols-2 gap-2">
-                  <FieldRow label="Alt (ft)"><input type="number" value={cruiseAltFt} onChange={(e) => setCruiseAltFt(Number(e.target.value) || 0)} className="planner-input" /></FieldRow>
-                  <FieldRow label="Souls"><input type="number" value={soulsOnBoard} onChange={(e) => setSoulsOnBoard(Number(e.target.value) || 0)} className="planner-input" /></FieldRow>
-                </div>
-                <FieldRow label="Alternate"><input value={alternateIcao} onChange={(e) => setAlternateIcao(e.target.value.toUpperCase())} className="planner-input" /></FieldRow>
-                <FieldRow label="Remarks"><textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} className="planner-input min-h-[54px] resize-none" /></FieldRow>
-                <div>
-                  <div className="mb-1 flex items-center justify-between text-[11px]"><span className="text-muted-foreground">Fuel</span><span>{fuelPercent}%</span></div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={fuelPercent}
-                    onInput={(e) => setFuelPercent(Number((e.target as HTMLInputElement).value))}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className="w-full cursor-ew-resize accent-sky-500"
-                  />
-                  <div className="mt-1 grid grid-cols-4 gap-1 text-[10px]">
-                    <div className="rounded border border-border bg-card px-1.5 py-1"><p className="text-muted-foreground">Range</p><p className="font-semibold">{Math.round(estRangeNm)}</p></div>
-                    <div className="rounded border border-border bg-card px-1.5 py-1"><p className="text-muted-foreground">Gal</p><p className="font-semibold">{fuelGal.toFixed(1)}</p></div>
-                    <div className="rounded border border-border bg-card px-1.5 py-1"><p className="text-muted-foreground">Burn</p><p className="font-semibold">{burnGph}</p></div>
-                    <div className="rounded border border-border bg-card px-1.5 py-1"><p className="text-muted-foreground">Kts</p><p className="font-semibold">{cruiseKts}</p></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mb-2 rounded-md border border-border bg-muted/20 p-2">
-              <button onClick={() => setWbOpen((v) => !v)} className="flex w-full items-center justify-between text-left">
-                <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"><Scale className="h-3.5 w-3.5" /> Weight &amp; Balance</p>
-                <span className="text-[11px] text-muted-foreground">{wbOpen ? 'Hide' : 'Show'}</span>
-              </button>
-              {wbOpen && (
-                <div className="mt-2 space-y-2 text-xs">
-                  <FieldRow label="Aircraft"><input value={aircraftName} onChange={(e) => setAircraftName(e.target.value)} className="planner-input" /></FieldRow>
-                  <div className="grid grid-cols-2 gap-2">
-                    <FieldRow label="Front Seats (lbs)"><input type="number" value={wbFrontSeats} onChange={(e) => setWbFrontSeats(Number(e.target.value) || 0)} className="planner-input" /></FieldRow>
-                    <FieldRow label="Rear Seat 1 (lbs)"><input type="number" value={wbRearSeat1} onChange={(e) => setWbRearSeat1(Number(e.target.value) || 0)} className="planner-input" /></FieldRow>
-                    <FieldRow label="Rear Seat 2 (lbs)"><input type="number" value={wbRearSeat2} onChange={(e) => setWbRearSeat2(Number(e.target.value) || 0)} className="planner-input" /></FieldRow>
-                    <FieldRow label="Baggage 1 (lbs)"><input type="number" value={wbBaggage1} onChange={(e) => setWbBaggage1(Number(e.target.value) || 0)} className="planner-input" /></FieldRow>
-                    <FieldRow label="Baggage 2 (lbs)"><input type="number" value={wbBaggage2} onChange={(e) => setWbBaggage2(Number(e.target.value) || 0)} className="planner-input" /></FieldRow>
-                    <FieldRow label="Fuel (gal)"><input type="number" value={wbFuelGal} onChange={(e) => setWbFuelGal(Number(e.target.value) || 0)} className="planner-input" /></FieldRow>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1 text-[11px]">
-                    <Stat text="Empty" value={`${wbEmptyWeight} lbs`} />
-                    <Stat text="Payload" value={`${wbPayloadWeight} lbs`} />
-                    <Stat text="Fuel" value={`${wbFuelWeight} lbs`} />
-                    <Stat text="Total" value={`${wbTotalWeight} lbs`} />
-                    <Stat text="CG" value={`${wbCg.toFixed(1)}\"`} />
-                    <Stat text="Limits" value={`${wbForwardLimit}\" - ${wbAftLimit}\"`} />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-muted-foreground">CG:</span>
-                      <span className="font-medium">{wbCg.toFixed(1)}&quot;</span>
-                    </div>
-                    <div className="relative h-2.5 rounded-full bg-muted">
-                      <div
-                        className={`absolute top-0 h-full w-1 rounded ${wbWithinLimits ? 'bg-emerald-500' : 'bg-destructive'}`}
-                        style={{ left: `calc(${wbCgPercent}% - 2px)` }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span>{wbForwardLimit}&quot;</span>
-                      <span className={`font-medium ${wbWithinLimits ? 'text-emerald-600' : 'text-destructive'}`}>
-                        {wbWithinLimits ? '✓ Within Limits' : '⚠️ Out of Limits'}
-                      </span>
-                      <span>{wbAftLimit}&quot;</span>
-                    </div>
-                  </div>
-                  <p className={`text-xs font-medium ${wbWithinLimits ? 'text-emerald-600' : 'text-destructive'}`}>
-                    {wbWithinLimits ? '✓ Within Limits' : '✗ Out of Limits'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">Arms and limits based on POH data for selected aircraft.</p>
-                </div>
-              )}
-            </div>
-
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                ROUTE ({waypoints.length})
-              </span>
-              <div className="flex items-center gap-2">
-                {waypoints.length > 1 && (
-                  <>
-                    <button onClick={() => exportRoute('gpx')} className="text-[11px] text-muted-foreground hover:text-foreground" title="Export GPX"><Download className="h-3.5 w-3.5" /></button>
-                    <button onClick={() => importInputRef.current?.click()} className="text-[11px] text-muted-foreground hover:text-foreground" title="Import Route"><Upload className="h-3.5 w-3.5" /></button>
-                  </>
-                )}
-                {waypoints.length > 0 && (
-                  <button
-                    onClick={() => setWaypoints([])}
-                    className="text-[11px] text-muted-foreground hover:text-foreground"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="mb-2 rounded-md border border-border bg-muted/20 p-2">
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Route File</p>
-              <div className="flex items-center gap-1.5">
-                <input
-                  value={routeName}
-                  onChange={(e) => setRouteName(e.target.value)}
-                  placeholder="Route name"
-                  className="h-7 flex-1 rounded border border-input bg-background px-2 text-[11px] outline-none focus:ring-2 focus:ring-ring"
-                />
-                <button
-                  onClick={handleSaveCurrentRoute}
-                  disabled={waypoints.length < 2}
-                  className="inline-flex h-7 items-center gap-1 rounded border border-border bg-card px-2 text-[11px] hover:bg-muted disabled:opacity-50"
-                >
-                  <Save className="h-3.5 w-3.5" /> Save
-                </button>
-              </div>
-              {importError && <p className="mt-1 text-[11px] text-destructive">{importError}</p>}
-            </div>
-
-            {pendingImport && (
-              <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
-                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">Import conflict: keep current route or replace?</p>
-                <div className="mt-1 flex gap-1">
-                  <button onClick={() => applyImportedRoute(pendingImport, 'merge')} className="rounded border border-border bg-card px-2 py-1 text-[11px] hover:bg-muted">Merge</button>
-                  <button onClick={() => applyImportedRoute(pendingImport, 'replace')} className="rounded border border-border bg-card px-2 py-1 text-[11px] hover:bg-muted">Replace</button>
-                  <button onClick={() => setPendingImport(null)} className="rounded border border-border bg-card px-2 py-1 text-[11px] hover:bg-muted">Cancel</button>
-                </div>
-              </div>
-            )}
-
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".gpx,.fpl,.json,.txt"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) importRouteFile(file)
-                e.currentTarget.value = ''
-              }}
-            />
-            {waypoints.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No waypoints. Search above to build a route.
-              </p>
-            ) : (
-              <ol className="space-y-1">
-                {waypoints.slice(0, 5).map((w, i) => (
-                  <li key={w.id} className="group flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
-                      {i + 1}
-                    </span>
-                    <span className="flex-1 truncate">
-                      <span className="block font-mono text-xs font-medium">{w.icao}</span>
-                      <span className="block truncate text-[10px] text-muted-foreground">{w.name}</span>
-                    </span>
-                    <button
-                      onClick={() => handleRemoveWaypoint(w.icao)}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </li>
-                ))}
-                {waypoints.length > 5 && (
-                  <li className="text-[11px] text-muted-foreground">+{waypoints.length - 5} more waypoints</li>
-                )}
-              </ol>
-            )}
-            {waypoints.length > 1 && (
-              <div className="mt-3 space-y-2 rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs">
-                <div className="flex items-center gap-1 text-muted-foreground">
-                  <Plane className="h-3 w-3" />
-                  Route: {waypoints.map((w) => w.icao).join(' → ')}
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  <button onClick={() => exportRoute('gpx')} className="rounded border border-border bg-card px-2 py-1 text-[11px] hover:bg-muted">Export GPX</button>
-                  <button onClick={() => exportRoute('fpl')} className="rounded border border-border bg-card px-2 py-1 text-[11px] hover:bg-muted">Export FPL</button>
-                  <button onClick={() => exportRoute('json')} className="rounded border border-border bg-card px-2 py-1 text-[11px] hover:bg-muted">Export JSON</button>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-3 rounded-md border border-border bg-muted/20 p-2">
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Saved Routes</p>
-              {savedRoutes.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground">No saved routes yet.</p>
-              ) : (
-                <ul className="space-y-1">
-                  {savedRoutes.slice(0, 5).map((route) => (
-                    <li key={route.id} className={`rounded border px-2 py-1 ${activeRouteId === route.id ? 'border-primary/50 bg-primary/5' : 'border-border bg-card'}`}>
-                      <div className="flex items-center justify-between gap-1">
-                        <button onClick={() => openSavedRoute(route)} className="min-w-0 flex-1 text-left">
-                          <span className="block truncate text-[11px] font-medium">{route.name}</span>
-                          <span className="text-[10px] text-muted-foreground">{route.waypoints.length} wp • {new Date(route.updatedAt).toLocaleDateString()}</span>
-                        </button>
-                        <div className="flex items-center gap-0.5">
-                          <button onClick={() => openSavedRoute(route)} title="Open" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><FolderOpen className="h-3.5 w-3.5" /></button>
-                          <button onClick={() => handleDuplicateRoute(route)} title="Duplicate" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><Copy className="h-3.5 w-3.5" /></button>
-                          <button onClick={() => handleDeleteRoute(route)} title="Delete" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                  {savedRoutes.length > 5 && (
-                    <li className="text-[11px] text-muted-foreground">+{savedRoutes.length - 5} more saved routes</li>
-                  )}
-                </ul>
-              )}
-            </div>
-            </>
-            )}
-          </div>
-
-          <div className="border-t border-border p-2.5">
-            <p className="text-[10px] text-muted-foreground">
-              Tiles cache automatically. Use the Update button on the map to refresh.
-            </p>
-          </div>
-        </aside>
-
-        {/* Map */}
+        {/* Full-screen map */}
         <div className="relative flex-1">
           <MapErrorBoundary
             resetKey={cacheVersion}
@@ -1296,6 +987,7 @@ export default function DesktopMapPage() {
               performanceMode={mapOptions.performanceMode}
               maxAirportsToRender={airportLimit}
               clusterAirports={false}
+              weatherCategories={weatherCategories}
             />
           </MapErrorBoundary>
           <div className="absolute bottom-4 right-4 z-[1000]">
@@ -1307,7 +999,6 @@ export default function DesktopMapPage() {
               onRefresh={() => setCacheVersion((v) => v + 1)}
             />
           </div>
-
           {selectedStateInfo && (
             <DesktopStateInfoPanel
               key={selectedStateInfo.state}
@@ -1316,7 +1007,154 @@ export default function DesktopMapPage() {
             />
           )}
         </div>
+
+        {/* Vertical toolbar */}
+        <MapToolbar
+          activePanel={activePanel}
+          onTogglePanel={(p) => setActivePanel((prev) => (prev === p ? null : p))}
+          hasWaypoints={waypoints.length > 0}
+          hasRoute={waypoints.length >= 2}
+        />
+
+        {/* Slide-out panel */}
+        {activePanel && (
+          <MapPanelContainer
+            open={!!activePanel}
+            onClose={() => setActivePanel(null)}
+            title={panelTitles[activePanel]}
+          >
+            {activePanel === 'route' && (
+              <RoutePanel
+                waypoints={waypoints}
+                airportSearch={airportSearch}
+                setAirportSearch={setAirportSearch}
+                airportResults={airportResults}
+                onAddWaypoint={handleAddWaypoint}
+                onRemoveWaypoint={handleRemoveWaypoint}
+                onClearWaypoints={handleClearWaypoints}
+                onReorder={handleReorder}
+                onOptimize={handleOptimize}
+                onRoundTrip={handleRoundTrip}
+                onExport={exportRoute}
+                onImportFile={importRouteFile}
+                routeName={routeName}
+                setRouteName={setRouteName}
+                onSaveRoute={handleSaveCurrentRoute}
+                onSaveFlightPlan={() => saveFlightPlan({ name: routeName || 'My Cross Country', callsign, pilotName, aircraftName, departureAt, cruiseAltFt, soulsOnBoard, alternateIcao, remarks, fuelPercent, waypoints: waypoints.map((w) => ({ icao: w.icao, name: w.name })) })}
+              />
+            )}
+            {activePanel === 'plan' && (
+              <FlightPlanPanel
+                callsign={callsign} setCallsign={setCallsign}
+                pilotName={pilotName} setPilotName={setPilotName}
+                aircraftName={aircraftName} setAircraftName={setAircraftName}
+                departureAt={departureAt} setDepartureAt={setDepartureAt}
+                cruiseAltFt={cruiseAltFt} setCruiseAltFt={setCruiseAltFt}
+                soulsOnBoard={soulsOnBoard} setSoulsOnBoard={setSoulsOnBoard}
+                alternateIcao={alternateIcao} setAlternateIcao={setAlternateIcao}
+                remarks={remarks} setRemarks={setRemarks}
+                fuelPercent={fuelPercent} setFuelPercent={setFuelPercent}
+                fuelGal={fuelGal} burnGph={burnGph} cruiseKts={cruiseKts} estRangeNm={estRangeNm}
+                userAircraft={userAircraft} selectedAircraftId={selectedAircraftId}
+                onSelectAircraft={handleSelectAircraftForPlan}
+                onSave={() => saveFlightPlan({ name: routeName || 'My Cross Country', callsign, pilotName, aircraftName, departureAt, cruiseAltFt, soulsOnBoard, alternateIcao, remarks, fuelPercent, waypoints: waypoints.map((w) => ({ icao: w.icao, name: w.name })) })}
+              />
+            )}
+            {activePanel === 'wb' && (
+              <WbPanel
+                aircraftName={aircraftName} setAircraftName={setAircraftName}
+                wbFrontSeats={wbFrontSeats} setWbFrontSeats={setWbFrontSeats}
+                wbRearSeat1={wbRearSeat1} setWbRearSeat1={setWbRearSeat1}
+                wbRearSeat2={wbRearSeat2} setWbRearSeat2={setWbRearSeat2}
+                wbBaggage1={wbBaggage1} setWbBaggage1={setWbBaggage1}
+                wbBaggage2={wbBaggage2} setWbBaggage2={setWbBaggage2}
+                wbFuelGal={wbFuelGal} setWbFuelGal={setWbFuelGal}
+                wbEmptyWeight={wbEmptyWeight} wbPayloadWeight={wbPayloadWeight}
+                wbFuelWeight={wbFuelWeight} wbTotalWeight={wbTotalWeight}
+                wbCg={wbCg} wbForwardLimit={wbForwardLimit} wbAftLimit={wbAftLimit}
+                wbWithinLimits={wbWithinLimits} wbCgPercent={wbCgPercent}
+                selectedAircraftModel={selectedAc?.model ?? null}
+              />
+            )}
+            {activePanel === 'weather' && (
+              <WeatherPanel
+                waypoints={waypoints}
+                weatherData={weatherData}
+                routeWeather={routeWeather}
+                weatherLoading={weatherLoading}
+                weatherError={weatherError}
+                onRefresh={fetchRouteWeather}
+              />
+            )}
+            {activePanel === 'fuel' && (
+              <div className="space-y-3">
+                <div className="rounded-md border border-border bg-muted/20 p-2.5">
+                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Fuel Summary</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Fuel Load</p><p className="text-xs font-semibold">{fuelGal.toFixed(1)} gal</p></div>
+                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Percent</p><p className="text-xs font-semibold">{fuelPercent}%</p></div>
+                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Burn Rate</p><p className="text-xs font-semibold">{burnGph} gph</p></div>
+                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Cruise</p><p className="text-xs font-semibold">{cruiseKts} kts</p></div>
+                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Range</p><p className="text-xs font-semibold">{Math.round(estRangeNm)} nm</p></div>
+                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Endurance</p><p className="text-xs font-semibold">{(fuelGal / burnGph).toFixed(1)} hrs</p></div>
+                  </div>
+                </div>
+                <input type="range" min={0} max={100} step={1} value={fuelPercent} onInput={(e) => setFuelPercent(Number((e.target as HTMLInputElement).value))} className="w-full accent-sky-500" />
+                <p className="text-[10px] text-muted-foreground">Adjust fuel load to see range and endurance impact.</p>
+              </div>
+            )}
+            {activePanel === 'layers' && (
+              <FiltersPanel
+                airportSizeMode={airportSizeMode} setAirportSizeMode={setAirportSizeMode}
+                airportLimit={airportLimit} setAirportLimit={setAirportLimit}
+                regionMode={regionMode} setRegionMode={setRegionMode}
+                airportCount={filteredAirports.length}
+              />
+            )}
+            {activePanel === 'saved' && (
+              <SavedPanel
+                savedRoutes={savedRoutes} activeRouteId={activeRouteId}
+                onOpenRoute={openSavedRoute} onDuplicateRoute={handleDuplicateRoute}
+                onDeleteRoute={handleDeleteRoute}
+              />
+            )}
+            {activePanel === 'export' && (
+              <ExportPanel
+                waypoints={waypoints} routeName={routeName}
+                onExport={exportRoute} onFileFlightPlan={handleFileFlightPlan}
+              />
+            )}
+          </MapPanelContainer>
+        )}
       </div>
+
+      {/* Bottom status bar */}
+      <MapStatusBar
+        waypoints={waypoints}
+        fuelPercent={fuelPercent}
+        wbWithinLimits={wbWithinLimits}
+        wbCg={wbCg}
+        estRangeNm={estRangeNm}
+      />
+      {/* Confirm dialogs */}
+      <ConfirmDialog
+        open={clearWaypointsOpen}
+        onOpenChange={setClearWaypointsOpen}
+        onConfirm={confirmClearWaypoints}
+        title="Clear all waypoints?"
+        description="This will remove all waypoints from the current route. This action cannot be undone."
+        confirmLabel="Clear"
+        destructive={false}
+      />
+      <ConfirmDialog
+        open={deleteRouteOpen}
+        onOpenChange={setDeleteRouteOpen}
+        onConfirm={confirmDeleteRoute}
+        title="Delete saved route?"
+        description="This will permanently delete this saved route. This action cannot be undone."
+        confirmLabel="Delete"
+        destructive
+      />
     </div>
   )
 }

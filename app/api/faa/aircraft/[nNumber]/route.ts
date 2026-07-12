@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
 // FAA API endpoint for aircraft registration lookup
 const FAA_REGISTRY_URL = 'https://registry.faa.gov/aircraftinquiry/api/v1/nnumber';
+
+// Cache TTL: 30 days (aircraft registration data changes rarely)
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Fetch aircraft registration data from FAA
@@ -15,6 +19,7 @@ async function fetchFAAData(nNumber: string): Promise<FAAAircraftData | null> {
       headers: {
         'Accept': 'application/json',
       },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!response.ok) {
@@ -24,13 +29,11 @@ async function fetchFAAData(nNumber: string): Promise<FAAAircraftData | null> {
 
     const data = await response.json();
     
-    // Check if we got valid data
     if (!data || !data.results || data.results.length === 0) {
       return null;
     }
 
-    const result = data.results[0];
-    const r = result as any;
+    const r = data.results[0] as any;
     
     return {
       nNumber: `N${r.nNumber || normalized}`,
@@ -52,9 +55,7 @@ async function fetchFAAData(nNumber: string): Promise<FAAAircraftData | null> {
   }
 }
 
-// Helper functions to parse FAA codes (simplified - FAA uses codes for efficiency)
 function getManufacturerFromCode(code: string): string | null {
-  // Common manufacturer codes
   const codes: Record<string, string> = {
     'CESSNA': 'Cessna',
     'PIPER': 'Piper',
@@ -72,7 +73,6 @@ function getManufacturerFromCode(code: string): string | null {
     'AYRES': 'Ayres',
   };
   
-  // Try to match prefix
   for (const [key, value] of Object.entries(codes)) {
     if (code.toUpperCase().startsWith(key)) {
       return value;
@@ -83,8 +83,6 @@ function getManufacturerFromCode(code: string): string | null {
 }
 
 function getModelFromCode(code: string): string | null {
-  // This would need a full database for accurate mapping
-  // For now, return null and let user fill in
   return null;
 }
 
@@ -117,6 +115,38 @@ export async function GET(
       );
     }
 
+    const normalizedN = `N${nNumber.toUpperCase().replace(/^N/i, '').trim()}`;
+
+    // Check Azure SQL cache first
+    const cached = await prisma.faaAircraftCache.findUnique({
+      where: { n_number: normalizedN }
+    });
+
+    if (cached) {
+      const age = Date.now() - new Date(cached.scraped_at).getTime();
+      if (age < CACHE_TTL_MS) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            nNumber: cached.n_number,
+            serialNumber: cached.serial_number,
+            manufacturer: cached.manufacturer,
+            model: cached.model,
+            year: cached.year,
+            category: cached.category,
+            engineType: cached.engine_type,
+            registrationStatus: cached.registration_status,
+            ownerName: cached.owner_name,
+            ownerCity: cached.owner_city,
+            ownerState: cached.owner_state,
+            expirationDate: cached.expiration_date,
+          },
+          source: 'cache',
+        });
+      }
+    }
+
+    // Cache miss or expired — fetch from FAA
     const faaData = await fetchFAAData(nNumber);
     
     if (!faaData) {
@@ -126,9 +156,43 @@ export async function GET(
       );
     }
 
+    // Cache in Azure SQL for 30 days
+    await prisma.faaAircraftCache.upsert({
+      where: { n_number: faaData.nNumber },
+      create: {
+        n_number: faaData.nNumber,
+        serial_number: faaData.serialNumber,
+        manufacturer: faaData.manufacturer,
+        model: faaData.model,
+        year: faaData.year,
+        category: faaData.category,
+        engine_type: faaData.engineType,
+        registration_status: faaData.registrationStatus,
+        owner_name: faaData.ownerName,
+        owner_city: faaData.ownerCity,
+        owner_state: faaData.ownerState,
+        expiration_date: faaData.expirationDate,
+      },
+      update: {
+        serial_number: faaData.serialNumber,
+        manufacturer: faaData.manufacturer,
+        model: faaData.model,
+        year: faaData.year,
+        category: faaData.category,
+        engine_type: faaData.engineType,
+        registration_status: faaData.registrationStatus,
+        owner_name: faaData.ownerName,
+        owner_city: faaData.ownerCity,
+        owner_state: faaData.ownerState,
+        expiration_date: faaData.expirationDate,
+        scraped_at: new Date(),
+      },
+    });
+
     return NextResponse.json({
       success: true,
       data: faaData,
+      source: 'live',
     });
   } catch (error) {
     console.error('FAA lookup error:', error);

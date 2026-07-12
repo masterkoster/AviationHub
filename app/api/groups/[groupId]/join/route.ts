@@ -9,94 +9,91 @@ interface RouteParams {
 
 export async function POST(request: Request, { params }: RouteParams) {
   try {
-    const session = await auth();
-    
     const { groupId } = await params;
     if (!isUuid(groupId)) {
       return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 });
     }
+
     const body = await request.json();
     const { token } = body;
 
     if (!token) {
-      return NextResponse.json({ error: 'Token required' }, { status: 400 });
+      return NextResponse.json({ error: 'Token is required' }, { status: 400 });
     }
 
-    // Find the invite using raw SQL
-    const invites = await prisma.$queryRawUnsafe(`
-      SELECT * FROM Invite 
-      WHERE token = '${token}' AND groupId = '${groupId}' AND expiresAt > GETDATE()
-    `) as any[];
-
-    if (!invites || invites.length === 0) {
-      // Check if invite exists but expired
-      const anyInvites = await prisma.$queryRawUnsafe(`
-        SELECT * FROM Invite WHERE token = '${token}'
-      `) as any[];
-      
-      if (anyInvites && anyInvites.length > 0) {
-        const inv = anyInvites[0];
-        if (new Date(inv.expiresAt) <= new Date()) {
-          return NextResponse.json({ error: 'Invite has expired. Please ask for a new one.' }, { status: 404 });
-        }
-        return NextResponse.json({ error: 'Invalid invite link for this group' }, { status: 404 });
+    // Find invite
+    const invite = await prisma.invite.findFirst({
+      where: {
+        groupId,
+        token,
+        expiresAt: { gt: new Date() }
       }
-      return NextResponse.json({ error: 'Invalid invite link' }, { status: 404 });
+    });
+
+    if (!invite) {
+      return NextResponse.json({ error: 'Invalid or expired invite token' }, { status: 404 });
     }
 
-    const invite = invites[0];
+    // Get group info (for VIEWER role - public access)
+    const group = await prisma.organization.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true, description: true }
+    });
 
-    // VIEWER role can join without account - just return success
-    if (invite.role === 'VIEWER' && !session?.user?.email) {
-      // For viewer invites without login, just return success info
-      const groups = await prisma.$queryRawUnsafe(`
-        SELECT id, name, description FROM FlyingGroup WHERE id = '${groupId}'
-      `) as any[];
-      
-      return NextResponse.json({ 
-        success: true, 
+    if (!group) {
+      return NextResponse.json({ error: 'Group not found' }, { status: 404 });
+    }
+
+    // VIEWER role — public access, no auth required
+    if (invite.role === 'VIEWER') {
+      return NextResponse.json({
+        success: true,
         role: 'VIEWER',
-        group: groups[0],
-        message: 'You can view this group as a viewer'
+        group
       });
     }
 
-    // For MEMBER/ADMIN roles, require login
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Please log in to join as a member' }, { status: 401 });
+    // MEMBER/ADMIN role — requires auth
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Authentication required to join as member' }, { status: 401 });
     }
 
-    // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
-    if (!users || users.length === 0) {
-      return NextResponse.json({ error: '[User] not found' }, { status: 404 });
-    }
-    
-    const userId = users[0].id;
-    
-    // Check if already a member using raw SQL
-    const existingMembers = await prisma.$queryRawUnsafe(`
-      SELECT * FROM GroupMember WHERE userId = '${userId}' AND groupId = '${groupId}'
-    `) as any[];
+    const userId = session.user.id;
 
-    if (existingMembers && existingMembers.length > 0) {
-      return NextResponse.json({ error: 'Already a member of this group' }, { status: 400 });
+    // If the invite was addressed to a specific email, only that person may accept it
+    if (invite.email && session.user.email?.toLowerCase() !== invite.email.toLowerCase()) {
+      return NextResponse.json(
+        { error: 'This invite was sent to a different email address' },
+        { status: 403 }
+      );
     }
 
-    // Add user as member using raw SQL
-    const memberId = crypto.randomUUID();
-    await prisma.$executeRawUnsafe(`
-      INSERT INTO GroupMember (id, userId, groupId, role, joinedAt)
-      VALUES ('${memberId}', '${userId}', '${groupId}', '${invite.role}', GETDATE())
-    `);
+    // Check if already a member
+    const existingMember = await prisma.organizationMember.findFirst({
+      where: { organizationId: groupId, userId }
+    });
 
-    // Delete the used invite
-    await prisma.$executeRawUnsafe(`DELETE FROM Invite WHERE id = '${invite.id}'`);
+    if (existingMember) {
+      return NextResponse.json({ error: 'Already a member' }, { status: 400 });
+    }
 
-    return NextResponse.json({ success: true });
+    // Add member (for the authenticated caller only) and consume the invite
+    await prisma.organizationMember.create({
+      data: {
+        organizationId: groupId,
+        userId,
+        role: invite.role
+      }
+    });
+
+    await prisma.invite.delete({ where: { id: invite.id } });
+
+    return NextResponse.json({
+      success: true,
+      role: invite.role,
+      group
+    });
   } catch (error) {
     console.error('Error joining group:', error);
     return NextResponse.json({ error: 'Failed to join group', details: String(error) }, { status: 500 });

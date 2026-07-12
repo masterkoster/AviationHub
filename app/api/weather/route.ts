@@ -1,15 +1,11 @@
 /**
  * Weather API - Cached weather data from aviationweather.gov
- * Supports tiered caching based on zoom level
+ * Now uses Azure SQL (Prisma) instead of local SQLite for serverless compatibility.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import sqlite3 from 'sqlite3';
 import https from 'https';
-import http from 'http';
-import path from 'path';
-
-const DB_PATH = path.join(process.cwd(), 'data', 'aviation_hub.db');
+import { prisma } from '@/lib/prisma';
 
 // Weather region mapping
 const REGION_MAP: Record<string, { states: string[]; name: string }> = {
@@ -32,8 +28,7 @@ const CACHE_DURATION = {
 
 function httpGet(url: string): Promise<{ status: number; data: string }> {
   return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http;
-    const req = protocol.get(url, { 
+    const req = https.get(url, { 
       headers: { 'User-Agent': 'AviationHub/1.0' },
       timeout: 15000 
     }, (res) => {
@@ -51,9 +46,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const icao = searchParams.get('icao');
   const region = searchParams.get('region');
   const forceRefresh = searchParams.get('forceRefresh') === 'true';
-  const forecastDate = searchParams.get('forecast'); // YYYY-MM-DD format
-
-  const db = new sqlite3.Database(DB_PATH);
 
   // If icao provided, get airport weather
   if (icao) {
@@ -61,41 +53,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     
     // Check cache first for METAR
     if (!forceRefresh) {
-      const cached = await new Promise<any>((resolve) => {
-        db.get(
-          `SELECT data, fetched_at, expires_at FROM weather_cache 
-           WHERE icao = ? AND data_type = 'metar' AND expires_at > datetime('now')`,
-          [icaoUpper],
-          (err, row) => resolve(row)
-        );
+      const metarCached = await prisma.weatherCache.findFirst({
+        where: {
+          icao: icaoUpper,
+          data_type: 'metar',
+          expires_at: { gt: new Date() }
+        }
       });
 
-      if (cached) {
-        // Also try to get TAF if requested
-        let tafData = null;
-        const tafCached = await new Promise<any>((resolve) => {
-          db.get(
-            `SELECT data, fetched_at FROM weather_cache 
-             WHERE icao = ? AND data_type = 'taf'`,
-            [icaoUpper],
-            (err, row) => resolve(row)
-          );
+      if (metarCached) {
+        const tafCached = await prisma.weatherCache.findFirst({
+          where: { icao: icaoUpper, data_type: 'taf' }
         });
-        
-        if (tafCached) {
-          try {
-            tafData = JSON.parse(tafCached.data);
-          } catch (e) {}
-        }
 
-        db.close();
         return NextResponse.json({
           source: 'cache',
           icao: icaoUpper,
-          data: JSON.parse(cached.data),
-          taf: tafData,
-          fetchedAt: cached.fetched_at,
-          expiresAt: cached.expires_at
+          data: JSON.parse(metarCached.data),
+          taf: tafCached ? JSON.parse(tafCached.data) : null,
+          fetchedAt: metarCached.fetched_at,
+          expiresAt: metarCached.expires_at
         });
       }
     }
@@ -111,19 +88,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       if (response.status === 200) {
         metarData = JSON.parse(response.data);
         
-        // Cache METAR
         const expiresAt = new Date(Date.now() + CACHE_DURATION.metar * 60 * 60 * 1000);
-        await new Promise<void>((resolve) => {
-          db.run(
-            `INSERT OR REPLACE INTO weather_cache (id, region, icao, data_type, data, fetched_at, expires_at)
-             VALUES (?, NULL, ?, 'metar', ?, datetime('now'), ?)`,
-            [`metar-${icaoUpper}`, icaoUpper, JSON.stringify(metarData), expiresAt.toISOString()],
-            () => resolve()
-          );
+        await prisma.weatherCache.upsert({
+          where: { id: `metar-${icaoUpper}` },
+          create: {
+            id: `metar-${icaoUpper}`,
+            icao: icaoUpper,
+            data_type: 'metar',
+            data: JSON.stringify(metarData),
+            expires_at: expiresAt,
+          },
+          update: {
+            data: JSON.stringify(metarData),
+            fetched_at: new Date(),
+            expires_at: expiresAt,
+          },
         });
       }
 
-      // Fetch TAF (Terminal Area Forecast)
+      // Fetch TAF
       try {
         const tafUrl = `https://aviationweather.gov/api/data/taf?ids=${icaoUpper}&format=json`;
         const tafResponse = await httpGet(tafUrl);
@@ -131,22 +114,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         if (tafResponse.status === 200) {
           tafData = JSON.parse(tafResponse.data);
           
-          // Cache TAF
           const tafExpiresAt = new Date(Date.now() + CACHE_DURATION.taf * 60 * 60 * 1000);
-          await new Promise<void>((resolve) => {
-            db.run(
-              `INSERT OR REPLACE INTO weather_cache (id, region, icao, data_type, data, fetched_at, expires_at)
-               VALUES (?, NULL, ?, 'taf', ?, datetime('now'), ?)`,
-              [`taf-${icaoUpper}`, icaoUpper, JSON.stringify(tafData), tafExpiresAt.toISOString()],
-              () => resolve()
-            );
+          await prisma.weatherCache.upsert({
+            where: { id: `taf-${icaoUpper}` },
+            create: {
+              id: `taf-${icaoUpper}`,
+              icao: icaoUpper,
+              data_type: 'taf',
+              data: JSON.stringify(tafData),
+              expires_at: tafExpiresAt,
+            },
+            update: {
+              data: JSON.stringify(tafData),
+              fetched_at: new Date(),
+              expires_at: tafExpiresAt,
+            },
           });
         }
       } catch (tafError) {
         console.log('TAF fetch error:', tafError);
       }
 
-      db.close();
       return NextResponse.json({
         source: 'live',
         icao: icaoUpper,
@@ -155,7 +143,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         fetchedAt: new Date().toISOString()
       });
     } catch (error: any) {
-      db.close();
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
   }
@@ -164,19 +151,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (region) {
     const regionLower = region.toLowerCase();
     
-    // Check cache
     if (!forceRefresh) {
-      const cached = await new Promise<any>((resolve) => {
-        db.get(
-          `SELECT data, fetched_at, expires_at FROM weather_cache 
-           WHERE region = ? AND data_type = 'windtemp' AND expires_at > datetime('now')`,
-          [regionLower],
-          (err, row) => resolve(row)
-        );
+      const cached = await prisma.weatherCache.findFirst({
+        where: {
+          region: regionLower,
+          data_type: 'windtemp',
+          expires_at: { gt: new Date() }
+        }
       });
 
       if (cached) {
-        db.close();
         return NextResponse.json({
           source: 'cache',
           region: regionLower,
@@ -187,7 +171,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Fetch fresh wind/temp data
     try {
       const url = `https://aviationweather.gov/api/data/windtemp?region=${regionLower}&format=json`;
       const response = await httpGet(url);
@@ -195,18 +178,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       if (response.status === 200) {
         const windData = JSON.parse(response.data);
         
-        // Cache it
         const expiresAt = new Date(Date.now() + CACHE_DURATION.regional * 60 * 60 * 1000);
-        await new Promise<void>((resolve) => {
-          db.run(
-            `INSERT OR REPLACE INTO weather_cache (id, region, icao, data_type, data, fetched_at, expires_at)
-             VALUES (?, ?, NULL, 'windtemp', ?, datetime('now'), ?)`,
-            [`windtemp-${regionLower}`, regionLower, JSON.stringify(windData), expiresAt.toISOString()],
-            () => resolve()
-          );
+        await prisma.weatherCache.upsert({
+          where: { id: `windtemp-${regionLower}` },
+          create: {
+            id: `windtemp-${regionLower}`,
+            region: regionLower,
+            data_type: 'windtemp',
+            data: JSON.stringify(windData),
+            expires_at: expiresAt,
+          },
+          update: {
+            data: JSON.stringify(windData),
+            fetched_at: new Date(),
+            expires_at: expiresAt,
+          },
         });
 
-        db.close();
         return NextResponse.json({
           source: 'live',
           region: regionLower,
@@ -215,17 +203,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           expiresAt: expiresAt.toISOString()
         });
       } else {
-        db.close();
         return NextResponse.json({ error: 'Failed to fetch wind data' }, { status: response.status });
       }
     } catch (error: any) {
-      db.close();
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
   }
 
   // Return available regions
-  db.close();
   return NextResponse.json({
     regions: Object.entries(REGION_MAP).map(([code, info]) => ({
       code,
@@ -237,20 +222,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const { icao, region } = await request.json();
-  const db = new sqlite3.Database(DB_PATH);
 
-  // Clear cache for this item
   if (icao) {
-    await new Promise<void>((resolve) => {
-      db.run('DELETE FROM weather_cache WHERE icao = ?', [icao.toUpperCase()], () => resolve());
+    await prisma.weatherCache.deleteMany({
+      where: { icao: icao.toUpperCase() }
     });
   }
   if (region) {
-    await new Promise<void>((resolve) => {
-      db.run('DELETE FROM weather_cache WHERE region = ?', [region.toLowerCase()], () => resolve());
+    await prisma.weatherCache.deleteMany({
+      where: { region: region.toLowerCase() }
     });
   }
 
-  db.close();
   return NextResponse.json({ message: 'Cache cleared', icao, region });
 }

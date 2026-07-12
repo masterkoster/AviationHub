@@ -99,39 +99,68 @@ export function verificationEmailTemplate(verifyUrl: string, username: string): 
 }
 
 /**
- * Password reset template
+ * Password reset template — modern, clean, mobile-friendly
  */
 export function resetPasswordEmailTemplate(resetUrl: string, username: string): string {
   const content = `
-    <p style="margin: 0 0 8px; font-size: 16px; color: #f8fafc;">
-      Hey ${username || 'there'},
-    </p>
-    <p style="margin: 0 0 24px; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-      We received a request to reset your password for ${APP_NAME}. Click the button below to create a new password.
-    </p>
-    
-    <a href="${resetUrl}" style="display: inline-block; background-color: ${PRIMARY_COLOR}; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;">
-      Reset Password
-    </a>
-    
-    <p style="margin: 24px 0 0; font-size: 13px; color: #64748b;">
-      This link will expire in <strong style="color: #94a3b8;">1 hour</strong> for your security.
-    </p>
-    
-    <div style="margin-top: 24px; padding-top: 24px; border-top: 1px dashed #334155;">
-      <p style="margin: 0; font-size: 12px; color: #475569;">
-        If the button doesn't work, copy and paste this link into your browser:
-      </p>
-      <p style="margin: 8px 0 0; font-size: 11px; color: #64748b; word-break: break-all;">
-        ${resetUrl}
-      </p>
-    </div>
-    
-    <p style="margin: 24px 0 0; font-size: 12px; color: #475569;">
-      Didn't request a password reset? You can safely ignore this email. Your password will remain unchanged.
-    </p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+      <tr>
+        <td style="padding: 0 40px 8px;">
+          <p style="margin: 0; font-size: 16px; color: #f8fafc; font-weight: 600;">
+            Hey ${username || 'there'},
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 0 40px 24px;">
+          <p style="margin: 0; font-size: 14px; color: #94a3b8; line-height: 1.7;">
+            We received a request to reset your password for <strong style="color: #e2e8f0;">${APP_NAME}</strong>. 
+            Tap the button below to create a new one.
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 0 40px;" align="center">
+          <table role="presentation" cellspacing="0" cellpadding="0">
+            <tr>
+              <td style="border-radius: 10px; background: linear-gradient(135deg, ${PRIMARY_COLOR}, #059669); padding: 14px 40px; text-align: center;">
+                <a href="${resetUrl}" style="display: inline-block; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 15px; letter-spacing: 0.3px;">
+                  Reset Password
+                </a>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 20px 40px 0;">
+          <p style="margin: 0; font-size: 13px; color: #64748b; text-align: center;">
+            This link expires in <strong style="color: #94a3b8;">1 hour</strong>
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 24px 40px 0;">
+          <div style="border-top: 1px solid #334155; padding-top: 20px;">
+            <p style="margin: 0 0 8px; font-size: 12px; color: #475569;">
+              Button not working? Copy this link:
+            </p>
+            <p style="margin: 0; font-size: 11px; color: #64748b; word-break: break-all; font-family: ui-monospace, monospace; background: #0f172a; padding: 10px 14px; border-radius: 8px; border: 1px solid #1e293b;">
+              ${resetUrl}
+            </p>
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 24px 40px 0;">
+          <p style="margin: 0; font-size: 12px; color: #475569; font-style: italic;">
+            Didn't request this? You can ignore this email — your password won't change.
+          </p>
+        </td>
+      </tr>
+    </table>
   `;
-  
+
   return baseTemplate(content);
 }
 

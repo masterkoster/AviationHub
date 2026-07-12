@@ -2,81 +2,81 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await auth();
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user by email using raw SQL
-    const users = await prisma.$queryRawUnsafe(`
-      SELECT id FROM [User] WHERE email = '${session.user.email}'
-    `) as any[];
-    
-    if (!users || users.length === 0) {
-      return NextResponse.json({ error: '[User] not found' }, { status: 404 });
+    const userId = session.user.id;
+
+    // Get all groups the user belongs to
+    const memberships = await prisma.organizationMember.findMany({
+      where: { userId },
+      select: { organizationId: true }
+    });
+
+    const groupIds = memberships.map(m => m.organizationId).filter(Boolean) as string[];
+
+    if (groupIds.length === 0) {
+      return NextResponse.json([]);
     }
-    
-    const userId = users[0].id;
 
-    // Get all bookings for user's groups using raw SQL
-    const bookings = await prisma.$queryRawUnsafe(`
-      SELECT 
-        b.id,
-        b.aircraftId,
-        b.userId,
-        b.startTime,
-        b.endTime,
-        b.purpose,
-        b.createdAt,
-        b.updatedAt,
-        a.nNumber,
-        a.customName,
-        a.nickname,
-        a.make,
-        a.model,
-        a.groupId as aircraftGroupId,
-        fg.name as groupName,
-        u.name as userName,
-        u.email as userEmail
-      FROM Booking b
-      JOIN ClubAircraft a ON b.aircraftId = a.id
-      JOIN FlyingGroup fg ON a.groupId = fg.id
-      JOIN GroupMember gm ON fg.id = gm.groupId AND gm.userId = '${userId}'
-      JOIN [User] u ON b.userId = u.id
-      ORDER BY b.startTime ASC
-    `) as any[];
+    // Default to a 90-days-past / 365-days-future window when no range is given,
+    // so this doesn't pull every group's entire booking history unbounded.
+    const now = Date.now();
+    const { searchParams } = new URL(request.url);
+    const startParam = searchParams.get('start');
+    const endParam = searchParams.get('end');
 
-    const formattedBookings = (bookings || []).map((b: any) => ({
+    const start = startParam ? new Date(startParam) : new Date(now - 90 * 24 * 60 * 60 * 1000);
+    const end = endParam ? new Date(endParam) : new Date(now + 365 * 24 * 60 * 60 * 1000);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return NextResponse.json({ error: 'Invalid start or end date' }, { status: 400 });
+    }
+
+    // Get bookings across all groups
+    const bookings = await prisma.booking.findMany({
+      where: { organizationId: { in: groupIds }, startTime: { gte: start, lte: end } },
+      include: {
+        organization: { select: { id: true, name: true } },
+        clubAircraft: { select: { id: true, nNumber: true, customName: true, nickname: true, make: true, model: true } },
+        pilotProfile: { select: { userId: true, user: { select: { id: true, name: true, email: true } } } }
+      },
+      orderBy: { startTime: 'desc' },
+      take: 1000
+    });
+
+    const formatted = bookings.map(b => ({
       id: b.id,
-      aircraftId: b.aircraftId,
-      userId: b.userId,
+      groupId: b.organizationId,
+      groupName: b.organization?.name,
+      aircraftId: b.clubAircraftId,
+      userId: b.pilotProfileId,
+      instructorId: b.instructorId,
       startTime: b.startTime,
       endTime: b.endTime,
       purpose: b.purpose,
-      createdAt: b.createdAt,
-      updatedAt: b.updatedAt,
-      aircraft: {
-        id: b.aircraftId,
-        nNumber: b.nNumber,
-        customName: b.customName,
-        nickname: b.nickname,
-        make: b.make,
-        model: b.model,
-        groupName: b.groupName,
-      },
-      groupName: b.groupName,
-      user: {
-        id: b.userId,
-        name: b.userName,
-        email: b.userEmail,
-      },
+      aircraft: b.clubAircraft ? {
+        id: b.clubAircraft.id,
+        nNumber: b.clubAircraft.nNumber,
+        customName: b.clubAircraft.customName,
+        nickname: b.clubAircraft.nickname,
+        make: b.clubAircraft.make,
+        model: b.clubAircraft.model
+      } : null,
+      user: b.pilotProfile?.user ? {
+        id: b.pilotProfile.user.id,
+        name: b.pilotProfile.user.name,
+        email: b.pilotProfile.user.email
+      } : null
     }));
 
-    return NextResponse.json(formattedBookings);
+    return NextResponse.json(formatted);
   } catch (error) {
     console.error('Error fetching all bookings:', error);
-    return NextResponse.json([]);
+    return NextResponse.json({ error: 'Failed to fetch bookings' }, { status: 500 });
   }
 }

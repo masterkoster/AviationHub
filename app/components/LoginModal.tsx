@@ -266,7 +266,7 @@ export default function LoginModal() {
           {mode === 'login' && (
             <div className="flex justify-end">
               <Link 
-                href="/forgot-password" 
+                href="/desktop/forgot-password" 
                 onClick={closeModal}
                 className="text-sm text-emerald-400 hover:text-emerald-300"
               >

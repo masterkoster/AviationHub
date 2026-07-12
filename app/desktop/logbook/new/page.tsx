@@ -14,6 +14,7 @@ import {
   markLocalFlightSyncFailed,
 } from '@/apps/desktop/src/lib/local-logbook'
 import { getSavedFlightPlans, type StoredFlightPlan } from '@/apps/desktop/src/lib/flight-plan-storage'
+import { notifyCreated } from '@/desktop/lib/toast-helpers'
 
 type Aircraft = { id: string; nNumber: string; nickname?: string | null }
 type Airport = { icao: string; name: string; city?: string; state?: string }
@@ -57,6 +58,7 @@ export default function DesktopNewFlightPage() {
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [savedPlans, setSavedPlans] = useState<StoredFlightPlan[]>([])
   const [selectedPlanId, setSelectedPlanId] = useState('')
 
@@ -136,15 +138,17 @@ export default function DesktopNewFlightPage() {
     }
   }
 
+  function validate(): Record<string, string> {
+    const errors: Record<string, string> = {}
+    if (!aircraft.trim()) errors.aircraft = 'Aircraft is required'
+    if (!totalTime || parseFloat(totalTime) <= 0) errors.totalTime = 'Total time must be greater than 0'
+    return errors
+  }
+
   async function handleSave() {
-    if (!aircraft.trim()) {
-      setError('Aircraft is required')
-      return
-    }
-    if (!totalTime || parseFloat(totalTime) <= 0) {
-      setError('Total time must be greater than 0')
-      return
-    }
+    const errors = validate()
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) return
 
     setSaving(true)
     setError('')
@@ -212,6 +216,7 @@ export default function DesktopNewFlightPage() {
           )
         }
       }
+      notifyCreated('Flight')
       router.replace('/desktop/logbook')
       router.refresh()
     } catch (saveErr) {
@@ -221,10 +226,28 @@ export default function DesktopNewFlightPage() {
     }
   }
 
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    handleSave()
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault()
+      handleSave()
+    }
+  }
+
+  function clearFieldError(field: string) {
+    if (fieldErrors[field]) {
+      setFieldErrors((prev) => ({ ...prev, [field]: '' }))
+    }
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="flex items-center gap-3">
-        <button onClick={() => router.back()} className="rounded-md p-1.5 transition-colors hover:bg-muted">
+        <button onClick={() => router.back()} type="button" className="rounded-md p-1.5 transition-colors hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-xl font-bold">Log Flight</h1>
@@ -232,206 +255,219 @@ export default function DesktopNewFlightPage() {
 
       {error && <div className="rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">{error}</div>}
 
-      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
-        {savedPlans.length > 0 && (
-          <div>
-            <label className="mb-1 block text-xs font-medium">Use Saved Flight Plan</label>
-            <select
-              value={selectedPlanId}
-              onChange={(e) => {
-                const id = e.target.value
-                setSelectedPlanId(id)
-                const plan = savedPlans.find((p) => p.id === id)
-                if (plan) applySavedPlan(plan)
-              }}
-              className={INPUT_CLASS}
-            >
-              <option value="">Select plan...</option>
-              {savedPlans.slice(0, 20).map((plan) => (
-                <option key={plan.id} value={plan.id}>
-                  {plan.name} • {plan.callsign || plan.aircraftName || 'No callsign'}
-                </option>
-              ))}
-            </select>
+      <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
+        <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+          {savedPlans.length > 0 && (
+            <div>
+              <label className="mb-1 block text-xs font-medium">Use Saved Flight Plan</label>
+              <select
+                value={selectedPlanId}
+                onChange={(e) => {
+                  const id = e.target.value
+                  setSelectedPlanId(id)
+                  const plan = savedPlans.find((p) => p.id === id)
+                  if (plan) applySavedPlan(plan)
+                }}
+                className={INPUT_CLASS}
+              >
+                <option value="">Select plan...</option>
+                {savedPlans.slice(0, 20).map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name} • {plan.callsign || plan.aircraftName || 'No callsign'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Date">
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={INPUT_CLASS} />
+            </Field>
+            <Field label="Aircraft">
+              <input
+                type="text"
+                value={aircraft}
+                placeholder="N-number"
+                onChange={(e) => {
+                  setAircraft(e.target.value.toUpperCase())
+                  const match = aircraftList.find((a) => a.nNumber.toUpperCase() === e.target.value.toUpperCase())
+                  setAircraftId(match?.id || '')
+                  clearFieldError('aircraft')
+                }}
+                list="aircraft-list"
+                className={INPUT_CLASS}
+              />
+              <datalist id="aircraft-list">
+                {aircraftList.map((a) => (
+                  <option key={a.id} value={a.nNumber}>
+                    {a.nickname ? `${a.nNumber} (${a.nickname})` : a.nNumber}
+                  </option>
+                ))}
+              </datalist>
+              {fieldErrors.aircraft && (
+                <p className="mt-1 text-xs text-destructive">{fieldErrors.aircraft}</p>
+              )}
+            </Field>
           </div>
-        )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Date">
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={INPUT_CLASS} />
-          </Field>
-          <Field label="Aircraft">
-            <input
-              type="text"
-              value={aircraft}
-              placeholder="N-number"
-              onChange={(e) => {
-                setAircraft(e.target.value.toUpperCase())
-                const match = aircraftList.find((a) => a.nNumber.toUpperCase() === e.target.value.toUpperCase())
-                setAircraftId(match?.id || '')
-              }}
-              list="aircraft-list"
-              className={INPUT_CLASS}
-            />
-            <datalist id="aircraft-list">
-              {aircraftList.map((a) => (
-                <option key={a.id} value={a.nNumber}>
-                  {a.nickname ? `${a.nNumber} (${a.nickname})` : a.nNumber}
-                </option>
-              ))}
-            </datalist>
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="From">
-            <div className="relative">
-              <input
-                type="text"
-                value={routeFrom}
-                placeholder="ICAO (e.g. KDTW)"
-                onChange={(e) => {
-                  setRouteFrom(e.target.value.toUpperCase())
-                  searchAirports(e.target.value, setFromResults)
-                  setShowFromDrop(true)
-                }}
-                onBlur={() => setTimeout(() => setShowFromDrop(false), 200)}
-                className={INPUT_CLASS}
-              />
-              {showFromDrop && fromResults.length > 0 && (
-                <AirportDropdown
-                  airports={fromResults}
-                  onSelect={(a) => {
-                    setRouteFrom(a.icao)
-                    setShowFromDrop(false)
-                  }}
-                />
-              )}
-            </div>
-          </Field>
-          <Field label="To">
-            <div className="relative">
-              <input
-                type="text"
-                value={routeTo}
-                placeholder="ICAO (e.g. KLAX)"
-                onChange={(e) => {
-                  setRouteTo(e.target.value.toUpperCase())
-                  searchAirports(e.target.value, setToResults)
-                  setShowToDrop(true)
-                }}
-                onBlur={() => setTimeout(() => setShowToDrop(false), 200)}
-                className={INPUT_CLASS}
-              />
-              {showToDrop && toResults.length > 0 && (
-                <AirportDropdown
-                  airports={toResults}
-                  onSelect={(a) => {
-                    setRouteTo(a.icao)
-                    setShowToDrop(false)
-                  }}
-                />
-              )}
-            </div>
-          </Field>
-        </div>
-
-        <Field label="Total Time (hours)">
-          <input
-            type="number"
-            step="0.1"
-            min="0"
-            value={totalTime}
-            placeholder="0.0"
-            onChange={(e) => setTotalTime(e.target.value)}
-            className={INPUT_CLASS}
-          />
-        </Field>
-
-        <div>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Time Breakdown (optional)</p>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            {FIELDS.map((f) => (
-              <Field key={f.key} label={f.label}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="From">
+              <div className="relative">
                 <input
-                  type="number"
-                  step={f.step}
-                  min="0"
-                  value={times[f.key] || ''}
-                  placeholder="0.0"
-                  onChange={(e) => setField(f.key, e.target.value)}
+                  type="text"
+                  value={routeFrom}
+                  placeholder="ICAO (e.g. KDTW)"
+                  onChange={(e) => {
+                    setRouteFrom(e.target.value.toUpperCase())
+                    searchAirports(e.target.value, setFromResults)
+                    setShowFromDrop(true)
+                  }}
+                  onBlur={() => setTimeout(() => setShowFromDrop(false), 200)}
                   className={INPUT_CLASS}
                 />
-              </Field>
-            ))}
+                {showFromDrop && fromResults.length > 0 && (
+                  <AirportDropdown
+                    airports={fromResults}
+                    onSelect={(a) => {
+                      setRouteFrom(a.icao)
+                      setShowFromDrop(false)
+                    }}
+                  />
+                )}
+              </div>
+            </Field>
+            <Field label="To">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={routeTo}
+                  placeholder="ICAO (e.g. KLAX)"
+                  onChange={(e) => {
+                    setRouteTo(e.target.value.toUpperCase())
+                    searchAirports(e.target.value, setToResults)
+                    setShowToDrop(true)
+                  }}
+                  onBlur={() => setTimeout(() => setShowToDrop(false), 200)}
+                  className={INPUT_CLASS}
+                />
+                {showToDrop && toResults.length > 0 && (
+                  <AirportDropdown
+                    airports={toResults}
+                    onSelect={(a) => {
+                      setRouteTo(a.icao)
+                      setShowToDrop(false)
+                    }}
+                  />
+                )}
+              </div>
+            </Field>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Day Landings">
+          <Field label="Total Time (hours)">
             <input
               type="number"
+              step="0.1"
               min="0"
-              step="1"
-              value={dayLandings}
-              placeholder="0"
-              onChange={(e) => setDayLandings(e.target.value)}
+              value={totalTime}
+              placeholder="0.0"
+              onChange={(e) => {
+                setTotalTime(e.target.value)
+                clearFieldError('totalTime')
+              }}
               className={INPUT_CLASS}
             />
+            {fieldErrors.totalTime && (
+              <p className="mt-1 text-xs text-destructive">{fieldErrors.totalTime}</p>
+            )}
           </Field>
-          <Field label="Night Landings">
+
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Time Breakdown (optional)</p>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              {FIELDS.map((f) => (
+                <Field key={f.key} label={f.label}>
+                  <input
+                    type="number"
+                    step={f.step}
+                    min="0"
+                    value={times[f.key] || ''}
+                    placeholder="0.0"
+                    onChange={(e) => setField(f.key, e.target.value)}
+                    className={INPUT_CLASS}
+                  />
+                </Field>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Day Landings">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={dayLandings}
+                placeholder="0"
+                onChange={(e) => setDayLandings(e.target.value)}
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <Field label="Night Landings">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={nightLandings}
+                placeholder="0"
+                onChange={(e) => setNightLandings(e.target.value)}
+                className={INPUT_CLASS}
+              />
+            </Field>
+          </div>
+
+          <div className="flex items-center gap-2">
             <input
-              type="number"
-              min="0"
-              step="1"
-              value={nightLandings}
-              placeholder="0"
-              onChange={(e) => setNightLandings(e.target.value)}
-              className={INPUT_CLASS}
+              type="checkbox"
+              id="sim"
+              checked={isSimulator}
+              onChange={(e) => setIsSimulator(e.target.checked)}
+              className="h-4 w-4 rounded border-border"
+            />
+            <label htmlFor="sim" className="text-sm">
+              Simulator / FTD
+            </label>
+          </div>
+
+          <Field label="Remarks">
+            <textarea
+              value={remarks}
+              placeholder="Notes about this flight..."
+              onChange={(e) => setRemarks(e.target.value)}
+              rows={3}
+              className={`${INPUT_CLASS} resize-none`}
             />
           </Field>
         </div>
 
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="sim"
-            checked={isSimulator}
-            onChange={(e) => setIsSimulator(e.target.checked)}
-            className="h-4 w-4 rounded border-border"
-          />
-          <label htmlFor="sim" className="text-sm">
-            Simulator / FTD
-          </label>
+        <div className="flex gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save Flight
+          </button>
         </div>
-
-        <Field label="Remarks">
-          <textarea
-            value={remarks}
-            placeholder="Notes about this flight..."
-            onChange={(e) => setRemarks(e.target.value)}
-            rows={3}
-            className={`${INPUT_CLASS} resize-none`}
-          />
-        </Field>
-      </div>
-
-      <div className="flex gap-3 pt-2">
-        <button
-          onClick={() => router.back()}
-          className="rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-        >
-          {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-          Save Flight
-        </button>
-      </div>
+      </form>
     </div>
   )
 }

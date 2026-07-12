@@ -33,7 +33,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "msi", "appimage", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -63,7 +63,7 @@
       "endpoints": [
         "https://github.com/masterkoster/next-dashboard/releases/latest/download/update.json"
       ],
-      "pubkey": ""
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY1MDQ1MzQzQzQyOTI1NUMKUldSY0pTbkVRMU1FOVEwdVFGUjFqdW1CKytMSkJ6SjBmd05qUHV4MHZOY1pzaW5ERnlLRmhYUjMK"
     }
   }
 }

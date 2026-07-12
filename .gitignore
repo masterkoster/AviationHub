@@ -50,3 +50,10 @@ C
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local dev artifacts
+cookies*.txt
+admin-cookies.txt
+next-dev-*.log
+tsc_check_out.txt
+.opencode/

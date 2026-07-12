@@ -4,6 +4,15 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { createAgendaItem, type AgendaItemType } from '@/apps/desktop/src/lib/local-agenda'
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbSeparator,
+  BreadcrumbPage,
+} from '@/components/ui/breadcrumb'
+import { notifyCreated } from '@/desktop/lib/toast-helpers'
 
 export default function NewCalendarItemPage() {
   const { mode, localUser, cloudUser } = useDesktopAuth()
@@ -36,6 +45,7 @@ export default function NewCalendarItemPage() {
         startsAt: startsAt ? new Date(startsAt).toISOString() : null,
         relatedHref,
       })
+      notifyCreated('Trip')
       router.replace(`/desktop/calendar/${id}`)
       router.refresh()
     } catch (err) {
@@ -47,6 +57,17 @@ export default function NewCalendarItemPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-6">
+      <Breadcrumb className="mb-4">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/desktop/calendar">Calendar</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>New Trip</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       <h1 className="text-2xl font-bold">New Calendar Item</h1>
       <form onSubmit={onSubmit} className="mt-4 space-y-4 rounded-lg border border-border bg-card p-4">
         <Field label="Type">

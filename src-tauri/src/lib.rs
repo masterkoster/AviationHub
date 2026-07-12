@@ -239,6 +239,71 @@ pub fn run() {
             sql: "ALTER TABLE logbook_entries ADD COLUMN synced_at TEXT",
             kind: MigrationKind::Up,
         },
+        // Recovery PIN support (backup format v2 — dual-wrapped master key).
+        // recovery_pin_hash: salted hash of the profile's immutable 8-digit
+        // recovery PIN (same hashing approach as the `pin` column, distinct salt).
+        Migration {
+            version: 21,
+            description: "add_recovery_pin_hash_to_users",
+            sql: "ALTER TABLE users ADD COLUMN recovery_pin_hash TEXT",
+            kind: MigrationKind::Up,
+        },
+        // backup_master_key: base64-encoded random 32-byte key used to encrypt
+        // this profile's .ahb backups. Persisted locally (same trust boundary
+        // as the PIN hash) so it never needs to be re-derived from either PIN.
+        Migration {
+            version: 22,
+            description: "add_backup_master_key_to_users",
+            sql: "ALTER TABLE users ADD COLUMN backup_master_key TEXT",
+            kind: MigrationKind::Up,
+        },
+        // recovery_wrap_salt / recovery_wrap_iv / recovery_wrapped_key: a
+        // precomputed wrapping of backup_master_key under a key derived from
+        // the (never-persisted-in-plaintext) recovery PIN. Computed once when
+        // the recovery PIN is generated, so exports can include a
+        // recovery-unwrappable header without ever knowing the raw recovery PIN.
+        Migration {
+            version: 23,
+            description: "add_recovery_wrap_salt_to_users",
+            sql: "ALTER TABLE users ADD COLUMN recovery_wrap_salt TEXT",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 24,
+            description: "add_recovery_wrap_iv_to_users",
+            sql: "ALTER TABLE users ADD COLUMN recovery_wrap_iv TEXT",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 25,
+            description: "add_recovery_wrapped_key_to_users",
+            sql: "ALTER TABLE users ADD COLUMN recovery_wrapped_key TEXT",
+            kind: MigrationKind::Up,
+        },
+        // Sync engine: retry bookkeeping for queued logbook pushes. `retries`
+        // counts failed push attempts for a queue row; `next_retry_at` is an
+        // ISO timestamp gating the exponential-backoff window (drain skips
+        // rows whose backoff hasn't elapsed unless a manual sync forces it).
+        Migration {
+            version: 26,
+            description: "add_retries_to_sync_queue",
+            sql: "ALTER TABLE sync_queue ADD COLUMN retries INTEGER DEFAULT 0",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 27,
+            description: "add_next_retry_at_to_sync_queue",
+            sql: "ALTER TABLE sync_queue ADD COLUMN next_retry_at TEXT",
+            kind: MigrationKind::Up,
+        },
+        // Sync engine: per-profile high-water mark for pulling cloud changes
+        // (only entries updated after this timestamp are fetched on the next pull).
+        Migration {
+            version: 28,
+            description: "add_last_pull_at_to_users",
+            sql: "ALTER TABLE users ADD COLUMN last_pull_at TEXT",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

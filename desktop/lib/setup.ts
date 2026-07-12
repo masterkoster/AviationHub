@@ -10,7 +10,7 @@ const LOCAL_USER_ID_KEY = 'local_user_id'
 
 export type DesktopMode = 'local' | 'cloud'
 
-let storePromise: Promise<Store> | null = null
+let storePromise: Promise<Store | null> | null = null
 
 /**
  * Get the Tauri store. Uses try/catch instead of checking for __TAURI__
@@ -21,7 +21,20 @@ async function getStore(): Promise<Store | null> {
   if (typeof window === 'undefined') return null
   if (!storePromise) {
     try {
-      storePromise = Store.load(STORE_FILE)
+      // Add a 5s timeout so the store can never hang forever.
+      // Store.load() sends IPC to the Rust backend, which can deadlock
+      // if setup.json is corrupted or during Tauri hot-reload.
+      const STORE_TIMEOUT_MS = 5000
+      const storeLoad = Store.load(STORE_FILE)
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Store.load timed out after 5s')), STORE_TIMEOUT_MS)
+      )
+      storePromise = Promise.race([storeLoad, timeout])
+        .catch((err) => {
+          console.error('[setup] Store.load failed:', err)
+          storePromise = null
+          return null
+        }) as Promise<Store | null>
     } catch {
       storePromise = null
       return null
