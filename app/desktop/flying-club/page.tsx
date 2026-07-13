@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import ReactMarkdown from 'react-markdown'
@@ -10,6 +10,9 @@ import { completeSetup } from '@/desktop/lib/setup'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+} from 'recharts'
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -862,6 +865,121 @@ function bookingStatus(b: Booking): 'past' | 'active' | 'upcoming' {
 
 function acLabel(a: { nNumber: string; nickname?: string | null }) {
   return a.nNumber + (a.nickname ? ` (${a.nickname})` : '')
+}
+
+// ---- ClubCharts ----
+// Dashboard graphs derived from the club's flight logs: monthly hours flown
+// over the last 6 months, and total hours by aircraft. Uses hobbs time,
+// falling back to tach when hobbs is missing.
+const CHART_COLORS = ['#3b82f6', '#22c55e', '#8b5cf6', '#f59e0b', '#14b8a6', '#ef4444']
+
+function ClubCharts({ flightLogs }: { flightLogs: FlightLog[] }) {
+  const { monthly, byAircraft, totalHours } = useMemo(() => {
+    const hoursOf = (l: FlightLog) => l.hobbsTime ?? l.tachTime ?? 0
+
+    // Last 6 months as ordered buckets (including empty ones)
+    const now = new Date()
+    const buckets: { key: string; month: string; hours: number }[] = []
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      buckets.push({
+        key: `${d.getFullYear()}-${d.getMonth()}`,
+        month: d.toLocaleString('default', { month: 'short' }),
+        hours: 0,
+      })
+    }
+    const bucketByKey = new Map(buckets.map(b => [b.key, b]))
+
+    const acHours = new Map<string, number>()
+    let total = 0
+    for (const l of flightLogs) {
+      const h = hoursOf(l)
+      if (!h) continue
+      total += h
+      const d = new Date(l.date)
+      const b = bucketByKey.get(`${d.getFullYear()}-${d.getMonth()}`)
+      if (b) b.hours += h
+      const tail = l.aircraft?.nNumber || 'Unknown'
+      acHours.set(tail, (acHours.get(tail) ?? 0) + h)
+    }
+
+    const byAircraft = [...acHours.entries()]
+      .map(([tail, hours]) => ({ tail, hours: Math.round(hours * 10) / 10 }))
+      .sort((a, b) => b.hours - a.hours)
+      .slice(0, 6)
+
+    return {
+      monthly: buckets.map(b => ({ month: b.month, hours: Math.round(b.hours * 10) / 10 })),
+      byAircraft,
+      totalHours: Math.round(total * 10) / 10,
+    }
+  }, [flightLogs])
+
+  if (flightLogs.length === 0) {
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-base">Club activity</CardTitle></CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No logged flights yet — charts appear once members start logging club flights.</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Flight hours</CardTitle>
+          <CardDescription>{totalHours} h logged · last 6 months</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={monthly} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+              <defs>
+                <linearGradient id="clubHours" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.04} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+              <XAxis dataKey="month" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 12 }} tickLine={false} axisLine={false} width={32} />
+              <Tooltip
+                formatter={(v) => [`${Number(v ?? 0)} h`, "Hours"]}
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid hsl(var(--border))', background: 'hsl(var(--popover))' }}
+              />
+              <Area type="monotone" dataKey="hours" stroke="#3b82f6" strokeWidth={2} fill="url(#clubHours)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Hours by aircraft</CardTitle>
+          <CardDescription>Total logged time per tail</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={byAircraft} layout="vertical" margin={{ top: 4, right: 12, left: 8, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.25} />
+              <XAxis type="number" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
+              <YAxis type="category" dataKey="tail" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} width={64} />
+              <Tooltip
+                formatter={(v) => [`${Number(v ?? 0)} h`, "Hours"]}
+                cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }}
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid hsl(var(--border))', background: 'hsl(var(--popover))' }}
+              />
+              <Bar dataKey="hours" radius={[0, 4, 4, 0]}>
+                {byAircraft.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+    </div>
+  )
 }
 
 // ---- AircraftAirworthinessBadge ----
@@ -1869,6 +1987,9 @@ export default function FlyingClubPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Activity charts */}
+            <ClubCharts flightLogs={flightLogs} />
 
             <div className="grid gap-6 lg:grid-cols-2">
               {groups.map(group => (
