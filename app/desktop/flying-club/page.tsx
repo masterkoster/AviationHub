@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
+import ClubScheduleView from './_components/ClubScheduleView'
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -66,6 +67,14 @@ interface Member {
   role: string
   joinedAt: string
   user: { id: string; name: string; email: string }
+}
+
+interface Blockout {
+  id: string
+  clubAircraftId: string | null
+  startTime: string
+  endTime: string
+  reason?: string | null
 }
 
 interface FlightLog {
@@ -1699,6 +1708,11 @@ export default function FlyingClubPage() {
     { fetcher, refreshInterval: 15000 }
   )
 
+  const { data: blockouts = [] } = useSWR<Blockout[]>(
+    selectedGroupId ? `/api/groups/${selectedGroupId}/blockouts` : null,
+    { fetcher, refreshInterval: 15000 }
+  )
+
   const { data: members = [], error: membersError, isLoading: membersLoading, mutate: mutateMembers } = useSWR<Member[]>(
     selectedGroupId ? `/api/groups/${selectedGroupId}/members` : null,
     { fetcher, refreshInterval: 15000 }
@@ -2257,66 +2271,34 @@ export default function FlyingClubPage() {
 
         {/* ---- CALENDAR ---- */}
         {hasGroups && activeTab === 'calendar' && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Flight Schedule</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="icon" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}><ChevronLeft className="h-4 w-4" /></Button>
-                  <span className="text-sm font-medium w-36 text-center">{MONTHS[currentMonth.getMonth()]} {currentMonth.getFullYear()}</span>
-                  <Button variant="outline" size="icon" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}><ChevronRight className="h-4 w-4" /></Button>
-                  <Button size="sm" onClick={() => setShowNewBooking(true)} disabled={!selectedGroup || selectedGroup.aircraft.length === 0}>
-                    <Plus className="mr-2 h-4 w-4" />Book
-                  </Button>
-                  {todaysBookings.length > 0 && (
-                    <select
-                      className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                      onChange={e => {
-                        const b = todaysBookings.find(x => x.id === e.target.value)
-                        if (b) { setActiveFlight({ id: b.id, aircraftId: b.aircraftId, aircraftName: acLabel(b.aircraft), userId: b.userId, userName: b.user?.name || 'Unknown', hobbsStart: 0, date: b.startTime?.split('T')[0], time: fmt(b.startTime, 'time') }); setShowFlightComplete(true) }
-                      }}
-                      defaultValue=""
-                    >
-                      <option value="" disabled>Complete flight…</option>
-                      {todaysBookings.map(b => <option key={b.id} value={b.id}>{acLabel(b.aircraft)} – {b.user?.name} ({fmt(b.startTime, 'time')})</option>)}
-                    </select>
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
-                  {DAYS.map(d => <div key={d} className="bg-card p-3 text-center"><span className="text-xs font-medium text-muted-foreground">{d}</span></div>)}
-                </div>
-                <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
-                  {getDaysInMonth().map((day, idx) => {
-                    const dayBookings = day ? getBookingsForDay(day) : []
-                    return (
-                      <div key={idx} className={`bg-card min-h-[100px] p-2 ${day ? 'hover:bg-muted/50 cursor-pointer transition-colors' : ''}`}>
-                        {day && (
-                          <>
-                            <span className="text-sm font-medium">{day}</span>
-                            {dayBookings.length > 0 && (
-                              <div className="mt-2 space-y-1">
-                                {dayBookings.slice(0, 3).map(b => (
-                                  <div key={b.id} className="rounded bg-primary/10 border border-primary/20 px-2 py-1">
-                                    <p className="text-xs font-medium text-primary truncate">{b.aircraft?.nNumber}</p>
-                                    <p className="text-xs text-muted-foreground">{fmt(b.startTime, 'time')}</p>
-                                  </div>
-                                ))}
-                                {dayBookings.length > 3 && <p className="text-xs text-muted-foreground">+{dayBookings.length - 3} more</p>}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <ClubScheduleView
+            aircraft={(selectedGroup?.aircraft ?? []).map(a => ({
+              id: a.id,
+              nNumber: a.nNumber,
+              nickname: a.nickname,
+              customName: a.customName,
+              status: a.status,
+            }))}
+            bookings={bookings.map(b => ({
+              id: b.id,
+              aircraftId: b.aircraftId,
+              startTime: b.startTime,
+              endTime: b.endTime,
+              purpose: b.purpose,
+              user: b.user ? { id: b.user.id, name: b.user.name } : null,
+              instructor: b.instructor ? { id: b.instructor.id, name: b.instructor.name } : null,
+            }))}
+            blockouts={blockouts}
+            onBook={() => setShowNewBooking(true)}
+            onSelectBooking={(id) => {
+              const b = bookings.find(x => x.id === id)
+              if (b) {
+                setActiveFlight({ id: b.id, aircraftId: b.aircraftId, aircraftName: acLabel(b.aircraft), userId: b.userId, userName: b.user?.name || 'Unknown', hobbsStart: 0, date: b.startTime?.split('T')[0], time: fmt(b.startTime, 'time') })
+                setShowFlightComplete(true)
+              }
+            }}
+            onSelectAircraft={(id) => { window.location.href = `/desktop/flying-club/aircraft/${id}` }}
+          />
         )}
 
         {/* ---- BOOKINGS ---- */}
