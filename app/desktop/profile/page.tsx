@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { exportUserData, importUserData } from '@/desktop/lib/backup'
 import { completeSetup } from '@/desktop/lib/setup'
@@ -283,6 +284,7 @@ function getInitials(name: string): string {
 
 export default function DesktopProfilePage() {
   const { mode, localUser: _hookLocalUser } = useDesktopAuth()
+  const searchParams = useSearchParams()
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [message, setMessage] = useState('')
@@ -403,6 +405,18 @@ export default function DesktopProfilePage() {
     loadCertifications()
     loadStats()
   }, [resolvedUser])
+
+  // Deep-link: arriving with ?add=license (e.g. from the Currency page's
+  // "Certificates & licenses" button) opens the add form and scrolls to it.
+  useEffect(() => {
+    if (!resolvedUser) return
+    if (searchParams.get('add') !== 'license') return
+    setShowNewLicense(true)
+    const t = setTimeout(() => {
+      document.getElementById('certifications')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 150)
+    return () => clearTimeout(t)
+  }, [resolvedUser, searchParams])
 
   // ── Doc loaders ────────────────────────────────────────────────
   async function loadDocs() {
@@ -1120,7 +1134,7 @@ export default function DesktopProfilePage() {
 
       {/* ──────── CERTIFICATIONS ──────── */}
       {resolvedUser && (
-        <div className="rounded-lg border border-border bg-card shadow-sm divide-y divide-border">
+        <div id="certifications" className="rounded-lg border border-border bg-card shadow-sm divide-y divide-border scroll-mt-6">
           <div className="p-5">
             <div className="flex items-center gap-2 mb-4">
               <Award className="h-4 w-4" />

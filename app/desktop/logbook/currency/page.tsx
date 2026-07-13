@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
 import {
@@ -14,7 +15,7 @@ import {
 } from '@/apps/desktop/src/lib/local-currency'
 import { ConfirmDialog } from '@/desktop/components/confirm-dialog'
 import { ErrorCard } from '@/desktop/components/error-card'
-import { Plus, Pencil, Trash2, X, Save, Shield, AlertTriangle, CheckCircle, Clock } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Save, Shield, AlertTriangle, CheckCircle, Clock, Award } from 'lucide-react'
 import {
   Breadcrumb,
   BreadcrumbList,
@@ -43,6 +44,7 @@ const statusConfig: Record<CurrencyStatus, { icon: typeof CheckCircle; color: st
 }
 
 export default function DesktopCurrencyPage() {
+  const router = useRouter()
   const { mode, status, localUser } = useDesktopAuth()
   const [localRules, setLocalRules] = useState<LocalCurrencyRule[]>([])
   const [cloudRules, setCloudRules] = useState<CloudCurrencyRule[]>([])
@@ -222,15 +224,25 @@ export default function DesktopCurrencyPage() {
             {mode === 'local' ? 'Track your FAA currency requirements' : 'Cloud-synced currency tracking'}
           </p>
         </div>
-        {mode === 'local' && !showForm && !loading && !loadError && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowForm(true)}
-            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            onClick={() => router.push('/desktop/profile?add=license')}
+            className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
+            title="Add or update your pilot certificates, ratings, and flight review"
           >
-            <Plus className="h-4 w-4" />
-            Add Rule
+            <Award className="h-4 w-4" />
+            Certificates &amp; licenses
           </button>
-        )}
+          {mode === 'local' && !showForm && !loading && !loadError && (
+            <button
+              onClick={() => setShowForm(true)}
+              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Plus className="h-4 w-4" />
+              Add Rule
+            </button>
+          )}
+        </div>
       </div>
 
       {mode === 'local' && showForm && (
