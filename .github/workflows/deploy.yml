@@ -26,6 +26,13 @@ jobs:
         env:
           NEXT_PUBLIC_TAILHISTORY_FUNCTION_URL: ${{ secrets.TAILHISTORY_FUNCTION_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Sentry error monitoring - harmless if these secrets aren't set yet
+          # (Sentry init stays a no-op without a DSN; source map upload is
+          # skipped without an auth token). See docs/MONITORING.md.
+          NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
       - name: Build and Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
