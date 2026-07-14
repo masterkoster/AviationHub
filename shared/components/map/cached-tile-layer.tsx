@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { resolveTile, countCachedTiles, type TileProvider } from '@/desktop/lib/tile-cache'
+import { buildAeroTileUrl, AERO_ATTRIBUTION } from './aero-source'
 
 /** Tile URL builder per provider (matches LAYERS config in MapControls). */
 function buildUrl(provider: TileProvider, z: number, x: number, y: number): string {
@@ -14,6 +15,8 @@ function buildUrl(provider: TileProvider, z: number, x: number, y: number): stri
       return `https://a.tile.opentopomap.org/${z}/${x}/${y}.png`
     case 'dark':
       return `https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`
+    case 'aero':
+      return buildAeroTileUrl(z, x, y)
     default:
       return `https://a.tile.openstreetmap.org/${z}/${x}/${y}.png`
   }
@@ -24,6 +27,7 @@ const ATTRIBUTIONS: Record<TileProvider, string> = {
   satellite: '&copy; Esri',
   terrain: '&copy; OpenTopoMap',
   dark: '&copy; CartoDB',
+  aero: AERO_ATTRIBUTION,
 }
 
 /**

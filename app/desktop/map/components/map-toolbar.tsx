@@ -9,11 +9,12 @@ import {
   Layers,
   Save,
   Download,
+  ShieldCheck,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type PanelId = 'route' | 'plan' | 'wb' | 'weather' | 'fuel' | 'layers' | 'saved' | 'export'
+export type PanelId = 'route' | 'plan' | 'wb' | 'weather' | 'fuel' | 'layers' | 'saved' | 'export' | 'legality'
 
 interface MapToolbarProps {
   activePanel: PanelId | null
@@ -27,6 +28,7 @@ const TOOLS: { id: PanelId; icon: typeof RouteIcon; label: string; requires?: 'w
   { id: 'plan', icon: ClipboardList, label: 'Flight Plan' },
   { id: 'wb', icon: Scale, label: 'Weight & Balance' },
   { id: 'weather', icon: CloudSun, label: 'Weather' },
+  { id: 'legality', icon: ShieldCheck, label: 'Legality Check' },
   { id: 'fuel', icon: Fuel, label: 'Fuel' },
   { id: 'layers', icon: Layers, label: 'Layers & Filters' },
   { id: 'saved', icon: Save, label: 'Saved Routes' },

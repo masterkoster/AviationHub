@@ -3,7 +3,7 @@
 // which touches `window` at module scope.
 
 export interface MapLayerOptions {
-  baseLayer: 'osm' | 'satellite' | 'terrain' | 'dark';
+  baseLayer: 'osm' | 'satellite' | 'terrain' | 'dark' | 'aero';
   showLarge: boolean;
   showMedium: boolean;
   showSmall: boolean;

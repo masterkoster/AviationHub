@@ -13,9 +13,11 @@ import {
   MapPin,
   Star,
 } from 'lucide-react'
-import { MapControls, DEFAULT_MAP_OPTIONS, type MapLayerOptions } from '@/shared/components/map/map-controls'
+import { DEFAULT_MAP_OPTIONS, type MapLayerOptions } from '@/shared/components/map/map-controls'
 import { TileCacheBanner } from '@/desktop/components/tile-cache-banner'
 import { MapErrorBoundary } from '@/desktop/components/map-error-boundary'
+import { MapAttribution } from './components/map-attribution'
+import { CompassRose } from './components/compass-rose'
 import {
   downloadFPL, downloadGPX, downloadJSON,
   type WbExportData,
@@ -32,7 +34,7 @@ import { loadPilotCertStatus, evaluateWeatherRules } from '@/desktop/lib/weather
 import type { MetarData, PilotCertStatus, WeatherWarning } from '@/desktop/lib/weather-types'
 import { ConfirmDialog } from '@/desktop/components/confirm-dialog'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
-import { getLocalAircraft, type LocalAircraft } from '@/apps/desktop/src/lib/local-logbook'
+import { getLocalAircraft, getFlightsByAirport, type LocalAircraft } from '@/apps/desktop/src/lib/local-logbook'
 import type { StateInfo } from '@/lib/stateData'
 import type { Airport, Waypoint, StoredRoute, AirportDetails, AirportWeather, RouteWeatherSummary } from './types'
 import { MapToolbar, type PanelId } from './components/map-toolbar'
@@ -45,6 +47,8 @@ import { WeatherPanel } from './panels/weather-panel'
 import { FiltersPanel } from './panels/filters-panel'
 import { SavedPanel } from './panels/saved-panel'
 import { ExportPanel } from './panels/export-panel'
+import { LegalityPanel } from './panels/legality-panel'
+import { FuelPanel } from './panels/fuel-panel'
 
 const DesktopMapRenderer = dynamic(() => import('@/shared/components/map/maplibre-map'), {
   ssr: false,
@@ -62,6 +66,14 @@ function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   const dLon = (lon2 - lon1) * Math.PI / 180
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+/** True heading from point A to B in degrees */
+function trueHeading(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180)
+  const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) - Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon)
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
 }
 
 interface DesktopStateInfo extends StateInfo {
@@ -179,9 +191,47 @@ export default function DesktopMapPage() {
   const [airportResults, setAirportResults] = useState<Airport[]>([])
   const [highlightIdx, setHighlightIdx] = useState(-1)
   const [airportSizeMode, setAirportSizeMode] = useState<'all' | 'only-large' | 'only-medium' | 'only-small'>('all')
-  const [airportLimit, setAirportLimit] = useState(400)
+  const [airportLimit, setAirportLimit] = useState(() => {
+    try {
+      const stored = localStorage.getItem('map_airport_limit')
+      if (stored !== null) {
+        const n = Number(stored)
+        if (Number.isFinite(n) && n >= 50 && n <= 5000) return n
+      }
+    } catch { /* ignore */ }
+    return 1000
+  })
   const [regionMode, setRegionMode] = useState<'map-view' | 'all-us' | 'east-coast' | 'west-coast'>('map-view')
   const [activePanel, setActivePanel] = useState<PanelId | null>(null)
+  const [showAttribution, setShowAttribution] = useState(() => {
+    try { return localStorage.getItem('map_attribution_visible') !== 'false' } catch { return true }
+  })
+  const [attributionDetail, setAttributionDetail] = useState<'minimal' | 'standard' | 'full'>(() => {
+    try {
+      const v = localStorage.getItem('map_attribution_detail')
+      if (v === 'minimal' || v === 'standard' || v === 'full') return v
+    } catch {}
+    return 'standard'
+  })
+  const [showMgrsGrid, setShowMgrsGrid] = useState(false)
+  const [showRuler, setShowRuler] = useState(false)
+  const [showCompass, setShowCompass] = useState(false)
+  const [rulerPoints, setRulerPoints] = useState<Array<{ lat: number; lng: number }>>([])
+  const [showRangeRings, setShowRangeRings] = useState(false)
+  const [rangeRingIntervals, setRangeRingIntervals] = useState<number[]>([25, 50, 100])
+
+  const handleRulerPointRemove = useCallback((index: number) => {
+    setRulerPoints((prev) => prev.filter((_, i) => i !== index))
+  }, [])
+
+  const handleRulerPointReorder = useCallback((from: number, to: number) => {
+    setRulerPoints((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }, [])
   const [routeName, setRouteName] = useState(() => {
     if (typeof window === 'undefined') return ''
     return localStorage.getItem('map_draft_route_name') ?? ''
@@ -270,6 +320,21 @@ export default function DesktopMapPage() {
     return cats
   }, [weatherData])
 
+  /** Bearing from second-to-last waypoint to last waypoint */
+  const routeBearing = useMemo(() => {
+    if (waypoints.length < 2) return null
+    const a = waypoints[waypoints.length - 2]
+    const b = waypoints[waypoints.length - 1]
+    return trueHeading(a.latitude, a.longitude, b.latitude, b.longitude)
+  }, [waypoints])
+
+  /** Center point for range rings — last waypoint */
+  const rangeRingCenter = useMemo(() => {
+    if (waypoints.length === 0) return null
+    const last = waypoints[waypoints.length - 1]
+    return { lat: last.latitude, lng: last.longitude }
+  }, [waypoints])
+
   const selectedAc = userAircraft.find(a => a.id === selectedAircraftId)
   const fuelMaxGal = selectedAc?.fuelCapacity ?? 56
   const burnGph = selectedAc?.fuelBurn ?? 9.9
@@ -355,6 +420,18 @@ export default function DesktopMapPage() {
   useEffect(() => {
     try { localStorage.setItem('map_draft_route_name', routeName) } catch {}
   }, [routeName])
+
+  useEffect(() => {
+    try { localStorage.setItem('map_attribution_visible', String(showAttribution)) } catch {}
+  }, [showAttribution])
+
+  useEffect(() => {
+    try { localStorage.setItem('map_attribution_detail', attributionDetail) } catch {}
+  }, [attributionDetail])
+
+  useEffect(() => {
+    try { localStorage.setItem('map_airport_limit', String(airportLimit)) } catch {}
+  }, [airportLimit])
 
   useEffect(() => {
     try {
@@ -797,6 +874,15 @@ export default function DesktopMapPage() {
     await loadSavedRoutes()
   }
 
+  async function handleSaveAsRoute() {
+    if (waypoints.length < 2) return
+    // Save as new route (no routeId = creates new)
+    const saved = await saveRoute(routeName || 'Untitled Route', waypoints)
+    setActiveRouteId(saved.id)
+    setRouteName(saved.name)
+    await loadSavedRoutes()
+  }
+
   function openSavedRoute(route: StoredRoute) {
     const waypointsFromRoute = route.waypoints.map((w) => ({ ...w }))
     setWaypoints(waypointsFromRoute)
@@ -862,6 +948,25 @@ export default function DesktopMapPage() {
   }
 
 
+  // ── Log Flight: navigate to logbook with route pre-filled ──
+  function handleLogFlightFromWaypoints(routeWaypoints: Waypoint[]) {
+    if (routeWaypoints.length < 2) return
+    const first = routeWaypoints[0]
+    const last = routeWaypoints[routeWaypoints.length - 1]
+    const today = new Date().toISOString().slice(0, 10)
+    const remarks = routeWaypoints.map((w) => w.icao).join('→')
+    window.location.href = `/desktop/logbook/new?routeFrom=${encodeURIComponent(first.icao)}&routeTo=${encodeURIComponent(last.icao)}&date=${today}&remarks=${encodeURIComponent(remarks)}`
+  }
+
+  function handleLogFlightSaved(route: StoredRoute) {
+    if (route.waypoints.length < 2) return
+    handleLogFlightFromWaypoints(route.waypoints)
+  }
+
+  function handleLogFlightActive() {
+    handleLogFlightFromWaypoints(waypoints)
+  }
+
   // ── Reorder waypoints (for RoutePanel drag-reorder) ──
   const handleReorder = useCallback((from: number, to: number) => {
     setWaypoints((prev) => {
@@ -922,6 +1027,7 @@ export default function DesktopMapPage() {
     plan: 'Flight Plan',
     wb: 'Weight and Balance',
     weather: 'Weather',
+    legality: 'Legality Check',
     fuel: 'Fuel',
     layers: 'Layers and Filters',
     saved: 'Saved Routes',
@@ -980,25 +1086,44 @@ export default function DesktopMapPage() {
               onOpenExternal={openExternalUrl}
               mapCenter={mapCenter}
               mapZoom={mapZoom}
-              showTerrain={mapOptions.showTerrain}
               showTfrs={mapOptions.showTfrs}
               showPireps={mapOptions.showPireps}
+              showMgrsGrid={showMgrsGrid}
+              showRuler={showRuler}
+              rulerPoints={rulerPoints}
+              onRulerPointAdd={(pt) => setRulerPoints((prev) => [...prev, pt])}
+              onRulerClear={() => setRulerPoints([])}
+              showRangeRings={showRangeRings}
+              rangeRingCenter={rangeRingCenter}
+              rangeRingIntervals={rangeRingIntervals}
               baseLayer={mapOptions.baseLayer}
               performanceMode={mapOptions.performanceMode}
               maxAirportsToRender={airportLimit}
               clusterAirports={false}
               weatherCategories={weatherCategories}
+              userId={localUser?.id ?? null}
+              onFlightHistory={localUser?.id ? async (icao) => {
+                const flights = await getFlightsByAirport(localUser!.id, icao, 10)
+                return flights.map(f => ({
+                  date: f.date,
+                  aircraft: f.aircraft,
+                  routeFrom: f.routeFrom || '',
+                  routeTo: f.routeTo || '',
+                  totalTime: f.totalTime,
+                }))
+              } : undefined}
             />
           </MapErrorBoundary>
-          <div className="absolute bottom-4 right-4 z-[1000]">
-            <MapControls options={mapOptions} onOptionsChange={setMapOptions} />
-          </div>
           <div className="absolute left-2 top-2 z-[1000]">
             <TileCacheBanner
               provider={mapOptions.baseLayer}
               onRefresh={() => setCacheVersion((v) => v + 1)}
             />
           </div>
+          {showAttribution && (
+            <MapAttribution baseLayer={mapOptions.baseLayer} detail={attributionDetail} />
+          )}
+          {showCompass && <CompassRose bearing={routeBearing} />}
           {selectedStateInfo && (
             <DesktopStateInfoPanel
               key={selectedStateInfo.state}
@@ -1040,7 +1165,10 @@ export default function DesktopMapPage() {
                 routeName={routeName}
                 setRouteName={setRouteName}
                 onSaveRoute={handleSaveCurrentRoute}
+                onSaveAs={activeRouteId ? handleSaveAsRoute : undefined}
+                isExistingRoute={!!activeRouteId}
                 onSaveFlightPlan={() => saveFlightPlan({ name: routeName || 'My Cross Country', callsign, pilotName, aircraftName, departureAt, cruiseAltFt, soulsOnBoard, alternateIcao, remarks, fuelPercent, waypoints: waypoints.map((w) => ({ icao: w.icao, name: w.name })) })}
+                onLogFlight={handleLogFlightActive}
               />
             )}
             {activePanel === 'plan' && (
@@ -1087,21 +1215,17 @@ export default function DesktopMapPage() {
               />
             )}
             {activePanel === 'fuel' && (
-              <div className="space-y-3">
-                <div className="rounded-md border border-border bg-muted/20 p-2.5">
-                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Fuel Summary</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Fuel Load</p><p className="text-xs font-semibold">{fuelGal.toFixed(1)} gal</p></div>
-                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Percent</p><p className="text-xs font-semibold">{fuelPercent}%</p></div>
-                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Burn Rate</p><p className="text-xs font-semibold">{burnGph} gph</p></div>
-                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Cruise</p><p className="text-xs font-semibold">{cruiseKts} kts</p></div>
-                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Range</p><p className="text-xs font-semibold">{Math.round(estRangeNm)} nm</p></div>
-                    <div className="rounded border border-border bg-card px-2 py-1"><p className="text-[10px] text-muted-foreground">Endurance</p><p className="text-xs font-semibold">{(fuelGal / burnGph).toFixed(1)} hrs</p></div>
-                  </div>
-                </div>
-                <input type="range" min={0} max={100} step={1} value={fuelPercent} onInput={(e) => setFuelPercent(Number((e.target as HTMLInputElement).value))} className="w-full accent-sky-500" />
-                <p className="text-[10px] text-muted-foreground">Adjust fuel load to see range and endurance impact.</p>
-              </div>
+              <FuelPanel
+                fuelGal={fuelGal}
+                fuelMaxGal={fuelMaxGal}
+                fuelPercent={fuelPercent}
+                setFuelPercent={setFuelPercent}
+                burnGph={burnGph}
+                cruiseKts={cruiseKts}
+                estRangeNm={estRangeNm}
+                waypoints={waypoints}
+                aircraftName={aircraftName}
+              />
             )}
             {activePanel === 'layers' && (
               <FiltersPanel
@@ -1109,6 +1233,17 @@ export default function DesktopMapPage() {
                 airportLimit={airportLimit} setAirportLimit={setAirportLimit}
                 regionMode={regionMode} setRegionMode={setRegionMode}
                 airportCount={filteredAirports.length}
+                mapOptions={mapOptions} onMapOptionsChange={setMapOptions}
+                showAttribution={showAttribution} onShowAttributionChange={setShowAttribution}
+                attributionDetail={attributionDetail} onAttributionDetailChange={setAttributionDetail}
+                showMgrsGrid={showMgrsGrid} onShowMgrsGridChange={setShowMgrsGrid}
+                showRuler={showRuler} onShowRulerChange={setShowRuler}
+                showCompass={showCompass} onShowCompassChange={setShowCompass}
+                rulerPointCount={rulerPoints.length} rulerPoints={rulerPoints}
+                onRulerPointRemove={handleRulerPointRemove} onRulerPointReorder={handleRulerPointReorder}
+                onRulerClear={() => setRulerPoints([])}
+                showRangeRings={showRangeRings} onShowRangeRingsChange={setShowRangeRings}
+                rangeRingIntervals={rangeRingIntervals} onRangeRingIntervalsChange={setRangeRingIntervals}
               />
             )}
             {activePanel === 'saved' && (
@@ -1116,12 +1251,25 @@ export default function DesktopMapPage() {
                 savedRoutes={savedRoutes} activeRouteId={activeRouteId}
                 onOpenRoute={openSavedRoute} onDuplicateRoute={handleDuplicateRoute}
                 onDeleteRoute={handleDeleteRoute}
+                onLogFlight={handleLogFlightSaved}
               />
             )}
             {activePanel === 'export' && (
               <ExportPanel
                 waypoints={waypoints} routeName={routeName}
                 onExport={exportRoute} onFileFlightPlan={handleFileFlightPlan}
+                weatherData={weatherData}
+                fuelGal={fuelGal} burnGph={burnGph} cruiseKts={cruiseKts} estRangeNm={estRangeNm}
+                callsign={callsign} pilotName={pilotName} aircraftName={aircraftName}
+                departureAt={departureAt} cruiseAltFt={cruiseAltFt}
+              />
+            )}
+            {activePanel === 'legality' && (
+              <LegalityPanel
+                waypoints={waypoints}
+                weatherData={weatherData}
+                pilotStatus={pilotStatus}
+                weatherWarnings={weatherWarnings}
               />
             )}
           </MapPanelContainer>

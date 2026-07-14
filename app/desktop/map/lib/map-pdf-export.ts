@@ -1,0 +1,744 @@
+/**
+ * Flight Pack PDF generation for the Map module.
+ * Produces a single-page basic summary or a multi-page detailed pack
+ * using jsPDF + jspdf-autotable (client-side only).
+ */
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import type { AirportWeather } from '../types'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface FlightPackWaypoint {
+  icao: string
+  name: string
+  latitude: number
+  longitude: number
+}
+
+export interface FlightPackData {
+  routeName: string
+  waypoints: FlightPackWaypoint[]
+
+  /** Weather keyed by ICAO – same shape as AirportWeather from ../types */
+  weatherData: Record<string, AirportWeather | null>
+
+  // Fuel
+  fuelGal: number
+  burnGph: number
+  cruiseKts: number
+  estRangeNm: number
+
+  // W&B
+  wbTotalWeight?: number
+  wbCg?: number
+  wbWithinLimits?: boolean
+
+  // Flight plan
+  callsign?: string
+  pilotName?: string
+  aircraftName?: string
+  departureAt?: string
+  cruiseAltFt?: number
+
+  // Legality
+  goNoGo?: 'go' | 'caution' | 'no-go'
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+type RGB = [number, number, number]
+
+const AERO: Record<string, RGB> = {
+  /** Dark navy used for table headers and accent bars */
+  dark: [15, 23, 42],
+  /** Muted slate for secondary text */
+  muted: [100, 116, 139],
+  /** Green for go status */
+  go: [22, 163, 74],
+  /** Amber for caution */
+  caution: [234, 179, 8],
+  /** Red for no-go */
+  noGo: [220, 38, 38],
+  /** Alternating row tint */
+  altRow: [248, 250, 252],
+  white: [255, 255, 255],
+}
+
+/** Format a METAR temperature */
+function fmtTemp(c?: number): string {
+  if (c == null) return '—'
+  return `${Math.round(c)}C`
+}
+
+/** Format METAR wind: direction / speed [+ gusts] kt */
+function fmtWind(windDir?: number, windSpd?: number, gust?: number): string {
+  if (windDir == null || windSpd == null) return '—'
+  const dir = windDir === 0 && windSpd === 0 ? 'Calm' : `${String(windDir).padStart(3, '0')}/${windSpd}`
+  if (gust && gust > windSpd) return `${dir}G${gust}`
+  return dir
+}
+
+/** Format visibility in SM */
+function fmtVis(sm?: number): string {
+  if (sm == null) return '—'
+  return `${sm.toFixed(1)} SM`
+}
+
+/** Format altimeter in inHg */
+function fmtAlt(hg?: number): string {
+  if (hg == null) return '—'
+  return `${hg.toFixed(2)}"`
+}
+
+/** Format endurance from burnGph */
+function fmtEndurance(fuelGal: number, burnGph: number): string {
+  if (burnGph <= 0) return '—'
+  const hours = fuelGal / burnGph
+  const h = Math.floor(hours)
+  const m = Math.round((hours - h) * 60)
+  return `${h}h ${m}m`
+}
+
+/** Format route as "KAAA → KBBB → KCCC" */
+function routeString(waypoints: FlightPackWaypoint[]): string {
+  return waypoints.map((w) => w.icao).join(' \u2192 ')
+}
+
+/** Build the go/no-go label and colour */
+function goNoGoStyle(
+  status?: 'go' | 'caution' | 'no-go'
+): { label: string; color: RGB } {
+  switch (status) {
+    case 'go':
+      return { label: 'GO', color: [...AERO.go] }
+    case 'caution':
+      return { label: 'CAUTION', color: [...AERO.caution] }
+    case 'no-go':
+      return { label: 'NO-GO', color: [...AERO.noGo] }
+    default:
+      return { label: 'N/A', color: [...AERO.muted] }
+  }
+}
+
+/** Compute great-circle distance (NM) */
+function distNm(a: FlightPackWaypoint, b: FlightPackWaypoint): number {
+  const R = 3440.065
+  const dLat = ((b.latitude - a.latitude) * Math.PI) / 180
+  const dLon = ((b.longitude - a.longitude) * Math.PI) / 180
+  const la1 = (a.latitude * Math.PI) / 180
+  const la2 = (b.latitude * Math.PI) / 180
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
+}
+
+/** Compute true course between two points (degrees, 0-360) */
+function trueCourse(a: FlightPackWaypoint, b: FlightPackWaypoint): number {
+  const dLon = ((b.longitude - a.longitude) * Math.PI) / 180
+  const la1 = (a.latitude * Math.PI) / 180
+  const la2 = (b.latitude * Math.PI) / 180
+  const y = Math.sin(dLon) * Math.cos(la2)
+  const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon)
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
+}
+
+/** Draw a thin coloured accent bar across the top of the page */
+function drawAccentBar(doc: jsPDF, color: readonly number[]): void {
+  doc.setFillColor(color[0], color[1], color[2])
+  doc.rect(0, 0, doc.internal.pageSize.getWidth(), 4, 'F')
+}
+
+/** Footer disclaimer */
+function drawFooter(doc: jsPDF): void {
+  const h = doc.internal.pageSize.getHeight()
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(...AERO.muted)
+  doc.text(
+    'Generated by Flight Planning Tool \u2014 For planning purposes only. Not for navigation.',
+    14,
+    h - 10
+  )
+}
+
+// ---------------------------------------------------------------------------
+// BASIC MODE – single page summary
+// ---------------------------------------------------------------------------
+
+function buildBasicPdf(doc: jsPDF, data: FlightPackData): void {
+  const pageW = doc.internal.pageSize.getWidth()
+  const margin = 14
+  let y = margin
+
+  drawAccentBar(doc, AERO.dark)
+
+  // Title block
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(22)
+  doc.setTextColor(...AERO.dark)
+  doc.text('Flight Pack', margin, (y += 14))
+
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(...AERO.muted)
+  doc.text(data.routeName || routeString(data.waypoints), margin, (y += 8))
+
+  doc.setFontSize(9)
+  doc.text(
+    `Generated ${new Date().toLocaleString()}`,
+    pageW - margin,
+    y,
+    { align: 'right' }
+  )
+
+  y += 8
+
+  // Route string
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(...AERO.dark)
+  doc.text('Route', margin, (y += 6))
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.setTextColor(30)
+  doc.text(routeString(data.waypoints), margin, (y += 5))
+
+  y += 4
+
+  // Flight plan details
+  const fpRows: string[][] = []
+  if (data.callsign) fpRows.push(['Callsign', data.callsign])
+  if (data.pilotName) fpRows.push(['Pilot', data.pilotName])
+  if (data.aircraftName) fpRows.push(['Aircraft', data.aircraftName])
+  if (data.departureAt) fpRows.push(['Departure', data.departureAt])
+  if (data.cruiseAltFt) fpRows.push(['Cruise Alt', `${data.cruiseAltFt.toLocaleString()} ft`])
+
+  if (fpRows.length > 0) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.setTextColor(...AERO.dark)
+    doc.text('Flight Plan', margin, (y += 6))
+
+    autoTable(doc, {
+      startY: y + 2,
+      head: [],
+      body: fpRows,
+      theme: 'plain',
+      styles: { fontSize: 9, cellPadding: 2, textColor: 30 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 35, textColor: AERO.muted },
+      },
+      margin: { left: margin, right: margin },
+    })
+    y = (doc as any).lastAutoTable.finalY + 4
+  }
+
+  // Weather summary table
+  const wpIcaos = data.waypoints.map((w) => w.icao)
+  const weatherRows = wpIcaos.map((icao) => {
+    const wx = data.weatherData[icao]
+    const m = wx?.metar
+    return [
+      icao,
+      m?.flightCategory || '—',
+      fmtTemp(m?.tempC),
+      fmtWind(m?.windDirKts, m?.windSpeedKts, m?.windGustKts),
+      fmtVis(m?.visibilitySm),
+      fmtAlt(m?.altHg),
+    ]
+  })
+
+  if (weatherRows.length > 0) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.setTextColor(...AERO.dark)
+    doc.text('Weather Summary', margin, (y += 6))
+
+    autoTable(doc, {
+      startY: y + 2,
+      head: [['ICAO', 'Cat', 'Temp', 'Wind', 'Vis', 'Alt']],
+      body: weatherRows,
+      styles: { fontSize: 8, cellPadding: 2.5, halign: 'center', textColor: 30 },
+      headStyles: {
+        fillColor: [...AERO.dark],
+        textColor: 255,
+        fontStyle: 'bold',
+        halign: 'center',
+      },
+      alternateRowStyles: { fillColor: [...AERO.altRow] },
+      columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+      margin: { left: margin, right: margin },
+    })
+    y = (doc as any).lastAutoTable.finalY + 4
+  }
+
+  // Fuel summary
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(...AERO.dark)
+  doc.text('Fuel Summary', margin, (y += 6))
+
+  const endurance = fmtEndurance(data.fuelGal, data.burnGph)
+  const fuelRows = [
+    ['Fuel Load', `${data.fuelGal} gal`],
+    ['Burn Rate', `${data.burnGph} GPH`],
+    ['Cruise Speed', `${data.cruiseKts} kts`],
+    ['Est. Range', `${data.estRangeNm} NM`],
+    ['Endurance', endurance],
+  ]
+
+  autoTable(doc, {
+    startY: y + 2,
+    head: [],
+    body: fuelRows,
+    theme: 'plain',
+    styles: { fontSize: 9, cellPadding: 2, textColor: 30 },
+    columnStyles: {
+      0: { fontStyle: 'bold', cellWidth: 35, textColor: AERO.muted },
+    },
+    margin: { left: margin, right: margin },
+  })
+  y = (doc as any).lastAutoTable.finalY + 4
+
+  // Go / No-Go status
+  const { label, color } = goNoGoStyle(data.goNoGo)
+  doc.setFillColor(color[0], color[1], color[2])
+  const badgeW = 30
+  const badgeH = 8
+  doc.roundedRect(margin, y + 2, badgeW, badgeH, 1.5, 1.5, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(...AERO.white)
+  doc.text(label, margin + badgeW / 2, y + 7.5, { align: 'center' })
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(...AERO.dark)
+  doc.text('Go / No-Go Status', margin + badgeW + 4, y + 7.5)
+
+  drawFooter(doc)
+}
+
+// ---------------------------------------------------------------------------
+// DETAILED MODE – multi-page pack
+// ---------------------------------------------------------------------------
+
+function buildDetailedPdf(doc: jsPDF, data: FlightPackData): void {
+  const margin = 14
+  const pageW = doc.internal.pageSize.getWidth()
+
+  // ------------------------------------------------------------------
+  // PAGE 1: Cover
+  // ------------------------------------------------------------------
+  drawAccentBar(doc, AERO.dark)
+
+  let y = 24
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(28)
+  doc.setTextColor(...AERO.dark)
+  doc.text('Flight Pack', margin, y)
+
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(...AERO.muted)
+  doc.text(data.routeName || routeString(data.waypoints), margin, (y += 10))
+
+  doc.setFontSize(10)
+  doc.text(new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), margin, (y += 7))
+
+  // Flight plan details table
+  y += 10
+  const fpRows: string[][] = []
+  fpRows.push(['Route', routeString(data.waypoints)])
+  if (data.callsign) fpRows.push(['Callsign', data.callsign])
+  if (data.pilotName) fpRows.push(['Pilot', data.pilotName])
+  if (data.aircraftName) fpRows.push(['Aircraft', data.aircraftName])
+  if (data.departureAt) fpRows.push(['Departure', data.departureAt])
+  if (data.cruiseAltFt) fpRows.push(['Cruise Altitude', `${data.cruiseAltFt.toLocaleString()} ft`])
+  fpRows.push(['Fuel Load', `${data.fuelGal} gal`])
+  fpRows.push(['Burn Rate', `${data.burnGph} GPH`])
+  fpRows.push(['Cruise Speed', `${data.cruiseKts} kts`])
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Flight Plan Detail', '']],
+    body: fpRows,
+    styles: { fontSize: 10, cellPadding: 3, textColor: 30 },
+    headStyles: {
+      fillColor: [...AERO.dark],
+      textColor: 255,
+      fontStyle: 'bold',
+    },
+    columnStyles: {
+      0: { fontStyle: 'bold', cellWidth: 45 },
+    },
+    margin: { left: margin, right: margin },
+  })
+  y = (doc as any).lastAutoTable.finalY + 8
+
+  // Go / No-Go on cover
+  const { label, color } = goNoGoStyle(data.goNoGo)
+  doc.setFillColor(color[0], color[1], color[2])
+  doc.roundedRect(margin, y + 2, 40, 10, 2, 2, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(13)
+  doc.setTextColor(...AERO.white)
+  doc.text(label, margin + 20, y + 9.5, { align: 'center' })
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.setTextColor(...AERO.dark)
+  doc.text('Go / No-Go', margin + 44, y + 9.5)
+
+  drawFooter(doc)
+
+  // ------------------------------------------------------------------
+  // PAGE 2: Nav Log (per-leg distances, headings, times, fuel)
+  // ------------------------------------------------------------------
+  doc.addPage()
+  drawAccentBar(doc, AERO.dark)
+  y = 18
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(14)
+  doc.setTextColor(...AERO.dark)
+  doc.text('Navigation Log', margin, y)
+  y += 8
+
+  const legs: string[][] = []
+  let totalDist = 0
+  let totalTimeMin = 0
+
+  for (let i = 0; i < data.waypoints.length - 1; i++) {
+    const from = data.waypoints[i]
+    const to = data.waypoints[i + 1]
+    const d = distNm(from, to)
+    totalDist += d
+    const tc = trueCourse(from, to)
+    const timeMin = data.cruiseKts > 0 ? (d / data.cruiseKts) * 60 : 0
+    totalTimeMin += timeMin
+    const fuelUsed = data.burnGph > 0 ? (timeMin / 60) * data.burnGph : 0
+
+    const hrs = Math.floor(timeMin / 60)
+    const mins = Math.round(timeMin % 60)
+
+    legs.push([
+      `${i + 1}`,
+      `${from.icao}`,
+      `${to.icao}`,
+      `${tc.toFixed(0)}\u00B0`,
+      `${d.toFixed(1)}`,
+      `${hrs}h ${String(mins).padStart(2, '0')}m`,
+      `${fuelUsed.toFixed(1)}`,
+    ])
+  }
+
+  // Total row
+  const tHrs = Math.floor(totalTimeMin / 60)
+  const tMins = Math.round(totalTimeMin % 60)
+  const totalFuel = data.burnGph > 0 ? (totalTimeMin / 60) * data.burnGph : 0
+  legs.push([
+    '',
+    '',
+    'TOTAL',
+    '',
+    `${totalDist.toFixed(1)} NM`,
+    `${tHrs}h ${String(tMins).padStart(2, '0')}m`,
+    `${totalFuel.toFixed(1)} gal`,
+  ])
+
+  autoTable(doc, {
+    startY: y,
+    head: [['#', 'From', 'To', 'TC', 'Dist', 'ETE', 'Fuel']],
+    body: legs,
+    styles: { fontSize: 9, cellPadding: 3, halign: 'center', textColor: 30 },
+    headStyles: {
+      fillColor: [...AERO.dark],
+      textColor: 255,
+      fontStyle: 'bold',
+    },
+    alternateRowStyles: { fillColor: [...AERO.altRow] },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10 },
+      1: { halign: 'left', fontStyle: 'bold' },
+      2: { halign: 'left', fontStyle: 'bold' },
+    },
+    margin: { left: margin, right: margin },
+  })
+
+  drawFooter(doc)
+
+  // ------------------------------------------------------------------
+  // PAGE 3: Weather Details
+  // ------------------------------------------------------------------
+  doc.addPage()
+  drawAccentBar(doc, AERO.dark)
+  y = 18
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(14)
+  doc.setTextColor(...AERO.dark)
+  doc.text('Weather Details', margin, y)
+  y += 10
+
+  for (const wp of data.waypoints) {
+    const wx = data.weatherData[wp.icao]
+    if (!wx) continue
+
+    // Check remaining space; add page if needed
+    if (y > 230) {
+      doc.addPage()
+      drawAccentBar(doc, AERO.dark)
+      y = 18
+    }
+
+    // ICAO header
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.setTextColor(...AERO.dark)
+    doc.text(`${wp.icao} — ${wp.name}`, margin, y)
+    y += 5
+
+    if (wx.metar?.rawText) {
+      doc.setFont('courier', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(50)
+      // Wrap raw METAR text
+      const lines = doc.splitTextToSize(`METAR: ${wx.metar.rawText}`, pageW - margin * 2)
+      doc.text(lines, margin, y)
+      y += lines.length * 3.5 + 2
+    }
+
+    // Decoded METAR table
+    if (wx.metar) {
+      const m = wx.metar
+      const decodedRows: string[][] = []
+      if (m.flightCategory) decodedRows.push(['Flight Category', m.flightCategory])
+      if (m.tempC != null) decodedRows.push(['Temperature', `${m.tempC}C`])
+      if (m.windDirKts != null && m.windSpeedKts != null)
+        decodedRows.push(['Wind', fmtWind(m.windDirKts, m.windSpeedKts, m.windGustKts)])
+      if (m.visibilitySm != null) decodedRows.push(['Visibility', fmtVis(m.visibilitySm)])
+      if (m.altHg != null) decodedRows.push(['Altimeter', fmtAlt(m.altHg)])
+
+      if (decodedRows.length > 0) {
+        autoTable(doc, {
+          startY: y,
+          head: [['Parameter', 'Value']],
+          body: decodedRows,
+          styles: { fontSize: 8, cellPadding: 2, textColor: 30 },
+          headStyles: { fillColor: [...AERO.dark], textColor: 255, fontStyle: 'bold' },
+          columnStyles: { 0: { cellWidth: 35, fontStyle: 'bold' } },
+          margin: { left: margin, right: margin },
+          tableWidth: 90,
+        })
+        y = (doc as any).lastAutoTable.finalY + 4
+      }
+    }
+
+    if (wx.taf?.rawText) {
+      doc.setFont('courier', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(50)
+      const tafLines = doc.splitTextToSize(`TAF: ${wx.taf.rawText}`, pageW - margin * 2)
+      doc.text(tafLines, margin, y)
+      y += tafLines.length * 3.5 + 3
+    }
+
+    y += 2
+  }
+
+  drawFooter(doc)
+
+  // ------------------------------------------------------------------
+  // PAGE 4: Weight & Balance (if data provided)
+  // ------------------------------------------------------------------
+  const hasWb = data.wbTotalWeight != null || data.wbCg != null || data.wbWithinLimits != null
+  if (hasWb) {
+    doc.addPage()
+    drawAccentBar(doc, AERO.dark)
+    y = 18
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.setTextColor(...AERO.dark)
+    doc.text('Weight & Balance', margin, y)
+    y += 10
+
+    const wbRows: string[][] = []
+    if (data.wbTotalWeight != null) wbRows.push(['Total Weight', `${data.wbTotalWeight} lbs`])
+    if (data.wbCg != null) wbRows.push(['Center of Gravity', `${data.wbCg.toFixed(2)}"`])
+    if (data.wbWithinLimits != null)
+      wbRows.push(['Status', data.wbWithinLimits ? 'WITHIN LIMITS' : 'OUT OF LIMITS'])
+
+    if (wbRows.length > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [['Parameter', 'Value']],
+        body: wbRows,
+        styles: { fontSize: 10, cellPadding: 3, textColor: 30 },
+        headStyles: { fillColor: [...AERO.dark], textColor: 255, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
+        margin: { left: margin, right: margin },
+        tableWidth: 100,
+      })
+      y = (doc as any).lastAutoTable.finalY + 10
+    }
+
+    // Visual CG envelope hint
+    if (data.wbWithinLimits != null) {
+      const { label, color } = goNoGoStyle(data.wbWithinLimits ? 'go' : 'no-go')
+      doc.setFillColor(color[0], color[1], color[2])
+      doc.roundedRect(margin, y + 2, 40, 10, 2, 2, 'F')
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(12)
+      doc.setTextColor(...AERO.white)
+      doc.text(label, margin + 20, y + 9.5, { align: 'center' })
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.setTextColor(...AERO.dark)
+      doc.text('W&B Status', margin + 44, y + 9.5)
+    }
+
+    drawFooter(doc)
+  }
+
+  // ------------------------------------------------------------------
+  // PAGE 5+: Legality / Currency (placeholder for future data)
+  // ------------------------------------------------------------------
+  doc.addPage()
+  drawAccentBar(doc, AERO.dark)
+  y = 18
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(14)
+  doc.setTextColor(...AERO.dark)
+  doc.text('Legality & Currency', margin, y)
+  y += 10
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.setTextColor(50)
+  doc.text(
+    'This section provides a go/no-go assessment based on the data available.',
+    margin,
+    y
+  )
+  y += 10
+
+  const statusRows: string[][] = []
+  const { label: goLabel, color: goColor } = goNoGoStyle(data.goNoGo)
+  statusRows.push(['Overall Status', goLabel])
+
+  if (data.fuelGal > 0 && data.burnGph > 0) {
+    const enduranceHrs = data.fuelGal / data.burnGph
+    statusRows.push(['Fuel Endurance', fmtEndurance(data.fuelGal, data.burnGph)])
+    if (enduranceHrs < 1) {
+      statusRows.push(['Fuel Alert', 'Less than 1 hour endurance'])
+    }
+  }
+
+  if (data.estRangeNm > 0) {
+    statusRows.push(['Estimated Range', `${data.estRangeNm} NM`])
+  }
+
+  if (data.wbWithinLimits === false) {
+    statusRows.push(['W&B Alert', 'Weight & Balance is OUT OF LIMITS'])
+  }
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Item', 'Status']],
+    body: statusRows,
+    styles: { fontSize: 10, cellPadding: 3, textColor: 30 },
+    headStyles: { fillColor: [...AERO.dark], textColor: 255, fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
+    margin: { left: margin, right: margin },
+    tableWidth: 120,
+  })
+  y = (doc as any).lastAutoTable.finalY + 10
+
+  // Weather advisory summary
+  const wxAlerts: string[][] = []
+  for (const wp of data.waypoints) {
+    const wx = data.weatherData[wp.icao]
+    if (!wx?.metar) continue
+    const cat = wx.metar.flightCategory
+    if (cat === 'LIFR' || cat === 'IFR') {
+      wxAlerts.push([wp.icao, `${cat} conditions reported`])
+    }
+  }
+
+  if (wxAlerts.length > 0) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.setTextColor(...AERO.noGo)
+    doc.text('Weather Alerts', margin, y)
+    y += 5
+
+    autoTable(doc, {
+      startY: y,
+      head: [['ICAO', 'Alert']],
+      body: wxAlerts,
+      styles: { fontSize: 9, cellPadding: 2.5, textColor: 30 },
+      headStyles: { fillColor: [...AERO.noGo], textColor: 255, fontStyle: 'bold' },
+      margin: { left: margin, right: margin },
+    })
+  }
+
+  drawFooter(doc)
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate and download a Flight Pack PDF.
+ *
+ * @param data    All flight data (route, weather, fuel, W&B, etc.)
+ * @param detailed  When true a multi-page pack is generated; false = single page.
+ */
+export async function generateFlightPackPdf(
+  data: FlightPackData,
+  detailed: boolean
+): Promise<void> {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' })
+
+  if (detailed) {
+    buildDetailedPdf(doc, data)
+  } else {
+    buildBasicPdf(doc, data)
+  }
+
+  // Build filename from route
+  const routeSlug = data.waypoints
+    .map((w) => w.icao)
+    .join('-')
+    .toLowerCase()
+  const mode = detailed ? 'detailed' : 'basic'
+  const filename = `flight-pack-${routeSlug || 'route'}-${mode}.pdf`
+
+  // Try Tauri save dialog first, fall back to jsPDF's doc.save()
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const pdfArrayBuffer = doc.output('arraybuffer')
+    const pdfBytes = new Uint8Array(pdfArrayBuffer)
+    const filePath = await save({
+      defaultPath: filename,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    })
+    if (filePath) {
+      const { writeFile } = await import('@tauri-apps/plugin-fs')
+      await writeFile(filePath, pdfBytes)
+      return
+    }
+    // User cancelled the dialog — fall through to browser download
+  } catch {
+    // Tauri plugins not available — fall back to browser download
+  }
+
+  doc.save(filename)
+}

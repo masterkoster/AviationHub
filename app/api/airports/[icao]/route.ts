@@ -17,6 +17,9 @@ async function getDb() {
   return db;
 }
 
+const detailCache = new Map<string, { data: any; ts: number }>()
+const CACHE_TTL_MS = 60_000 // 60 seconds
+
 // Demo fuel prices for airports without cached data
 const DEMO_FUEL_PRICES: Record<string, number> = {
   'KORD': 9.58, 'KLAX': 10.65, 'KVNY': 8.32, 'KPDK': 8.67,
@@ -70,46 +73,64 @@ export async function GET(request: Request, { params }: { params: Promise<{ icao
       return NextResponse.json({ error: 'Airport not found' }, { status: 404 });
     }
     
-    // Get runways
-    const runways = await db.all(`
-      SELECT length_ft, width_ft, surface, he_ident, le_ident
-      FROM runways 
-      WHERE icao = ?
-      ORDER BY length_ft DESC
-      LIMIT 5
-    `, icaoUpper);
+    // Check in-memory cache
+    const cached = detailCache.get(icaoUpper);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return NextResponse.json(cached.data, {
+        headers: { 'Cache-Control': 'public, max-age=300, stale-while-revalidate=600' }
+      });
+    }
     
-    // Get frequencies
-    const frequencies = await db.all(`
-      SELECT frequency_mhz, description, type
-      FROM frequencies 
-      WHERE icao = ?
-      ORDER BY 
-        CASE type 
-          WHEN 'APP' THEN 1 
-          WHEN 'TWR' THEN 2 
-          WHEN 'GND' THEN 3 
-          WHEN 'DEP' THEN 4 
-          WHEN 'ATIS' THEN 5 
-          WHEN 'CTAF' THEN 6 
-          ELSE 7 
-        END
-      LIMIT 10
-    `, icaoUpper);
-    
-    // Get cached fuel prices from new table (AirNav data)
-    const fuelPrices = await db.all(`
-      SELECT fuel_type, service_type, price, last_reported, source_url, scraped_at, has_tower, attendance, phone, landing_fee, manager
-      FROM airport_fuel 
-      WHERE icao = ?
-    `, icaoUpper);
-    
-    // Also check old cache table
-    const fuelCache = await db.all(`
-      SELECT data_type, price, source_site, last_updated
-      FROM airport_cache 
-      WHERE icao = ?
-    `, icaoUpper);
+    // Get all independent data in parallel
+    const [runways, frequencies, fuelPrices, fuelCache, communityPrices] = await Promise.all([
+      // Get runways
+      db.all(`
+        SELECT length_ft, width_ft, surface, he_ident, le_ident
+        FROM runways 
+        WHERE icao = ?
+        ORDER BY length_ft DESC
+        LIMIT 5
+      `, icaoUpper),
+      
+      // Get frequencies
+      db.all(`
+        SELECT frequency_mhz, description, type
+        FROM frequencies 
+        WHERE icao = ?
+        ORDER BY 
+          CASE type 
+            WHEN 'APP' THEN 1 
+            WHEN 'TWR' THEN 2 
+            WHEN 'GND' THEN 3 
+            WHEN 'DEP' THEN 4 
+            WHEN 'ATIS' THEN 5 
+            WHEN 'CTAF' THEN 6 
+            ELSE 7 
+          END
+        LIMIT 10
+      `, icaoUpper),
+      
+      // Get cached fuel prices from new table (AirNav data)
+      db.all(`
+        SELECT fuel_type, service_type, price, last_reported, source_url, scraped_at, has_tower, attendance, phone, landing_fee, manager
+        FROM airport_fuel 
+        WHERE icao = ?
+      `, icaoUpper),
+      
+      // Also check old cache table
+      db.all(`
+        SELECT data_type, price, source_site, last_updated
+        FROM airport_cache 
+        WHERE icao = ?
+      `, icaoUpper),
+      
+      // Get community-reported fuel prices
+      prisma.communityFuelPrice.findMany({
+        where: { icao: icaoUpper },
+        orderBy: { purchaseDate: 'desc' },
+        take: 10,
+      }).catch(() => []),
+    ]);
     
     const fuelData = fuelCache.find((f: any) => f.data_type === 'fuel');
     const feeData = fuelCache.find((f: any) => f.data_type === 'fee');
@@ -140,19 +161,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ icao
     
     const landingFeeAmount = feeData ? feeData.price : (DEMO_FEES[icaoUpper] || null);
     
-    // Get community-reported fuel prices (most recent for each type)
-    let communityPrices: any[] = [];
-    try {
-      communityPrices = await prisma.communityFuelPrice.findMany({
-        where: { icao: icaoUpper },
-        orderBy: { purchaseDate: 'desc' },
-        take: 10,
-      });
-    } catch (e) {
-      // Community table might not exist yet
-      console.log('Community prices not available:', e);
-    }
-    
     // Get latest community price for each fuel type
     const latestCommunityByType: Record<string, any> = {};
     for (const p of communityPrices) {
@@ -178,30 +186,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ icao
       }
     }
     
-    // If using demo prices, cache them for future use
+    // If using demo prices, cache them for future use (fire-and-forget)
     if (!fuelData && fuelPrice) {
-      try {
-        await db.run(`
-          INSERT OR REPLACE INTO airport_cache (icao, data_type, price, source_site, last_updated)
-          VALUES (?, 'fuel', ?, 'demo', datetime('now'))
-        `, icaoUpper, fuelPrice);
-      } catch (e) {
-        // Ignore cache errors
-      }
+      db.run(`
+        INSERT OR REPLACE INTO airport_cache (icao, data_type, price, source_site, last_updated)
+        VALUES (?, 'fuel', ?, 'demo', datetime('now'))
+      `, icaoUpper, fuelPrice).catch(() => {});
     }
     
     if (!feeData && landingFeeAmount) {
-      try {
-        await db.run(`
-          INSERT OR REPLACE INTO airport_cache (icao, data_type, price, source_site, last_updated)
-          VALUES (?, 'fee', ?, 'demo', datetime('now'))
-        `, icaoUpper, landingFeeAmount);
-      } catch (e) {
-        // Ignore cache errors
-      }
+      db.run(`
+        INSERT OR REPLACE INTO airport_cache (icao, data_type, price, source_site, last_updated)
+        VALUES (?, 'fee', ?, 'demo', datetime('now'))
+      `, icaoUpper, landingFeeAmount).catch(() => {});
     }
     
-    return NextResponse.json({
+    const responseData = {
       ...airport,
       runways,
       frequencies,
@@ -242,6 +242,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ icao
         source: feeData ? feeData.source_site : 'demo',
         lastUpdated: feeData ? feeData.last_updated : new Date().toISOString()
       } : null
+    };
+    
+    // Store in in-memory cache
+    detailCache.set(icaoUpper, { data: responseData, ts: Date.now() });
+    
+    return NextResponse.json(responseData, {
+      headers: { 'Cache-Control': 'public, max-age=300, stale-while-revalidate=600' }
     });
   } catch (error) {
     console.error('Error fetching airport details:', error);

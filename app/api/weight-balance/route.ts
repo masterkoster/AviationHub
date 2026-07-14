@@ -81,19 +81,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const unusableFuel = aircraft.unusable_fuel || 2;
     const fuelDensity = 6.0; // lbs per gallon for 100LL
 
-    // Calculate loads
-    const pilotLoad = pilotWeight * armPilot;
-    const passengerLoad = (passengers * passengerWeight) * armPassenger;
-    const baggageLoad = baggageWeight * armBaggage;
-    const fuelWeight = (fuelGallons * fuelDensity);
-    const fuelLoad = fuelWeight * armFuel;
+    // Split weights and moments — previously passengerLoad + baggageLoad
+    // were erroneously summed into totalWeight as moments (see bug at this
+    // line). Now weights and moments are computed separately so totalWeight
+    // is the true weight and totalMoment is the true moment·inches.
+    const pilotWeightActual = pilotWeight;
+    const passengerWeightTotal = passengers * passengerWeight;
+    const baggageWeightTotal = baggageWeight;
+    const fuelWeightTotal = fuelGallons * fuelDensity;
 
-    // Total weight
-    const totalWeight = emptyWeight + pilotLoad / armPilot + passengerLoad + baggageLoad + fuelWeight;
+    // Total weight (true sum of weights, not moments)
+    const totalWeight =
+      emptyWeight +
+      pilotWeightActual +
+      passengerWeightTotal +
+      baggageWeightTotal +
+      fuelWeightTotal;
 
-    // Total moment
-    const totalMoment = emptyWeight * emptyCG + pilotLoad + passengerLoad + baggageLoad + fuelLoad;
-    
+    // Total moment (sum of weight × arm per station)
+    const totalMoment =
+      emptyWeight * emptyCG +
+      pilotWeightActual * armPilot +
+      passengerWeightTotal * armPassenger +
+      baggageWeightTotal * armBaggage +
+      fuelWeightTotal * armFuel;
+
     // Calculate CG
     const cg = totalWeight > 0 ? totalMoment / totalWeight : emptyCG;
 

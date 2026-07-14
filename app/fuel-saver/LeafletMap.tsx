@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MapContainer, TileLayer, Popup, Polyline, CircleMarker, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import { AERO_TILE_URL_LEAFLET, AERO_ATTRIBUTION, AERO_MAX_ZOOM, AERO_TMS } from '@/shared/components/map/aero-source';
 
 // Fix Leaflet icon issue
 if (typeof window !== 'undefined') {
@@ -102,7 +103,7 @@ interface LeafletMapProps {
   showTfrs?: boolean;
   showPireps?: boolean;
   onStateClick?: (stateInfo: any) => void;
-  baseLayer?: 'osm' | 'satellite' | 'terrain' | 'dark';
+  baseLayer?: 'osm' | 'satellite' | 'terrain' | 'dark' | 'aero';
   onViewStateInfo?: (stateCode: string) => void;
   performanceMode?: boolean;
 }
@@ -554,12 +555,13 @@ export default function LeafletMap({
   const isFetchingRef = useRef(false);
   const lastFailedRef = useRef<{ tfrs?: number; pireps?: number }>({});
   
-  // Base layer URLs
+// Base layer URLs
   const baseLayers = {
-    osm: { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenStreetMap' },
-    satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: '&copy; Esri' },
-    terrain: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenTopoMap' },
-    dark: { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attribution: '&copy; CartoDB' }
+    osm: { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenStreetMap', tms: false, maxZoom: 19 },
+    satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: '&copy; Esri', tms: false, maxZoom: 19 },
+    terrain: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenTopoMap', tms: false, maxZoom: 17 },
+    dark: { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attribution: '&copy; CartoDB', tms: false, maxZoom: 20 },
+    aero: { url: AERO_TILE_URL_LEAFLET, attribution: AERO_ATTRIBUTION, tms: AERO_TMS, maxZoom: AERO_MAX_ZOOM }
   };
   
   // Pre-compute stable pathOptions per airport type to avoid new objects on every render
@@ -722,9 +724,11 @@ export default function LeafletMap({
       zoom={mapZoom}
       style={{ height: '100%', width: '100%', zIndex: 0 }}
     >
-      <TileLayer
+<TileLayer
         attribution={baseLayers[baseLayer].attribution}
         url={baseLayers[baseLayer].url}
+        tms={baseLayers[baseLayer].tms}
+        maxZoom={baseLayers[baseLayer].maxZoom}
       />
       
       <MapEventHandler onBoundsChange={handleBoundsChange} onMapReady={handleMapReady} />

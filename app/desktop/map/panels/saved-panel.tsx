@@ -1,6 +1,6 @@
 'use client'
 
-import { FolderOpen, Copy, Trash2, Calendar } from 'lucide-react'
+import { FolderOpen, Copy, Trash2, Calendar, PlaneTakeoff } from 'lucide-react'
 import type { StoredRoute } from '../types'
 
 interface SavedPanelProps {
@@ -9,10 +9,11 @@ interface SavedPanelProps {
   onOpenRoute: (route: StoredRoute) => void
   onDuplicateRoute: (route: StoredRoute) => void
   onDeleteRoute: (route: StoredRoute) => void
+  onLogFlight: (route: StoredRoute) => void
 }
 
 export function SavedPanel(props: SavedPanelProps) {
-  const { savedRoutes, activeRouteId, onOpenRoute, onDuplicateRoute, onDeleteRoute } = props
+  const { savedRoutes, activeRouteId, onOpenRoute, onDuplicateRoute, onDeleteRoute, onLogFlight } = props
 
   if (savedRoutes.length === 0) {
     return (
@@ -73,6 +74,15 @@ export function SavedPanel(props: SavedPanelProps) {
             >
               <Trash2 className="h-3 w-3" />
             </button>
+            {route.waypoints.length >= 2 && (
+              <button
+                onClick={() => onLogFlight(route)}
+                title="Log Flight"
+                className="ml-auto inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted"
+              >
+                <PlaneTakeoff className="h-3 w-3" /> Log Flight
+              </button>
+            )}
           </div>
         </div>
       ))}

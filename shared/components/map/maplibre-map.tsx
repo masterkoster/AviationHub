@@ -66,11 +66,22 @@ interface MapLibreMapProps {
   showTerrain?: boolean
   showTfrs?: boolean
   showPireps?: boolean
+  showMgrsGrid?: boolean
+  showRuler?: boolean
+  rulerPoints?: Array<{ lat: number; lng: number }>
+  onRulerPointAdd?: (point: { lat: number; lng: number }) => void
+  onRulerPointRemove?: (index: number) => void
+  onRulerClear?: () => void
+  showRangeRings?: boolean
+  rangeRingCenter?: { lat: number; lng: number } | null
+  rangeRingIntervals?: number[]
   baseLayer?: MapBaseLayer
   performanceMode?: boolean
   maxAirportsToRender?: number
   clusterAirports?: boolean
   weatherCategories?: Record<string, string>
+  userId?: string | null
+  onFlightHistory?: (icao: string) => Promise<Array<{ date: string; aircraft: string; routeFrom: string; routeTo: string; totalTime: number }>>
 }
 
 const AIRPORT_SOURCE = 'airports'
@@ -87,6 +98,30 @@ const ROUTE_SOURCE = 'route-source'
 const ROUTE_LAYER = 'route-layer'
 const LEG_LABELS_SOURCE = 'leg-labels-source'
 const LEG_LABELS_LAYER = 'leg-labels-layer'
+
+// Overlay sources & layers
+const TERRAIN_SOURCE = 'terrain-overlay'
+const TERRAIN_LAYER = 'terrain-overlay-layer'
+const TFR_SOURCE = 'tfrs-source'
+const TFR_CIRCLE_LAYER = 'tfrs-circle'
+const TFR_LABEL_LAYER = 'tfrs-labels'
+const PIREP_SOURCE = 'pireps-source'
+const PIREP_LAYER = 'pireps-layer'
+const PIREP_LABELS_LAYER = 'pireps-labels'
+
+// Military tools sources & layers
+const MGRS_GRID_SOURCE = 'mgrs-grid-source'
+const MGRS_GRID_LINES = 'mgrs-grid-lines'
+const MGRS_GRID_LABELS = 'mgrs-grid-labels'
+const RULER_SOURCE = 'ruler-source'
+const RULER_LINE_LAYER = 'ruler-line'
+const RULER_POINTS_LAYER = 'ruler-points'
+const RULER_LABELS_LAYER = 'ruler-labels'
+
+// Range ring sources & layers
+const RANGE_RING_SOURCE = 'range-ring-source'
+const RANGE_RING_CIRCLES = 'range-ring-circles'
+const RANGE_RING_LABELS = 'range-ring-labels'
 
 function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 3440.065
@@ -130,13 +165,15 @@ function buildAirportPopupContent(
     isDark: boolean
     loading?: boolean
     details?: AirportDetails | null
+    flightHistory?: Array<{ date: string; aircraft: string; routeFrom: string; routeTo: string; totalTime: number }>
+    flightHistoryLoading?: boolean
     onAddToRoute: () => void
     onViewStateInfo?: (stateCode: string) => void
     onClose?: () => void
     onOpenExternal?: (url: string) => void
   }
 ): HTMLDivElement {
-  const { loading, details, onAddToRoute, onViewStateInfo, onClose, onOpenExternal } = options
+  const { loading, details, flightHistory, flightHistoryLoading, onAddToRoute, onViewStateInfo, onClose, onOpenExternal } = options
   const wrap = document.createElement('div')
   wrap.className = 'min-w-[150px] max-w-[180px] text-slate-900 relative'
 
@@ -202,6 +239,26 @@ function buildAirportPopupContent(
       </div>
     ` : ''}
     ${details?.landingFee?.amount ? `<div class="text-sm text-amber-600">Landing: ${formatMoney(details.landingFee.amount)}</div>` : ''}
+    ${flightHistoryLoading ? `<div class="mt-2 text-xs text-slate-400">Loading flight history...</div>` : ''}
+    ${flightHistory && flightHistory.length > 0 ? `
+      <div class="mt-2">
+        <div class="text-xs font-medium text-slate-500 mb-1">Your Flight History</div>
+        <div class="max-h-24 overflow-y-auto space-y-1">
+          ${flightHistory.slice(0, 8).map(f => {
+            const isDep = f.routeFrom.toUpperCase() === airport.icao.toUpperCase()
+            const dateStr = f.date ? new Date(f.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'
+            return `<div class="flex items-center justify-between text-[10px] bg-slate-100 rounded px-1.5 py-0.5">
+              <span class="text-slate-500">${dateStr}</span>
+              <span class="font-medium text-slate-700">${f.aircraft || '—'}</span>
+              <span class="text-slate-500">${isDep ? 'Departed' : 'Arrived'}</span>
+              <span class="font-mono text-slate-600">${isDep ? f.routeTo : f.routeFrom}</span>
+              <span class="text-slate-400">${f.totalTime ? f.totalTime.toFixed(1) + 'h' : ''}</span>
+            </div>`
+          }).join('')}
+        </div>
+      </div>
+    ` : ''}
+    ${flightHistory && flightHistory.length === 0 && !flightHistoryLoading ? '' : ''}
     <button data-role="popup-add-route" class="mt-3 w-full bg-sky-500 hover:bg-sky-600 text-white px-3 py-2 rounded text-sm font-medium">Add to Route</button>
     <button data-role="popup-view-state" class="mt-2 w-full bg-purple-500 hover:bg-purple-600 text-white px-3 py-2 rounded text-sm font-medium">View State Info</button>
   `
@@ -266,10 +323,23 @@ export default function MapLibreMap({
   onOpenExternal,
   mapCenter,
   mapZoom,
+  showTerrain = false,
+  showTfrs = false,
+  showPireps = false,
+  showMgrsGrid = false,
+  showRuler = false,
+  rulerPoints = [],
+  onRulerPointAdd,
+  onRulerClear,
+  showRangeRings = false,
+  rangeRingCenter = null,
+  rangeRingIntervals = [25, 50, 100],
   baseLayer = 'osm',
   maxAirportsToRender = 2000,
   clusterAirports = true,
   weatherCategories = {},
+  userId = null,
+  onFlightHistory,
 }: MapLibreMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<Map | null>(null)
@@ -283,6 +353,16 @@ export default function MapLibreMap({
   const onViewStateInfoRef = useRef(onViewStateInfo)
   const onAirportCloseRef = useRef(onAirportClose)
   const onOpenExternalRef = useRef(onOpenExternal)
+  const onRulerPointAddRef = useRef(onRulerPointAdd)
+  const onRulerClearRef = useRef(onRulerClear)
+  const onFlightHistoryRef = useRef(onFlightHistory)
+  const showRangeRingsRef = useRef(showRangeRings)
+  const rangeRingCenterRef = useRef(rangeRingCenter)
+  const rangeRingIntervalsRef = useRef(rangeRingIntervals)
+
+  useEffect(() => { showRangeRingsRef.current = showRangeRings }, [showRangeRings])
+  useEffect(() => { rangeRingCenterRef.current = rangeRingCenter }, [rangeRingCenter])
+  useEffect(() => { rangeRingIntervalsRef.current = rangeRingIntervals }, [rangeRingIntervals])
 
   useEffect(() => {
     onBoundsChangeRef.current = onBoundsChange
@@ -307,6 +387,18 @@ export default function MapLibreMap({
   useEffect(() => {
     onOpenExternalRef.current = onOpenExternal
   }, [onOpenExternal])
+
+  useEffect(() => {
+    onRulerPointAddRef.current = onRulerPointAdd
+  }, [onRulerPointAdd])
+
+  useEffect(() => {
+    onRulerClearRef.current = onRulerClear
+  }, [onRulerClear])
+
+  useEffect(() => {
+    onFlightHistoryRef.current = onFlightHistory
+  }, [onFlightHistory])
 
   const boundedAirports = useMemo(() => airports.slice(0, maxAirportsToRender), [airports, maxAirportsToRender])
 
@@ -734,6 +826,7 @@ export default function MapLibreMap({
           const loadingContent = buildAirportPopupContent(airport, {
             isDark,
             loading: true,
+            flightHistoryLoading: !!onFlightHistoryRef.current,
             onAddToRoute: () => onAirportAddToRouteRef.current?.(airport),
             onViewStateInfo: (stateCode) => onViewStateInfoRef.current?.(stateCode),
             onOpenExternal: (url) => onOpenExternalRef.current?.(url),
@@ -775,6 +868,40 @@ export default function MapLibreMap({
               })
               popupRef.current.setDOMContent(detailsContent)
               requestAnimationFrame(ensurePopupVisible)
+
+              // Fetch flight history asynchronously — never blocks the popup
+              if (onFlightHistoryRef.current) {
+                onFlightHistoryRef.current(airport.icao)
+                  .then((history) => {
+                    if (!popupRef.current || popupAirportRef.current !== airport.icao) return
+                    if (!history || history.length === 0) return
+                    // Append flight history section to the existing popup
+                    const popupEl = popupRef.current.getElement()
+                    if (!popupEl) return
+                    const addRouteBtn = popupEl.querySelector('[data-role="popup-add-route"]') as HTMLElement | null
+                    if (!addRouteBtn) return
+                    const histDiv = document.createElement('div')
+                    histDiv.className = 'mt-2'
+                    histDiv.innerHTML = `
+                      <div class="text-xs font-medium" style="color:#64748b;margin-bottom:4px;">Your Flight History</div>
+                      <div style="max-height:96px;overflow-y:auto;">
+                        ${history.slice(0, 8).map(f => {
+                          const isDep = f.routeFrom.toUpperCase() === airport.icao.toUpperCase()
+                          const dateStr = f.date ? new Date(f.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'
+                          return `<div style="display:flex;align-items:center;justify-content:space-between;font-size:10px;background:#f1f5f9;border-radius:4px;padding:2px 6px;margin-bottom:2px;">
+                            <span style="color:#64748b;">${dateStr}</span>
+                            <span style="font-weight:500;color:#334155;">${f.aircraft || '—'}</span>
+                            <span style="color:#64748b;">${isDep ? 'Dep' : 'Arr'}</span>
+                            <span style="font-family:monospace;color:#475569;">${isDep ? f.routeTo : f.routeFrom}</span>
+                            <span style="color:#94a3b8;">${f.totalTime ? f.totalTime.toFixed(1) + 'h' : ''}</span>
+                          </div>`
+                        }).join('')}
+                      </div>
+                    `
+                    addRouteBtn.parentElement?.insertBefore(histDiv, addRouteBtn)
+                  })
+                  .catch(() => {}) // silently ignore flight history errors
+              }
             })
             .catch(() => {
               if (!popupRef.current) return
@@ -800,6 +927,232 @@ export default function MapLibreMap({
       onClickAirportLayer(AIRPORT_LARGE)
       onClickAirportLayer(AIRPORT_MEDIUM)
       onClickAirportLayer(AIRPORT_SMALL)
+
+      // ── Overlay sources & layers (initialized hidden, toggled by effects) ──
+      map.addSource(TERRAIN_SOURCE, {
+        type: 'raster',
+        tiles: ['https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        maxzoom: 17,
+      })
+      map.addLayer({
+        id: TERRAIN_LAYER,
+        type: 'raster',
+        source: TERRAIN_SOURCE,
+        paint: { 'raster-opacity': 0.25 },
+        layout: { visibility: 'none' },
+      })
+
+      map.addSource(TFR_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      map.addLayer({
+        id: TFR_CIRCLE_LAYER,
+        type: 'circle',
+        source: TFR_SOURCE,
+        paint: {
+          'circle-color': '#ef4444',
+          'circle-radius': 8,
+          'circle-opacity': 0.4,
+          'circle-stroke-color': '#ef4444',
+          'circle-stroke-width': 2,
+        },
+        layout: { visibility: 'none' },
+      })
+      map.addLayer({
+        id: TFR_LABEL_LAYER,
+        type: 'symbol',
+        source: TFR_SOURCE,
+        layout: {
+          'text-field': ['get', 'title'],
+          'text-size': 10,
+          'text-offset': [0, 1.5],
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'visibility': 'none',
+        },
+        paint: {
+          'text-color': '#ef4444',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1,
+        },
+      })
+
+      map.addSource(PIREP_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      map.addLayer({
+        id: PIREP_LAYER,
+        type: 'circle',
+        source: PIREP_SOURCE,
+        paint: {
+          'circle-color': [
+            'match', ['get', 'turbulence'],
+            'NIL', '#22c55e',
+            'Light', '#f59e0b',
+            'Moderate', '#f97316',
+            'Severe', '#ef4444',
+            '#a855f7',
+          ],
+          'circle-radius': 8,
+          'circle-opacity': 0.85,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
+        },
+        layout: { visibility: 'none' },
+      })
+      map.addLayer({
+        id: PIREP_LABELS_LAYER,
+        type: 'symbol',
+        source: PIREP_SOURCE,
+        layout: {
+          'text-field': ['concat', ['get', 'turbulence'], ' ', ['get', 'icing']],
+          'text-size': 9,
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-offset': [0, 1.5],
+          'visibility': 'none',
+        },
+        paint: {
+          'text-color': '#e2e8f0',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1.5,
+        },
+      })
+
+      // ── MGRS Grid overlay ──
+      map.addSource(MGRS_GRID_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      map.addLayer({
+        id: MGRS_GRID_LINES,
+        type: 'line',
+        source: MGRS_GRID_SOURCE,
+        filter: ['==', ['get', 'type'], 'grid'],
+        paint: {
+          'line-color': 'rgba(255,255,255,0.2)',
+          'line-width': 0.8,
+        },
+        layout: { visibility: 'none' },
+      })
+      map.addLayer({
+        id: MGRS_GRID_LABELS,
+        type: 'symbol',
+        source: MGRS_GRID_SOURCE,
+        filter: ['==', ['get', 'type'], 'label'],
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': 10,
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'symbol-placement': 'point',
+          'visibility': 'none',
+        },
+        paint: {
+          'text-color': 'rgba(255,255,255,0.6)',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1,
+        },
+      })
+
+      // ── Ruler overlay ──
+      map.addSource(RULER_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      map.addLayer({
+        id: RULER_LINE_LAYER,
+        type: 'line',
+        source: RULER_SOURCE,
+        filter: ['==', ['get', 'type'], 'line'],
+        paint: {
+          'line-color': '#facc15',
+          'line-width': 2,
+          'line-dasharray': [6, 3],
+        },
+        layout: { visibility: 'none' },
+      })
+      map.addLayer({
+        id: RULER_POINTS_LAYER,
+        type: 'circle',
+        source: RULER_SOURCE,
+        filter: ['==', ['get', 'type'], 'point'],
+        paint: {
+          'circle-color': '#facc15',
+          'circle-radius': 5,
+          'circle-stroke-color': '#0f172a',
+          'circle-stroke-width': 1.5,
+        },
+        layout: { visibility: 'none' },
+      })
+      map.addLayer({
+        id: RULER_LABELS_LAYER,
+        type: 'symbol',
+        source: RULER_SOURCE,
+        filter: ['==', ['get', 'type'], 'label'],
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': 11,
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'symbol-placement': 'point',
+          'visibility': 'none',
+        },
+        paint: {
+          'text-color': '#facc15',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1.5,
+        },
+      })
+
+      // ── Range Ring overlay ──
+      map.addSource(RANGE_RING_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      map.addLayer({
+        id: RANGE_RING_CIRCLES,
+        type: 'line',
+        source: RANGE_RING_SOURCE,
+        filter: ['==', ['get', 'type'], 'ring'],
+        paint: {
+          'line-color': '#f59e0b',
+          'line-width': 2,
+          'line-dasharray': [6, 3],
+        },
+        layout: { visibility: 'none' },
+      })
+      map.addLayer({
+        id: RANGE_RING_LABELS,
+        type: 'symbol',
+        source: RANGE_RING_SOURCE,
+        filter: ['==', ['get', 'type'], 'label'],
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': 12,
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'symbol-placement': 'point',
+          'visibility': 'none',
+        },
+        paint: {
+          'text-color': '#f59e0b',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 2,
+        },
+      })
+
+      // Trigger initial range ring update now that source exists
+      {
+        const rrVis = showRangeRingsRef.current ? 'visible' : 'none'
+        try {
+          map.setLayoutProperty(RANGE_RING_CIRCLES, 'visibility', rrVis)
+          map.setLayoutProperty(RANGE_RING_LABELS, 'visibility', rrVis)
+        } catch {}
+        const rrCenter = rangeRingCenterRef.current
+        if (showRangeRingsRef.current && rrCenter) {
+          const features: GeoJSON.Feature[] = []
+          const cosLat = Math.cos((rrCenter.lat * Math.PI) / 180) || 0.0001
+          for (const interval of rangeRingIntervalsRef.current) {
+            if (interval <= 0) continue
+            const coords: [number, number][] = []
+            for (let i = 0; i <= 64; i++) {
+              const angle = (i * 2 * Math.PI) / 64
+              coords.push([
+                rrCenter.lng + (interval / (60 * cosLat)) * Math.sin(angle),
+                rrCenter.lat + (interval / 60) * Math.cos(angle),
+              ])
+            }
+            features.push({ type: 'Feature' as const, geometry: { type: 'LineString' as const, coordinates: coords }, properties: { type: 'ring', interval } })
+            features.push({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: [rrCenter.lng, rrCenter.lat + (interval / 60)] }, properties: { type: 'label', label: `${interval} nm` } })
+          }
+          const src = map.getSource(RANGE_RING_SOURCE) as GeoJSONSource | undefined
+          if (src) src.setData({ type: 'FeatureCollection', features })
+        }
+      }
 
       map.on('moveend', emitBounds)
       map.on('zoomend', emitBounds)
@@ -851,6 +1204,421 @@ export default function MapLibreMap({
     lastViewRef.current = { center: mapCenter, zoom: mapZoom }
     map.easeTo({ center: [mapCenter[1], mapCenter[0]], zoom: mapZoom, duration: 350 })
   }, [mapCenter, mapZoom])
+
+  // ── Show/hide terrain overlay ──
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    try {
+      map.setLayoutProperty(TERRAIN_LAYER, 'visibility', showTerrain ? 'visible' : 'none')
+    } catch {}
+  }, [showTerrain])
+
+  // ── Show/hide TFR overlay ──
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const vis = showTfrs ? 'visible' : 'none'
+    try {
+      map.setLayoutProperty(TFR_CIRCLE_LAYER, 'visibility', vis)
+      map.setLayoutProperty(TFR_LABEL_LAYER, 'visibility', vis)
+    } catch {}
+    if (!showTfrs) {
+      // Remove the DOM overlay when hidden
+      const existing = map.getContainer().querySelector('.tfr-overlay') as HTMLDivElement | null
+      if (existing) existing.remove()
+      return
+    }
+
+    const controller = new AbortController()
+    fetch('/api/tfrs', { signal: controller.signal })
+      .then((r) => r.json())
+      .then((data) => {
+        const tfrs: Array<{ title: string; description: string; notamId: string }> = data.tfrs || []
+
+        // Update container attributes for any external consumers
+        const container = map.getContainer()
+        container.setAttribute('data-tfr-count', String(tfrs.length))
+        container.setAttribute('data-tfr-titles', tfrs.slice(0, 10).map(t => t.title).join('\n'))
+
+        // Build/update a floating DOM overlay inside the map container
+        let tfrDiv = container.querySelector('.tfr-overlay') as HTMLDivElement | null
+        if (!tfrDiv) {
+          tfrDiv = document.createElement('div')
+          tfrDiv.className = 'tfr-overlay'
+          tfrDiv.setAttribute('role', 'status')
+          tfrDiv.setAttribute('aria-label', 'Active TFR information')
+          tfrDiv.style.cssText = [
+            'position:absolute',
+            'bottom:40px',
+            'left:8px',
+            'z-index:999',
+            'max-width:280px',
+            'border-radius:6px',
+            'font-family:system-ui,-apple-system,sans-serif',
+            'pointer-events:auto',
+            'box-shadow:0 2px 8px rgba(0,0,0,0.35)',
+            'border:1px solid rgba(239,68,68,0.4)',
+            'background:rgba(15,23,42,0.88)',
+            'backdrop-filter:blur(6px)',
+            'color:#e2e8f0',
+            'overflow:hidden',
+          ].join(';')
+          container.appendChild(tfrDiv)
+        }
+
+        if (tfrs.length === 0) {
+          tfrDiv.style.display = 'none'
+          return
+        }
+
+        tfrDiv.style.display = 'block'
+        const MAX_DISPLAY = 5
+        const displayed = tfrs.slice(0, MAX_DISPLAY)
+        const remaining = tfrs.length - MAX_DISPLAY
+
+        const titlesHtml = displayed
+          .map(t => {
+            const escaped = t.title
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+            const truncated = escaped.length > 80 ? escaped.slice(0, 77) + '...' : escaped
+            return `<li style="padding:2px 0;list-style:none;font-size:11px;line-height:1.35;border-bottom:1px solid rgba(255,255,255,0.06);color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escaped}"><span style="color:#ef4444;font-size:8px;margin-right:4px;">&#9679;</span>${truncated}</li>`
+          })
+          .join('')
+
+        tfrDiv.innerHTML = `
+          <div style="padding:8px 10px 6px;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#ef4444;flex-shrink:0;box-shadow:0 0 4px #ef4444;"></span>
+              <span style="font-size:11px;font-weight:600;color:#f87171;letter-spacing:0.02em;">${tfrs.length} Active TFR${tfrs.length !== 1 ? 's' : ''}</span>
+            </div>
+            <ul style="margin:0;padding:0;">
+              ${titlesHtml}
+            </ul>
+            ${remaining > 0 ? `<div style="font-size:10px;color:#64748b;margin-top:4px;">+${remaining} more</div>` : ''}
+            <a href="https://tfr.faa.gov" target="_blank" rel="noopener noreferrer"
+               style="display:block;text-align:right;font-size:10px;color:#94a3b8;margin-top:4px;text-decoration:none;">
+              View all on FAA &rarr;
+            </a>
+          </div>
+        `
+      })
+      .catch(() => {})
+
+    return () => {
+      controller.abort()
+      const existing = map.getContainer()?.querySelector('.tfr-overlay') as HTMLDivElement | null
+      if (existing) existing.remove()
+    }
+  }, [showTfrs])
+
+  // ── Show/hide PIREP overlay ──
+  const pirepFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    try {
+      map.setLayoutProperty(PIREP_LAYER, 'visibility', showPireps ? 'visible' : 'none')
+      map.setLayoutProperty(PIREP_LABELS_LAYER, 'visibility', showPireps ? 'visible' : 'none')
+    } catch {}
+    if (!showPireps) return
+    // Fetch PIREP data for current bounds
+    const fetchPireps = () => {
+      const b = map.getBounds()
+      const boundsParam = `${b.getSouth()},${b.getNorth()},${b.getWest()},${b.getEast()}`
+      fetch(`/api/pireps?bounds=${boundsParam}`)
+        .then((r) => r.json())
+        .then((data) => {
+          const pireps: Array<{ id: string; latitude: number; longitude: number; turbulence: string; icing: string; aircraft: string; flightLevel: number; windDirection: number; windSpeed: number }> = data.pireps || []
+          const source = map.getSource(PIREP_SOURCE) as GeoJSONSource | undefined
+          if (source) {
+            source.setData({
+              type: 'FeatureCollection',
+              features: pireps.map((p) => ({
+                type: 'Feature' as const,
+                geometry: { type: 'Point' as const, coordinates: [p.longitude, p.latitude] },
+                properties: {
+                  id: p.id,
+                  turbulence: p.turbulence || 'NIL',
+                  icing: p.icing || 'NIL',
+                  aircraft: p.aircraft || '',
+                  flightLevel: p.flightLevel || 0,
+                  windDirection: p.windDirection || 0,
+                  windSpeed: p.windSpeed || 0,
+                },
+              })),
+            })
+          }
+        })
+        .catch(() => {})
+    }
+    fetchPireps()
+    // Re-fetch on map movement (debounced)
+    const onMoveEnd = () => {
+      if (pirepFetchTimerRef.current) clearTimeout(pirepFetchTimerRef.current)
+      pirepFetchTimerRef.current = setTimeout(fetchPireps, 600)
+    }
+    map.on('moveend', onMoveEnd)
+    return () => {
+      map.off('moveend', onMoveEnd)
+      if (pirepFetchTimerRef.current) clearTimeout(pirepFetchTimerRef.current)
+    }
+  }, [showPireps])
+
+  // ── Reference Grid overlay (distance-aware) ──
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    try {
+      map.setLayoutProperty(MGRS_GRID_LINES, 'visibility', showMgrsGrid ? 'visible' : 'none')
+      map.setLayoutProperty(MGRS_GRID_LABELS, 'visibility', showMgrsGrid ? 'visible' : 'none')
+    } catch {}
+    if (!showMgrsGrid) return
+
+    const buildGrid = () => {
+      const zoom = map.getZoom()
+      const b = map.getBounds()
+      const centerLat = (b.getNorth() + b.getSouth()) / 2
+
+      // Pick target cell size in nm based on zoom
+      let targetNm = 100
+      if (zoom >= 4) targetNm = 50
+      if (zoom >= 6) targetNm = 25
+      if (zoom >= 8) targetNm = 10
+      if (zoom >= 10) targetNm = 5
+      if (zoom >= 12) targetNm = 2
+
+      // Convert target nm → degree spacing
+      // 1° lat ≈ 60 nm, 1° lon ≈ 60 × cos(lat) nm
+      const latSpacing = targetNm / 60
+      const cosLat = Math.cos((centerLat * Math.PI) / 180) || 0.0001
+      const lonSpacing = targetNm / (60 * cosLat)
+
+      // Snap to nice degree values
+      function niceSpacing(raw: number): number {
+        if (raw >= 10) return Math.round(raw / 10) * 10
+        if (raw >= 5) return 5
+        if (raw >= 2) return 2
+        if (raw >= 1) return 1
+        if (raw >= 0.5) return 0.5
+        if (raw >= 0.25) return 0.25
+        return 0.1
+      }
+
+      const latStep = niceSpacing(latSpacing)
+      const lonStep = niceSpacing(lonSpacing)
+
+      // Actual distances for the chosen spacing
+      const actualNmLat = latStep * 60
+      const actualNmLon = lonStep * 60 * cosLat
+      const avgNm = (actualNmLat + actualNmLon) / 2
+      const avgMi = avgNm * 1.15078
+      const avgKm = avgNm * 1.852
+
+      const west = Math.floor(b.getWest() / lonStep) * lonStep
+      const east = Math.ceil(b.getEast() / lonStep) * lonStep
+      const south = Math.floor(b.getSouth() / latStep) * latStep
+      const north = Math.ceil(b.getNorth() / latStep) * latStep
+
+      const features: GeoJSON.Feature[] = []
+
+      // Vertical lines (longitude)
+      for (let lon = west; lon <= east; lon += lonStep) {
+        const rLon = Math.round(lon * 10000) / 10000
+        features.push({
+          type: 'Feature' as const,
+          geometry: { type: 'LineString' as const, coordinates: [[rLon, south], [rLon, north]] },
+          properties: { type: 'grid' },
+        })
+      }
+
+      // Horizontal lines (latitude)
+      for (let lat = south; lat <= north; lat += latStep) {
+        const rLat = Math.round(lat * 10000) / 10000
+        features.push({
+          type: 'Feature' as const,
+          geometry: { type: 'LineString' as const, coordinates: [[west, rLat], [east, rLat]] },
+          properties: { type: 'grid' },
+        })
+      }
+
+      // Reference badge at map center
+      const badgeLon = (b.getWest() + b.getEast()) / 2
+      const badgeLat = (b.getNorth() + b.getSouth()) / 2
+      const nmStr = avgNm >= 1 ? Math.round(avgNm).toString() : avgNm.toFixed(1)
+      const miStr = avgMi >= 1 ? avgMi.toFixed(1) : avgMi.toFixed(2)
+      const kmStr = avgKm >= 1 ? avgKm.toFixed(1) : avgKm.toFixed(2)
+      features.push({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [badgeLon, badgeLat] },
+        properties: { type: 'label', label: `1 block ≈ ${nmStr} nm · ${miStr} mi · ${kmStr} km` },
+      })
+
+      const source = map.getSource(MGRS_GRID_SOURCE) as GeoJSONSource | undefined
+      if (source) source.setData({ type: 'FeatureCollection', features })
+    }
+
+    buildGrid()
+    map.on('moveend', buildGrid)
+    map.on('zoomend', buildGrid)
+    return () => {
+      map.off('moveend', buildGrid)
+      map.off('zoomend', buildGrid)
+    }
+  }, [showMgrsGrid])
+
+  // ── Distance Ruler ──
+  const rulerClickHandlerRef = useRef<((e: maplibregl.MapMouseEvent) => void) | null>(null)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const vis = showRuler ? 'visible' : 'none'
+    try {
+      map.setLayoutProperty(RULER_LINE_LAYER, 'visibility', vis)
+      map.setLayoutProperty(RULER_POINTS_LAYER, 'visibility', vis)
+      map.setLayoutProperty(RULER_LABELS_LAYER, 'visibility', vis)
+    } catch {}
+    if (!showRuler) {
+      // Remove click handler
+      if (rulerClickHandlerRef.current) {
+        map.off('click', rulerClickHandlerRef.current)
+        rulerClickHandlerRef.current = null
+      }
+      return
+    }
+    // Add click handler
+    const handler = (e: maplibregl.MapMouseEvent) => {
+      onRulerPointAddRef.current?.({ lat: e.lngLat.lat, lng: e.lngLat.lng })
+    }
+    rulerClickHandlerRef.current = handler
+    map.on('click', handler)
+    return () => {
+      if (rulerClickHandlerRef.current) {
+        map.off('click', rulerClickHandlerRef.current)
+        rulerClickHandlerRef.current = null
+      }
+    }
+  }, [showRuler])
+
+  // Update ruler data when points change
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const source = map.getSource(RULER_SOURCE) as GeoJSONSource | undefined
+    if (!source) return
+
+    if (rulerPoints.length === 0) {
+      source.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
+
+    const features: GeoJSON.Feature[] = []
+    let cumulativeNm = 0
+
+    for (let i = 0; i < rulerPoints.length; i++) {
+      const pt = rulerPoints[i]
+      // Point marker
+      features.push({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [pt.lng, pt.lat] },
+        properties: { type: 'point' },
+      })
+      // Label: point number
+      features.push({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [pt.lng, pt.lat] },
+        properties: { type: 'label', label: `${i + 1}` },
+      })
+
+      if (i > 0) {
+        const prev = rulerPoints[i - 1]
+        const nm = haversineNm(prev.lat, prev.lng, pt.lat, pt.lng)
+        const hdg = trueHeading(prev.lat, prev.lng, pt.lat, pt.lng)
+        cumulativeNm += nm
+
+        // Line segment
+        features.push({
+          type: 'Feature' as const,
+          geometry: {
+            type: 'LineString' as const,
+            coordinates: [[prev.lng, prev.lat], [pt.lng, pt.lat]],
+          },
+          properties: { type: 'line' },
+        })
+        // Distance label at midpoint
+        const midLng = (prev.lng + pt.lng) / 2
+        const midLat = (prev.lat + pt.lat) / 2
+        features.push({
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [midLng, midLat] },
+          properties: { type: 'label', label: `${Math.round(nm)} nm · ${Math.round(hdg)}°` },
+        })
+      }
+    }
+
+    // Total label at last point
+    if (rulerPoints.length >= 2) {
+      const last = rulerPoints[rulerPoints.length - 1]
+      features.push({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [last.lng, last.lat] },
+        properties: { type: 'label', label: `Total: ${Math.round(cumulativeNm)} nm` },
+      })
+    }
+
+    source.setData({ type: 'FeatureCollection', features })
+  }, [rulerPoints])
+
+  // ── Range Rings ──
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const vis = showRangeRings ? 'visible' : 'none'
+    try {
+      map.setLayoutProperty(RANGE_RING_CIRCLES, 'visibility', vis)
+      map.setLayoutProperty(RANGE_RING_LABELS, 'visibility', vis)
+    } catch { return }
+    if (!showRangeRings || !rangeRingCenter) {
+      try {
+        const source = map.getSource(RANGE_RING_SOURCE) as GeoJSONSource | undefined
+        if (source) source.setData({ type: 'FeatureCollection', features: [] })
+      } catch {}
+      return
+    }
+
+    const features: GeoJSON.Feature[] = []
+    const { lat, lng } = rangeRingCenter
+    const cosLat = Math.cos((lat * Math.PI) / 180) || 0.0001
+    const numPoints = 64
+
+    for (const interval of rangeRingIntervals) {
+      if (interval <= 0) continue
+      const coords: [number, number][] = []
+      for (let i = 0; i <= numPoints; i++) {
+        const angle = (i * 2 * Math.PI) / numPoints
+        const dLat = (interval / 60) * Math.cos(angle)
+        const dLng = (interval / (60 * cosLat)) * Math.sin(angle)
+        coords.push([lng + dLng, lat + dLat])
+      }
+      features.push({
+        type: 'Feature' as const,
+        geometry: { type: 'LineString' as const, coordinates: coords },
+        properties: { type: 'ring', interval },
+      })
+      features.push({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [lng, lat + (interval / 60)] },
+        properties: { type: 'label', label: `${interval} nm` },
+      })
+    }
+
+    try {
+      const source = map.getSource(RANGE_RING_SOURCE) as GeoJSONSource | undefined
+      if (source) source.setData({ type: 'FeatureCollection', features })
+    } catch {}
+  }, [showRangeRings, rangeRingCenter, rangeRingIntervals])
 
   return <div ref={containerRef} className="h-full w-full" />
 }

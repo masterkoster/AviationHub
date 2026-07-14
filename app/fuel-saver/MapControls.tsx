@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { LayersControl, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { MapLayerOptions } from './map-options';
+import { AERO_TILE_URL_LEAFLET, AERO_ATTRIBUTION, AERO_MAX_ZOOM, AERO_TMS } from '@/shared/components/map/aero-source';
 
 export { DEFAULT_MAP_OPTIONS, type MapLayerOptions } from './map-options';
 
@@ -13,7 +14,15 @@ interface MapControlsProps {
 }
 
 // Layer configuration
-const LAYERS = {
+interface LayerConfig {
+  name: string;
+  url: string;
+  attribution: string;
+  tms?: boolean;
+  maxZoom?: number;
+}
+
+const LAYERS: Record<MapLayerOptions['baseLayer'], LayerConfig> = {
   osm: {
     name: 'OSM',
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -33,6 +42,13 @@ const LAYERS = {
     name: 'Dark',
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     attribution: '&copy; CartoDB'
+  },
+  aero: {
+    name: 'Aero',
+    url: AERO_TILE_URL_LEAFLET,
+    attribution: AERO_ATTRIBUTION,
+    tms: AERO_TMS,
+    maxZoom: AERO_MAX_ZOOM
   }
 };
 
@@ -215,6 +231,8 @@ export function MapTileLayer({ baseLayer }: { baseLayer: MapLayerOptions['baseLa
       key={baseLayer}
       url={layer.url}
       attribution={layer.attribution}
+      tms={layer.tms ?? false}
+      maxZoom={layer.maxZoom ?? 19}
     />
   );
 }

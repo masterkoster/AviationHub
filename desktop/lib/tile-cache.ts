@@ -10,7 +10,7 @@ function getDb(): Promise<Database> | null {
   return dbPromise
 }
 
-export type TileProvider = 'osm' | 'satellite' | 'terrain' | 'dark'
+export type TileProvider = 'osm' | 'satellite' | 'terrain' | 'dark' | 'aero'
 
 export interface CacheMeta {
   provider: TileProvider

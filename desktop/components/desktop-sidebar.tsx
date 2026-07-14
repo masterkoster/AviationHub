@@ -109,7 +109,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Manage',
     items: [
       { label: 'Aircraft', href: '/desktop/aircraft', icon: Plane, shortcut: '5' },
-      { label: 'Profile', href: '/desktop/profile', icon: User, shortcut: '6' },
       { label: 'Flying Club', href: '/desktop/flying-club', icon: Users },
       { label: 'Marketplace', href: '/desktop/modules/marketplace', icon: ShoppingBag, status: 'coming-soon' },
       { label: 'Engine Health', href: '/desktop/modules/engine-health', icon: Gauge, tier: 'pro', status: 'coming-soon' },
@@ -444,11 +443,27 @@ export function DesktopSidebar({ onNavigate, collapsed, onToggleCollapse, highli
 
       {/* User + Dev + Sign out */}
       <div className={cn('border-t border-border py-2', collapsed ? 'px-1.5' : 'px-2')}>
-        {!collapsed && (userName || userEmail) && (
-          <div className="mb-1.5 px-1.5">
-            {userName && <p className="truncate text-xs font-medium">{userName}</p>}
-            {userEmail && <p className="truncate text-[11px] text-muted-foreground">{userEmail}</p>}
-          </div>
+        {(userName || userEmail) && (
+          <Link
+            href="/desktop/profile"
+            onClick={onNavigate}
+            className={cn(
+              'flex items-center rounded-md transition-colors hover:bg-muted',
+              collapsed ? 'justify-center px-0 py-1.5 mb-1.5' : 'gap-2 px-2.5 py-1.5 mb-1.5',
+            )}
+          >
+            <div className={cn(
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary',
+            )}>
+              <User className="h-3.5 w-3.5" />
+            </div>
+            {!collapsed && (userName || userEmail) && (
+              <div className="min-w-0 flex-1">
+                {userName && <p className="truncate text-xs font-medium">{userName}</p>}
+                {userEmail && <p className="truncate text-[10px] text-muted-foreground">{userEmail}</p>}
+              </div>
+            )}
+          </Link>
         )}
         {process.env.NODE_ENV === 'development' && (
           <button

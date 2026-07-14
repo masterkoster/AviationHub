@@ -203,6 +203,24 @@ export async function getLocalRecentFlights(userId: string, limit = 25): Promise
   }
 }
 
+/** Get flights that depart from or arrive at a specific airport ICAO */
+export async function getFlightsByAirport(userId: string, icao: string, limit = 20): Promise<LocalFlight[]> {
+  const db = await getDb()
+  if (!db) return []
+  try {
+    return await trySelect<LocalFlight>(
+      db,
+      [
+        `SELECT id, date, aircraft, route_from as routeFrom, route_to as routeTo, total_time as totalTime, remarks FROM logbook_entries WHERE user_id = $1 AND voided = 0 AND (UPPER(route_from) = UPPER($2) OR UPPER(route_to) = UPPER($2)) ORDER BY date DESC LIMIT $3`,
+        `SELECT id, date, aircraft, route_from as routeFrom, route_to as routeTo, total_time as totalTime, remarks FROM logbook_entries WHERE user_id = ? AND voided = 0 AND (UPPER(route_from) = UPPER(?) OR UPPER(route_to) = UPPER(?)) ORDER BY date DESC LIMIT ?`,
+      ],
+      [userId, icao, limit]
+    )
+  } catch {
+    return []
+  }
+}
+
 export async function getLocalTotals(userId: string): Promise<LocalTotals> {
   const db = await getDb()
   if (!db) {
