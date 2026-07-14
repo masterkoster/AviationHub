@@ -94,7 +94,12 @@ async function trySelect<T>(db: Database, sqls: string[], params: unknown[]): Pr
   throw lastErr
 }
 
-/** Ensure the document_attachments table exists. */
+/**
+ * Ensure the document_attachments table exists.
+ * Belt-and-suspenders for this release — the canonical schema going
+ * forward is desktop/lib/local-migrations.ts (Migration 1 consolidates
+ * this statement verbatim).
+ */
 async function ensureTable(): Promise<void> {
   const db = await getDb()
   if (!db) return

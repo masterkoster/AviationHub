@@ -2,6 +2,7 @@
 
 import Database from '@tauri-apps/plugin-sql'
 import { generateMasterKey, wrapMasterKey, bytesToBase64 } from '@/desktop/lib/backup'
+import { migrateLocalDb } from '@/desktop/lib/local-migrations'
 
 let dbPromise: Promise<Database> | null = null
 
@@ -37,13 +38,20 @@ export async function getDb(): Promise<Database | null> {
       return null
     }
   }
+  let db: Database
   try {
-    return await dbPromise
+    db = await dbPromise
   } catch (err) {
     console.error('[local-auth] dbPromise rejected:', err)
     dbPromise = null
     return null
   }
+  // Canonical local-schema migration runner (see desktop/lib/local-migrations.ts).
+  // Memoized internally — cheap to call on every getDb() resolution, and
+  // failures are logged/swallowed there rather than surfaced here so a
+  // migration hiccup never prevents the app from getting a DB handle.
+  await migrateLocalDb(db)
+  return db
 }
 
 /**

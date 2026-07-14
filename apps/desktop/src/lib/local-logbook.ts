@@ -812,6 +812,11 @@ async function ensureVoidColumns(db: Database): Promise<void> {
   voidColumnsEnsured = true
 }
 
+// Belt-and-suspenders for this release — the canonical schema going forward
+// is desktop/lib/local-migrations.ts (Migration 1 consolidates this
+// statement verbatim, with a note about its column mismatch against the
+// native Rust-managed `logbook_entry_history` migration in
+// src-tauri/src/lib.rs).
 async function ensureHistoryTable(db: Database): Promise<void> {
   try {
     await db.execute(`

@@ -112,6 +112,9 @@ async function trySelect<T>(sql: string, params?: unknown[]): Promise<T[]> {
 }
 
 // ── Schema ─────────────────────────────────────────────────────
+// Belt-and-suspenders for this release — the canonical schema going forward
+// is desktop/lib/local-migrations.ts (Migration 1 consolidates this
+// statement verbatim).
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS user_preferences (
   userId              TEXT PRIMARY KEY,

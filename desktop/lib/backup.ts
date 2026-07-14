@@ -551,7 +551,8 @@ export async function importUserData(fileBytes: Uint8Array, pin: string): Promis
 
     // Insert documents (upsert by id, table may not exist in older backups)
     if (Array.isArray(payload.documents) && payload.documents.length > 0) {
-      // Ensure table exists
+      // Ensure table exists. Belt-and-suspenders for this release — the
+      // canonical schema going forward is desktop/lib/local-migrations.ts.
       try {
         await db.execute(`
           CREATE TABLE IF NOT EXISTS document_attachments (

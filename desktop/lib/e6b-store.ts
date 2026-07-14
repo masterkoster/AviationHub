@@ -120,6 +120,10 @@ function safeStringify(value: unknown): string | null {
  * exist. Safe to call from a `useEffect` on every mount of the tools page —
  * `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS` are no-ops once
  * the tables/indexes exist.
+ *
+ * Belt-and-suspenders for this release — the canonical schema going forward
+ * is desktop/lib/local-migrations.ts (Migration 1 consolidates these
+ * statements verbatim).
  */
 export async function ensureE6bSchema(): Promise<void> {
   const db = await getLocalDb()
