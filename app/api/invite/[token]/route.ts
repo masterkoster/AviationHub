@@ -78,6 +78,6 @@ export async function GET(_request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error looking up invite:', error);
-    return NextResponse.json({ error: 'Failed to look up invite', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to look up invite' }, { status: 500 });
   }
 }

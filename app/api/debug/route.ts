@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from '@/lib/auth';
-import { PrismaClient } from "@prisma/client"
-
-const prisma = new PrismaClient({
-  log: ["error"],
-})
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'

@@ -586,7 +586,6 @@ export default function HoldingPatternTool() {
             <div className="flex-1 min-h-[300px] flex items-center justify-center bg-muted/20 rounded-lg overflow-hidden">
               <HoldingSVG
                 geo={geo}
-                entry={entry}
                 showEntryPath={showEntryPath}
                 isNorthUp={isNorthUp}
                 heading={heading}

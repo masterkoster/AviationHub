@@ -52,6 +52,6 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error cancelling booking:', error);
-    return NextResponse.json({ error: 'Failed to cancel booking', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to cancel booking' }, { status: 500 });
   }
 }

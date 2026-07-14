@@ -70,7 +70,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error updating post:', error);
-    return NextResponse.json({ error: 'Failed to update post', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update post' }, { status: 500 });
   }
 }
 
@@ -113,6 +113,6 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting post:', error);
-    return NextResponse.json({ error: 'Failed to delete post', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete post' }, { status: 500 });
   }
 }

@@ -47,7 +47,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(documents);
   } catch (error) {
     console.error('Error fetching documents:', error);
-    return NextResponse.json({ error: 'Failed to fetch documents', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch documents' }, { status: 500 });
   }
 }
 
@@ -125,6 +125,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json(document);
   } catch (error) {
     console.error('Error uploading document:', error);
-    return NextResponse.json({ error: 'Failed to upload document', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to upload document' }, { status: 500 });
   }
 }

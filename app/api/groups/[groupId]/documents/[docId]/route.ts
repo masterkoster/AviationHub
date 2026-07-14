@@ -44,7 +44,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error downloading document:', error);
-    return NextResponse.json({ error: 'Failed to download document', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to download document' }, { status: 500 });
   }
 }
 
@@ -87,6 +87,6 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting document:', error);
-    return NextResponse.json({ error: 'Failed to delete document', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete document' }, { status: 500 });
   }
 }

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { QuickBooksClient } from '@/lib/integrations/quickbooks-client'
 
 /**
  * GET /api/integrations/quickbooks/callback
- * 
+ *
  * OAuth callback from QuickBooks
  * Exchanges authorization code for access/refresh tokens
  * Creates or updates Integration record in database
@@ -39,8 +40,27 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // TODO: Verify state matches what we stored (CSRF protection)
-    // In production, check session storage for the state token
+    // The browser still carries the user's session cookie on this redirect
+    // back from QuickBooks. Require it, and require the caller to be an
+    // admin of the group the connection is being made for — otherwise
+    // anyone who can guess/observe a groupId could bind their own
+    // QuickBooks tokens to another club's Integration record by crafting
+    // this callback URL directly.
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.redirect(
+        new URL('/flying-club/manage/add-ons?error=not_authenticated', request.url)
+      )
+    }
+
+    const membership = await prisma.organizationMember.findFirst({
+      where: { organizationId: groupId, userId: session.user.id, role: 'ADMIN' },
+    })
+    if (!membership) {
+      return NextResponse.redirect(
+        new URL('/flying-club/manage/add-ons?error=not_authorized', request.url)
+      )
+    }
 
     // Exchange code for tokens
     const client = new QuickBooksClient()

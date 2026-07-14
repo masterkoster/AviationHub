@@ -56,7 +56,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(formatted);
   } catch (error) {
     console.error('Error fetching posts:', error);
-    return NextResponse.json({ error: 'Failed to fetch posts', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch posts' }, { status: 500 });
   }
 }
 
@@ -119,6 +119,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
   } catch (error) {
     console.error('Error creating post:', error);
-    return NextResponse.json({ error: 'Failed to create post', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create post' }, { status: 500 });
   }
 }

@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import https from 'https';
+import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 // Weather region mapping
@@ -220,7 +221,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
 }
 
+// Clears cached weather entries so the next GET re-fetches from upstream.
+// Session-gated to prevent anonymous cache-busting abuse.
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { icao, region } = await request.json();
 
   if (icao) {

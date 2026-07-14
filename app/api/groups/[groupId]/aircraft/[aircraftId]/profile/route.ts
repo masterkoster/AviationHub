@@ -41,6 +41,6 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(profile);
   } catch (error) {
     console.error('Error fetching aircraft profile:', error);
-    return NextResponse.json({ error: 'Failed to fetch aircraft profile', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch aircraft profile' }, { status: 500 });
   }
 }

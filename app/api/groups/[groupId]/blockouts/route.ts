@@ -79,6 +79,6 @@ export async function GET(request: Request, { params }: RouteParams) {
     return NextResponse.json(formatted);
   } catch (error) {
     console.error('Error fetching block-outs:', error);
-    return NextResponse.json({ error: 'Failed to fetch block-outs', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch block-outs' }, { status: 500 });
   }
 }

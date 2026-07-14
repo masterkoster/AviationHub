@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from '@/lib/auth';
-import { PrismaClient } from "@prisma/client"
+import { prisma } from '@/lib/prisma';
 import bcrypt from "bcrypt"
-
-const prisma = new PrismaClient()
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'

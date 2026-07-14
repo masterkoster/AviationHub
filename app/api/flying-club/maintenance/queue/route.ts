@@ -106,7 +106,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ queue: formatted });
   } catch (error) {
     console.error('Error fetching maintenance queue:', error);
-    return NextResponse.json({ error: 'Failed to fetch maintenance queue', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch maintenance queue' }, { status: 500 });
   }
 }
 
@@ -153,7 +153,7 @@ export async function POST(request: Request) {
     return NextResponse.json(maintenance);
   } catch (error) {
     console.error('Error reporting maintenance:', error);
-    return NextResponse.json({ error: 'Failed to report maintenance', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to report maintenance' }, { status: 500 });
   }
 }
 
@@ -227,6 +227,6 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, action, resolvedCount: result.count });
   } catch (error) {
     console.error('Error updating aircraft grounding:', error);
-    return NextResponse.json({ error: 'Failed to update grounding', details: String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update grounding' }, { status: 500 });
   }
 }

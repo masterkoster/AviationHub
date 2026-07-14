@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { isUuid } from '@/lib/validate'
 import { QuickBooksClient } from '@/lib/integrations/quickbooks-client'
 
 /**
@@ -23,7 +24,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'groupId required' }, { status: 400 })
     }
 
-    // TODO: Verify user has admin access to this group
+    if (!isUuid(groupId)) {
+      return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 })
+    }
+
+    // Verify user has admin access to this group
+    const membership = await prisma.organizationMember.findFirst({
+      where: { organizationId: groupId, userId: session.user.id, role: 'ADMIN' },
+    })
+    if (!membership) {
+      return NextResponse.json(
+        { error: 'Only group admins can manage the QuickBooks integration' },
+        { status: 403 }
+      )
+    }
 
     // Find integration
     const integration = await prisma.integration.findUnique({
