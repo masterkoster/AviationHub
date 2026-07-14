@@ -20,7 +20,7 @@ import {
   Plane, Calendar, Users, Wrench, DollarSign, Clock,
   AlertCircle, Plus, ChevronLeft, ChevronRight,
   BookOpen, X, Loader2, Cloud, ArrowRight, ArrowLeft,
-  FileText, Download, Trash2, Pin, CheckCircle2,
+  FileText, Download, Trash2, Pin, CheckCircle2, CreditCard,
 } from "lucide-react"
 import { FlightCompleteWizard } from "@/components/flight-complete/FlightCompleteWizard"
 import { worstStatus, type InspectionComputed } from "@/lib/club/inspections"
@@ -1683,6 +1683,87 @@ function BookingPolicyCard({ groupId }: { groupId: string }) {
   )
 }
 
+// ---- PaymentsCard ----
+// Admin-only Stripe Connect status/onboarding card for the Settings tab.
+// Money model: each club onboards its own Stripe account and members pay the
+// club directly — the platform never holds club funds.
+
+interface StripeStatus {
+  connected: boolean
+  chargesEnabled?: boolean
+  detailsSubmitted?: boolean
+}
+
+function PaymentsCard({ groupId }: { groupId: string }) {
+  const { data: status, isLoading, error: statusError } = useSWR<StripeStatus>(
+    `/api/groups/${groupId}/stripe/status`,
+    fetcher
+  )
+  const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleConnect() {
+    setConnecting(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}/stripe/onboard`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || 'Failed to start Stripe onboarding'); return }
+      if (data.url) window.open(data.url, '_blank')
+    } catch {
+      setError('Network error')
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  const label = !status?.connected
+    ? 'Not connected'
+    : status.chargesEnabled
+      ? 'Ready to accept payments'
+      : 'Onboarding incomplete'
+
+  const badgeVariant = !status?.connected ? 'secondary' : status.chargesEnabled ? 'default' : 'secondary'
+  const buttonLabel = status?.connected ? 'Resume onboarding' : 'Connect Stripe'
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" />Payments</CardTitle>
+        <CardDescription>Accept member payments for statements via Stripe.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Status</span>
+              <Badge variant={badgeVariant}>{label}</Badge>
+            </div>
+
+            {statusError && <p className="text-sm text-destructive">Failed to load payment status</p>}
+            {error && <p className="text-sm text-destructive">{error}</p>}
+
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-xs text-muted-foreground">
+                Members pay your club directly — AviationHub never holds your funds.
+              </p>
+              {!status?.chargesEnabled && (
+                <Button onClick={handleConnect} disabled={connecting} size="sm" className="shrink-0">
+                  {connecting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Connecting…</> : buttonLabel}
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ---- Page ----
 
 export default function FlyingClubPage() {
@@ -2593,6 +2674,8 @@ export default function FlyingClubPage() {
             </Card>
 
             <BookingPolicyCard groupId={selectedGroup.id} />
+
+            <PaymentsCard groupId={selectedGroup.id} />
 
             <Card className="border-destructive/40">
               <CardHeader>

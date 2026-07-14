@@ -10,11 +10,11 @@ membership/role/ownership check. Canonical example:
 
 | Classification | Count | Notes |
 |---|---|---|
-| GATED (session required for every exported method) | 138 | Canonical pattern; membership/role/ownership checks vary by route, see table |
-| PUBLIC-BY-DESIGN (no session, intentionally open) | 42 | Reference data, auth flows, public share-token routes, crowd-sourced contributions |
+| GATED (session required for every exported method) | 141 | Canonical pattern; membership/role/ownership checks vary by route, see table |
+| PUBLIC-BY-DESIGN (no session, intentionally open) | 43 | Reference data, auth flows, public share-token routes, crowd-sourced contributions, Stripe webhook (signature auth) |
 | DEV-ONLY | 4 | `dev/login`, `debug`, `fix-passwords`, `test-login` — all 404 outside `NODE_ENV=development`; the latter three also require an admin/owner session even in dev |
 | UNGUARDED-SENSITIVE — found and fixed | 4 | See "Fixes applied" below |
-| **Total routes audited** | **187** (188 minus the deleted debug route) | |
+| **Total routes audited** | **191** (188 minus the deleted debug route, plus 4 new club-payments routes added after this audit) | |
 
 Secondary defects fixed across the codebase (not tied to a single
 classification): 6 routes constructing their own `new PrismaClient()`
@@ -269,6 +269,7 @@ removal, zero behavior change — since it was blocking a clean typecheck.
 | /api/route-weather | POST | Public calculator, no stored/user data |
 | /api/sigmets | GET | Public reference |
 | /api/state-media/[state] | GET | Public reference (Wikimedia proxy) |
+| /api/stripe/webhook | POST | Stripe webhook — signature auth (`stripe.webhooks.constructEvent`), not a session; 503 if `STRIPE_WEBHOOK_SECRET` unset, 400 on bad signature |
 | /api/tfrs | GET | Public reference (FAA TFR RSS) |
 | /api/v1/airports/search | GET | Public reference |
 | /api/waitlist | POST | Public signup form |

@@ -57,3 +57,4 @@ admin-cookies.txt
 next-dev-*.log
 tsc_check_out.txt
 .opencode/
+!.env.example

@@ -18,6 +18,7 @@ import {
   AlertCircle,
   Eye,
   Clock,
+  CreditCard,
 } from 'lucide-react'
 
 interface BillingRun {
@@ -75,6 +76,8 @@ export default function BillingDashboardPage() {
   const [billingRuns, setBillingRuns] = useState<BillingRun[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [aircraftStats, setAircraftStats] = useState<AircraftStats[]>([])
+  const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null)
+  const [payError, setPayError] = useState<string | null>(null)
 
   useEffect(() => {
     setBillingRuns(demoBillingRuns)
@@ -97,6 +100,21 @@ export default function BillingDashboardPage() {
     }
     setBillingRuns([newRun, ...billingRuns])
     setRunning(false)
+  }
+
+  const handlePay = async (invoiceId: string) => {
+    setPayingInvoiceId(invoiceId)
+    setPayError(null)
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}/pay`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setPayError(data.error || 'Failed to start payment'); return }
+      if (data.url) window.location.href = data.url
+    } catch {
+      setPayError('Network error')
+    } finally {
+      setPayingInvoiceId(null)
+    }
   }
 
   const formatCurrency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
@@ -316,11 +334,26 @@ export default function BillingDashboardPage() {
                             {invoice.status}
                           </Badge>
                         </td>
-                        <td className="p-3 text-right"><Button variant="ghost" size="sm"><Eye className="h-4 w-4 mr-1" />View</Button></td>
+                        <td className="p-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {invoice.status === 'pending' && (
+                              <Button
+                                size="sm"
+                                onClick={() => handlePay(invoice.id)}
+                                disabled={payingInvoiceId === invoice.id}
+                              >
+                                {payingInvoiceId === invoice.id ? <RefreshCw className="h-4 w-4 mr-1 animate-spin" /> : <CreditCard className="h-4 w-4 mr-1" />}
+                                Pay
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="sm"><Eye className="h-4 w-4 mr-1" />View</Button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                {payError && <p className="text-sm text-destructive mt-2">{payError}</p>}
               </CardContent>
             </Card>
           </TabsContent>
