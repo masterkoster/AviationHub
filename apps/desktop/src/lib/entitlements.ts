@@ -22,6 +22,7 @@
 
 import { Store } from '@tauri-apps/plugin-store'
 import { getCloudBaseUrl } from '@/apps/desktop/src/lib/cloud-base-url'
+import { MIN_SUPPORTED_DESKTOP_VERSION } from '@/lib/version'
 
 const STORE_FILE = 'entitlements.json'
 const GRACE_MS = 30 * 24 * 60 * 60 * 1000 // 30 days offline grace
@@ -33,6 +34,14 @@ export interface Entitlements {
   subscriptionEnd: string | null
   credits: number
   fetchedAt: string
+  /**
+   * Oldest desktop app version the backend still supports, as of the last
+   * successful fetch. Cached alongside the rest of the entitlements payload
+   * so an offline launch can still enforce the last-known minimum — but a
+   * failed/offline fetch never invents a minimum on its own (see FREE_TIER
+   * below, which uses '0.0.0' so unreachability alone never blocks anyone).
+   */
+  minDesktopVersion: string
 }
 
 const FREE_TIER: Entitlements = {
@@ -41,6 +50,7 @@ const FREE_TIER: Entitlements = {
   subscriptionEnd: null,
   credits: 0,
   fetchedAt: new Date(0).toISOString(),
+  minDesktopVersion: MIN_SUPPORTED_DESKTOP_VERSION,
 }
 
 interface CacheEntry {
@@ -113,6 +123,8 @@ async function fetchFromServer(): Promise<Entitlements | null> {
       subscriptionEnd: data.subscriptionEnd ?? null,
       credits: typeof data.credits === 'number' ? data.credits : 0,
       fetchedAt: data.fetchedAt || new Date().toISOString(),
+      minDesktopVersion:
+        typeof data.minDesktopVersion === 'string' ? data.minDesktopVersion : MIN_SUPPORTED_DESKTOP_VERSION,
     }
   } catch {
     return null // offline or unreachable

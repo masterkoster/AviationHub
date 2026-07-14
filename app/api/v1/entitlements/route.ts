@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { MIN_SUPPORTED_DESKTOP_VERSION } from '@/lib/version'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,6 +48,7 @@ export async function GET() {
       subscriptionEnd: user.subscriptionEnd,
       credits: user.credits,
       fetchedAt: new Date().toISOString(),
+      minDesktopVersion: MIN_SUPPORTED_DESKTOP_VERSION,
     })
   } catch (error) {
     console.error('GET /api/v1/entitlements error:', error)

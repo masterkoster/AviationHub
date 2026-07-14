@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { isRedisHealthy } from '@/lib/redis'
+import { MIN_SUPPORTED_DESKTOP_VERSION } from '@/lib/version'
 
 export async function GET() {
   const checks: Record<string, { status: 'healthy' | 'degraded' | 'down'; latencyMs?: number }> = {}
@@ -33,5 +34,6 @@ export async function GET() {
     status: allHealthy ? 'healthy' : 'degraded',
     checks,
     timestamp: new Date().toISOString(),
+    minDesktopVersion: MIN_SUPPORTED_DESKTOP_VERSION,
   }, { status })
 }

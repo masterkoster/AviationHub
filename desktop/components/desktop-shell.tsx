@@ -7,17 +7,22 @@ import { DesktopSidebar } from './desktop-sidebar'
 import { CommandPalette } from './command-palette'
 import { Toaster } from '@/components/ui/toaster'
 import { UpdateBanner } from './update-banner'
+import { UpdateRequired } from './update-required'
 import { AnalyticsConsentModal } from './analytics-consent-modal'
 import { useAnalytics } from '@/desktop/hooks/use-analytics'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { clearActiveUserOnStartup } from '@/desktop/lib/setup'
 import { useShortcuts, type ShortcutEntry } from '@/desktop/hooks/use-shortcuts'
 import { useOnlineStatus } from '@/desktop/hooks/use-online-status'
+import { isTauriWebview } from '@/desktop/lib/is-tauri'
+import { APP_VERSION } from '@/desktop/lib/app-version'
 import { WifiOff } from 'lucide-react'
 import { OnboardingTour, isTutorialCompleted, getHighlightedHref } from '@/desktop/components/onboarding-tour'
 import { WhatsNewModal } from '@/desktop/components/whats-new-modal'
 import { resolveLocalLogbookUserId } from '@/apps/desktop/src/lib/local-logbook'
 import { initSyncEngine, setActiveSyncUserId, pullCloudChanges, useSyncStatus, syncNow } from '@/apps/desktop/src/lib/sync-engine'
+import { getEntitlements } from '@/apps/desktop/src/lib/entitlements'
+import { isVersionBelow } from '@/lib/version'
 
 const PUBLIC_PATHS = ['/desktop/login', '/desktop/signup', '/desktop/setup', '/desktop/accounts', '/desktop/forgot-password', '/desktop/reset-password']
 
@@ -152,6 +157,37 @@ export function DesktopShell({ children }: { children: ReactNode }) {
     }
   }, [initializing, status, mode, localUser, cloudUser])
 
+  // Force-update gate: compare the running Tauri build against the
+  // backend's minDesktopVersion (served with /api/v1/entitlements, cached
+  // offline). Cloud mode only, Tauri only — local-only profiles and the
+  // web build never depend on this and never block. A failed/offline fetch
+  // never blocks by itself: getEntitlements() falls back to a cached value
+  // (if still within its grace window) or to '0.0.0' (never blocks) when
+  // there's nothing usable cached yet.
+  const [minDesktopVersion, setMinDesktopVersion] = useState<string | null>(null)
+  useEffect(() => {
+    if (initializing || mode !== 'cloud' || status !== 'authenticated' || !isTauriWebview()) return
+    let cancelled = false
+    const cloudUserKey = cloudUser?.id || cloudUser?.email || cloudUser?.username || 'cloud-default'
+    ;(async () => {
+      try {
+        const ent = await getEntitlements(cloudUserKey)
+        if (!cancelled) setMinDesktopVersion(ent.minDesktopVersion)
+      } catch {
+        // Best-effort — no gate if we can't resolve entitlements at all.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [initializing, mode, status, cloudUser])
+
+  const updateRequired =
+    isTauriWebview() &&
+    mode === 'cloud' &&
+    minDesktopVersion != null &&
+    isVersionBelow(APP_VERSION, minDesktopVersion)
+
   // Block mouse back button and browser back navigation —
   // desktop apps don't have "back"; only our sidebar + shortcuts navigate.
   useEffect(() => {
@@ -184,6 +220,12 @@ export function DesktopShell({ children }: { children: ReactNode }) {
       router.replace('/desktop/accounts')
     }
   }, [initializing, isPublic, needsSetup, status, pathname, router])
+
+  // Force-update gate takes priority over every other screen once we've
+  // confirmed the server-advertised minimum — renders over everything.
+  if (updateRequired && minDesktopVersion) {
+    return <UpdateRequired currentVersion={APP_VERSION} requiredVersion={minDesktopVersion} />
+  }
 
   // Setup + accounts pages: minimal chrome (title bar + content only)
   if (pathname === '/desktop/setup' || pathname === '/desktop/accounts') {
