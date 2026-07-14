@@ -32,8 +32,8 @@ This is the source of truth for the tables that were historically created
 ad-hoc by scattered `CREATE TABLE IF NOT EXISTS` calls across the TS
 codebase: `document_attachments`, `e6b_history`, `e6b_aircraft`,
 `e6b_notes`, `user_preferences`, `certifications`, plus a second
-(mismatched — see "Known issue" below) definition of
-`logbook_entry_history`.
+definition of `logbook_entry_history` (historically mismatched against the
+native one — see "Fixed: `logbook_entry_history` schema mismatch" below).
 
 `migrateLocalDb(db)` is called once per session from `getDb()` in
 `desktop/lib/local-auth.ts`, right after the database opens. It reads
@@ -114,7 +114,7 @@ In practice that means:
   next launch re-attempts from the same (unbumped) `user_version` and must
   be able to pick up safely from a partially-applied state.
 
-## Known issue: `logbook_entry_history` schema mismatch
+## Fixed: `logbook_entry_history` schema mismatch (Rust migrations 29–30)
 
 `apps/desktop/src/lib/local-logbook.ts` creates (and inserts into) a
 `logbook_entry_history` table with columns `action` and `reason`. The
@@ -122,16 +122,34 @@ In practice that means:
 creates a table of the **same name** without those two columns. Since the
 Rust migration runs first (before JS ever gets a `Database` handle) and
 `CREATE TABLE IF NOT EXISTS` is a no-op once the table exists, real
-installs end up with the narrower Rust-created table — meaning
+installs ended up with the narrower Rust-created table — meaning
 `local-logbook.ts`'s `INSERT INTO logbook_entry_history (..., action, ...,
-reason, ...)` calls are expected to fail with "no such column: action" on
-real devices today.
+reason, ...)` calls failed with "no such column: action" on real devices.
 
-This is a pre-existing bug, independent of the migration runner added
-here, and Migration 1 intentionally does not paper over it (it consolidates
-what already existed, verbatim). Fixing it requires picking one source of
-truth for this table — either extend the Rust migration with an additive
-`ALTER TABLE logbook_entry_history ADD COLUMN action ...` /
-`ADD COLUMN reason ...` (native side owns the table), or have a local
-migration here `ALTER TABLE` the same columns in (TS side patches the
-native table) — and should be its own follow-up change.
+**Fixed by Rust migrations 29 and 30** in `src-tauri/src/lib.rs`
+(`add_action_to_logbook_entry_history` /
+`add_reason_to_logbook_entry_history`), which add the missing columns:
+
+```sql
+ALTER TABLE logbook_entry_history ADD COLUMN action TEXT
+ALTER TABLE logbook_entry_history ADD COLUMN reason TEXT
+```
+
+The native side remains the source of truth for this table. Two details
+worth knowing:
+
+- **Why plain `ALTER`s are safe** (a "duplicate column" error would abort
+  the sqlx migrator and make `Database.load()` fail): the JS fallback
+  CREATE — the only thing that ever produced the 9-column shape — only
+  runs when the table doesn't already exist, and migration 5 always
+  created it first. Verified in git history: the commit adding migration 5
+  (`7de4167`, 2026-06-25) is an ancestor of the commit adding the JS
+  `ensureHistoryTable` (`3593004`, 2026-07-12), so no shipped build ever
+  had the JS CREATE without migration 5 already in its binary, and no
+  real install can have the `action`/`reason` columns before 29–30 run.
+- **Nullability**: the JS CREATE declares `action TEXT NOT NULL`, but
+  SQLite can't `ADD COLUMN` with `NOT NULL` and no default on a populated
+  table, so migration 29 adds it as nullable `TEXT`. Every INSERT supplies
+  `action` explicitly, so this is inconsequential in practice (same story
+  as `changed_by`, which is `NOT NULL` in the JS shape but nullable in the
+  Rust-created table).

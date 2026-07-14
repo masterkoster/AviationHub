@@ -304,6 +304,32 @@ pub fn run() {
             sql: "ALTER TABLE users ADD COLUMN last_pull_at TEXT",
             kind: MigrationKind::Up,
         },
+        // Fix the logbook_entry_history column mismatch: the JS layer
+        // (apps/desktop/src/lib/local-logbook.ts) inserts `action` and
+        // `reason` columns that migration 5's table never had, so those
+        // INSERTs failed with "no such column" on real installs. Plain
+        // ALTERs are safe here — no real install can already have these
+        // columns: the JS fallback CREATE (which includes them) only runs
+        // when the table doesn't exist, and migration 5 (which creates it
+        // WITHOUT them) runs in Rust before JS ever gets a DB handle.
+        // Verified in git history: migration 5 (commit 7de4167) predates
+        // and is an ancestor of the JS ensureHistoryTable (commit 3593004),
+        // so the JS CREATE has been a no-op on every build that shipped it.
+        // Note: the JS CREATE declares `action TEXT NOT NULL`, but SQLite
+        // can't ADD COLUMN with NOT NULL and no default on a populated
+        // table; nullable is fine — every INSERT always supplies action.
+        Migration {
+            version: 29,
+            description: "add_action_to_logbook_entry_history",
+            sql: "ALTER TABLE logbook_entry_history ADD COLUMN action TEXT",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 30,
+            description: "add_reason_to_logbook_entry_history",
+            sql: "ALTER TABLE logbook_entry_history ADD COLUMN reason TEXT",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -147,15 +147,13 @@ const MIGRATIONS: LocalMigration[] = [
       // 5) under the same name but with a NARROWER column set (no
       // `action`, no `reason`). Because the Rust migration runs first and
       // `CREATE TABLE IF NOT EXISTS` is a no-op once the table exists, on
-      // every real install the Rust-created table wins and this
-      // statement's extra columns never actually get created — meaning
-      // `local-logbook.ts`'s own INSERTs into `action`/`reason` are
-      // expected to fail on real devices today. That's a pre-existing bug
-      // independent of this migration runner; kept verbatim here per the
-      // "consolidate what exists" goal rather than silently patched, since
-      // fixing it means picking one source of truth (Rust vs. TS) for this
-      // table, which is a separate, bigger change. See
-      // docs/LOCAL_DB_MIGRATIONS.md for the full note.
+      // every real install the Rust-created table wins and this statement
+      // never actually executes its column list. The missing `action` /
+      // `reason` columns are now added by Rust migrations 29-30 (also in
+      // src-tauri/src/lib.rs), so the native side remains the source of
+      // truth for this table; this statement is kept verbatim per the
+      // "consolidate what exists" goal and only matters for a DB where the
+      // native migrator never ran at all. See docs/LOCAL_DB_MIGRATIONS.md.
       `CREATE TABLE IF NOT EXISTS logbook_entry_history (
         id TEXT PRIMARY KEY,
         entry_id TEXT NOT NULL,
