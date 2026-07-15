@@ -1764,6 +1764,234 @@ function PaymentsCard({ groupId }: { groupId: string }) {
   )
 }
 
+// ---- BillingTab ----
+// Member statements + admin billing-cycle controls. Members see and pay
+// their own invoices; admins (role === 'ADMIN') also see every member's
+// invoices and can trigger a billing run.
+
+interface InvoiceItemRow {
+  id: string
+  hobbsHours: number
+  hourlyRate: number
+  amount: number
+  aircraft: string | null
+  date: string | null
+}
+
+interface InvoiceRow {
+  id: string
+  totalAmount: number
+  status: string
+  stripePaymentId: string | null
+  pdfUrl: string | null
+  sentAt: string | null
+  createdAt: string
+  items: InvoiceItemRow[]
+  member?: { id: string; name: string | null; email: string } | null
+}
+
+function money(n: number) {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function InvoiceStatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase()
+  const cls =
+    s === 'paid' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+    : s === 'pending' ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+    : 'bg-muted text-muted-foreground border-border'
+  return <Badge className={`text-xs border ${cls}`}>{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>
+}
+
+function BillingTab({ groupId, isOwnerOrAdmin }: { groupId: string; isOwnerOrAdmin: boolean }) {
+  const { data: myInvoices = [], error: myInvoicesError, isLoading: myInvoicesLoading, mutate: mutateMyInvoices } = useSWR<InvoiceRow[]>(
+    `/api/groups/${groupId}/invoices`,
+    fetcher,
+    { refreshInterval: 15000 }
+  )
+  const { data: allInvoices = [], isLoading: allInvoicesLoading, mutate: mutateAllInvoices } = useSWR<InvoiceRow[]>(
+    isOwnerOrAdmin ? `/api/groups/${groupId}/invoices?scope=all` : null,
+    fetcher,
+    { refreshInterval: 15000 }
+  )
+  const { data: stripeStatus } = useSWR<StripeStatus>(`/api/groups/${groupId}/stripe/status`, fetcher)
+
+  const [payingId, setPayingId] = useState<string | null>(null)
+  const [payErrors, setPayErrors] = useState<Record<string, string>>({})
+  const [runningBilling, setRunningBilling] = useState(false)
+  const [runError, setRunError] = useState<string | null>(null)
+  const [runSuccess, setRunSuccess] = useState<string | null>(null)
+
+  const chargesEnabled = !!stripeStatus?.chargesEnabled
+
+  async function handlePay(invoiceId: string) {
+    setPayingId(invoiceId)
+    setPayErrors(prev => ({ ...prev, [invoiceId]: '' }))
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}/pay`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setPayErrors(prev => ({ ...prev, [invoiceId]: data.error || 'Unable to start payment' }))
+        return
+      }
+      if (data.url) window.location.href = data.url
+    } catch {
+      setPayErrors(prev => ({ ...prev, [invoiceId]: 'Network error' }))
+    } finally {
+      setPayingId(null)
+    }
+  }
+
+  async function handleRunBilling() {
+    if (!window.confirm('Run billing cycle now? This generates invoices for all members for flights since the last billing run.')) {
+      return
+    }
+    setRunningBilling(true)
+    setRunError(null)
+    setRunSuccess(null)
+    try {
+      const res = await fetch(`/api/clubs/${groupId}/billing/run`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setRunError(data.error || 'Failed to run billing')
+        return
+      }
+      const summary = data.summary
+      setRunSuccess(
+        summary
+          ? `Billed ${summary.successful} of ${summary.totalMembers} member${summary.totalMembers === 1 ? '' : 's'} (${summary.failed} failed).`
+          : 'Billing cycle complete.'
+      )
+      mutateMyInvoices()
+      mutateAllInvoices()
+    } catch {
+      setRunError('Network error')
+    } finally {
+      setRunningBilling(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>My statements</CardTitle>
+          <CardDescription>Your invoices for this club.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {myInvoicesLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : myInvoicesError ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="rounded-full bg-muted p-4 mb-4"><DollarSign className="h-8 w-8 text-muted-foreground" /></div>
+              <h3 className="text-lg font-semibold mb-2">Unable to load statements</h3>
+              <p className="text-sm text-muted-foreground">{myInvoicesError?.message || String(myInvoicesError)}</p>
+            </div>
+          ) : myInvoices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="rounded-full bg-muted p-4 mb-4"><DollarSign className="h-8 w-8 text-muted-foreground" /></div>
+              <h3 className="text-lg font-semibold mb-2">No statements yet</h3>
+              <p className="text-sm text-muted-foreground">They appear after your club runs billing.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {!chargesEnabled && (
+                <p className="text-xs text-muted-foreground mb-2">This club isn't accepting online payments yet.</p>
+              )}
+              {myInvoices.map(inv => {
+                const unpaid = inv.status.toLowerCase() !== 'paid'
+                return (
+                  <div key={inv.id} className="rounded-lg border border-border p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                          <DollarSign className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm">{fmt(inv.createdAt, 'date')}</p>
+                            <InvoiceStatusBadge status={inv.status} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">{inv.items.length} item{inv.items.length === 1 ? '' : 's'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <p className="text-sm font-semibold">${money(inv.totalAmount)}</p>
+                        {unpaid && (
+                          <Button
+                            size="sm"
+                            disabled={!chargesEnabled || payingId === inv.id}
+                            onClick={() => handlePay(inv.id)}
+                          >
+                            {payingId === inv.id ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Starting…</> : 'Pay'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {payErrors[inv.id] && (
+                      <p className="text-xs text-destructive mt-2">{payErrors[inv.id]}</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {isOwnerOrAdmin && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Club billing</CardTitle>
+                <CardDescription>Run a billing cycle to invoice members for flights since the last run.</CardDescription>
+              </div>
+              <Button size="sm" onClick={handleRunBilling} disabled={runningBilling}>
+                {runningBilling ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Running…</> : 'Run billing cycle'}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {runError && <p className="text-sm text-destructive mb-3">{runError}</p>}
+            {runSuccess && !runError && (
+              <p className="text-sm font-medium text-emerald-600 mb-3 flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4" />{runSuccess}
+              </p>
+            )}
+
+            {allInvoicesLoading ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : allInvoices.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No invoices yet for any member.</p>
+            ) : (
+              <div className="space-y-2">
+                {allInvoices.map(inv => (
+                  <div key={inv.id} className="flex items-center justify-between rounded-lg border border-border p-4">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                        <span className="text-sm font-semibold text-primary">{(inv.member?.name || inv.member?.email || '?').charAt(0).toUpperCase()}</span>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="font-medium text-sm">{inv.member?.name || inv.member?.email || 'Unknown member'}</p>
+                        <p className="text-xs text-muted-foreground">{fmt(inv.createdAt, 'date')}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <InvoiceStatusBadge status={inv.status} />
+                      <p className="text-sm font-semibold">${money(inv.totalAmount)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+
 // ---- Page ----
 
 export default function FlyingClubPage() {
@@ -1869,7 +2097,7 @@ export default function FlyingClubPage() {
 
   const hasGroups = !groupsLoading && groups.length > 0
   const tabs = [
-    'dashboard', 'updates', 'documents', 'calendar', 'bookings', 'aircraft', 'flights', 'maintenance', 'members',
+    'dashboard', 'updates', 'documents', 'calendar', 'bookings', 'aircraft', 'flights', 'maintenance', 'billing', 'members',
     ...(isOwnerOrAdmin ? ['settings'] : []),
   ]
 
@@ -2593,6 +2821,11 @@ export default function FlyingClubPage() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* ---- BILLING ---- */}
+        {hasGroups && activeTab === 'billing' && selectedGroup && (
+          <BillingTab groupId={selectedGroup.id} isOwnerOrAdmin={isOwnerOrAdmin} />
         )}
 
         {/* ---- MEMBERS ---- */}

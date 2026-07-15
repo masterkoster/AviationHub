@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { chargeCustomer } from './stripe';
+
 
 export interface BillingResult {
   userId: string;
@@ -32,8 +32,9 @@ function hoursForFlight(flight: { hobbsStart: unknown; hobbsEnd: unknown; hobbsT
 
 /**
  * Bills every pilot who has flown a club aircraft since the last billing run,
- * creating a BillingRun + Invoice/InvoiceItem rows and (if the pilot has a
- * Stripe customer on file) attempting a charge.
+ * creating a BillingRun + Invoice/InvoiceItem rows (status 'pending').
+ * Collection is member-initiated: Stripe Checkout direct charges on the
+ * club's connected account — the platform never charges members itself.
  */
 export async function runBillingCycle(groupId: string): Promise<BillingResult[]> {
   const results: BillingResult[] = [];
@@ -138,34 +139,15 @@ export async function runBillingCycle(groupId: string): Promise<BillingResult[]>
       });
     }
 
-    let success = false;
+    // Money model: the platform NEVER charges members directly. Invoices are
+    // generated as 'pending' and members self-pay via Stripe Checkout as a
+    // direct charge on the club's connected account (/api/invoices/[id]/pay).
+    // Zero-total invoices are auto-settled since there is nothing to collect.
+    let success = true;
     let error: string | undefined;
 
-    try {
-      if (user.stripeCustomerId && total > 0) {
-        const charge = await chargeCustomer(
-          user.stripeCustomerId,
-          total,
-          `Flight charges - ${flights.length} flight${flights.length === 1 ? '' : 's'}`
-        );
-
-        if (charge.status === 'succeeded') {
-          success = true;
-          await prisma.invoice.update({
-            where: { id: invoice.id },
-            data: { status: 'paid', stripePaymentId: charge.id },
-          });
-        } else {
-          error = `Payment ${charge.status}`;
-        }
-      } else if (total === 0) {
-        success = true;
-        await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'paid' } });
-      } else {
-        error = 'No Stripe customer on file';
-      }
-    } catch (e: any) {
-      error = e?.message || 'Stripe charge failed';
+    if (total === 0) {
+      await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'paid' } });
     }
 
     results.push({
