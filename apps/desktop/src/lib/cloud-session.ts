@@ -67,8 +67,16 @@ export async function cloudSignIn(username: string, password: string): Promise<{
     })
 
     // NextAuth v5 always redirects — success → callbackUrl, failure → /api/auth/error?error=...
+    // But res.url is unreliable in the Tauri webview (can be empty), which made
+    // failures look like successes. Fast-path the obvious error URL, then verify
+    // against ground truth: a successful sign-in sets the session cookie.
     const finalUrl = res.url || ''
     if (finalUrl.includes('/error') || finalUrl.includes('error=')) {
+      return { ok: false, error: 'Invalid username or password' }
+    }
+
+    const session = await getCloudSession()
+    if (!session.authenticated) {
       return { ok: false, error: 'Invalid username or password' }
     }
 
