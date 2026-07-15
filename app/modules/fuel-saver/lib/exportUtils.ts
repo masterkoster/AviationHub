@@ -175,47 +175,41 @@ async function downloadFile(content: string, filename: string, mimeType: string)
     )
 
   if (isTauri) {
-    // ── Tauri path ────────────────────────────────────────────────
-    // Step 1: Write to appDataDir (always in fs:default scope, guaranteed to work)
-    // Step 2: Try to copy to user-chosen location via save dialog
+    const encoder = new TextEncoder()
+    const bytes = encoder.encode(content)
+
+    // Show save dialog FIRST — write directly to user's chosen location
     try {
-      const { writeFile, mkdir, copyFile, remove } = await import('@tauri-apps/plugin-fs')
-      const { appDataDir } = await import('@tauri-apps/api/path')
-
-      const encoder = new TextEncoder()
-      const bytes = encoder.encode(content)
-
-      // Write to appDataDir first (known to be in scope)
-      const appDir = await appDataDir()
-      const tmpDir = `${appDir}exports`
-      await mkdir(tmpDir, { recursive: true })
-      const tmpPath = `${tmpDir}/${filename}`
-      await writeFile(tmpPath, bytes)
-
-      // Now try to copy to user-chosen location
-      try {
-        const { save } = await import('@tauri-apps/plugin-dialog')
-        const destPath = await save({
-          defaultPath: filename,
-          filters: [{ name: filename.split('.').pop()?.toUpperCase() || 'File', extensions: [filename.split('.').pop() || '*'] }],
-        })
-        if (destPath) {
-          await copyFile(tmpPath, destPath)
-          try { await remove(tmpPath) } catch { /* ignore cleanup errors */ }
-          return
-        }
-        // User cancelled dialog — file stays in appDataDir/exports/
-      } catch {
-        // Dialog not available — file stays in appDataDir/exports/
+      const { save } = await import('@tauri-apps/plugin-dialog')
+      const { writeFile } = await import('@tauri-apps/plugin-fs')
+      const destPath = await save({
+        defaultPath: filename,
+        filters: [{ name: filename.split('.').pop()?.toUpperCase() || 'File', extensions: [filename.split('.').pop() || '*'] }],
+      })
+      if (destPath) {
+        await writeFile(destPath, bytes)
+        return
       }
-
-      console.info(`[export] File saved to: ${tmpPath}`)
-      return
+      // User cancelled dialog — fall through to appDataDir fallback
     } catch (err) {
-      console.error('[export] Tauri file export failed:', err)
-      // Don't re-throw — file was saved to appDataDir at minimum
-      return
+      console.warn('[export] Save dialog failed, using appDataDir fallback:', err)
     }
+
+    // Fallback: save to appDataDir/exports/ so the file isn't lost
+    try {
+      const { writeFile, mkdir } = await import('@tauri-apps/plugin-fs')
+      const { appDataDir } = await import('@tauri-apps/api/path')
+      const appDir = await appDataDir()
+      const exportsDir = `${appDir}exports`
+      await mkdir(exportsDir, { recursive: true })
+      const fallbackPath = `${exportsDir}/${filename}`
+      await writeFile(fallbackPath, bytes)
+      console.info(`[export] File saved to fallback location: ${fallbackPath}`)
+    } catch (fallbackErr) {
+      console.error('[export] Fallback save also failed:', fallbackErr)
+      throw new Error('Failed to save file — check console for details')
+    }
+    return
   }
 
   // ── Browser fallback ──────────────────────────────────────────
