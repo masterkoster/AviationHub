@@ -48,11 +48,11 @@ export const authOptions: any = {
             `
           }
           const user = rows[0] ?? null
-          
+
           if (!user || !user.password) {
             return null
           }
-          
+
           let isValid = false
           
           // Check if password is bcrypt hash (starts with $2) or plain text
