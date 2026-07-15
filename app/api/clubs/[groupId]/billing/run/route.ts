@@ -3,12 +3,13 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isUuid } from '@/lib/validate';
 import { runBillingCycle } from '@/lib/billing';
+import { FINANCE_ROLES } from '@/lib/club/roles';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
 }
 
-// POST /api/clubs/[groupId]/billing/run - Run monthly billing cycle (admin only)
+// POST /api/clubs/[groupId]/billing/run - Run monthly billing cycle (admin or treasurer)
 // Statement emails (per the club's emailStatements policy) are sent inside
 // runBillingCycle itself via lib/email.ts — see lib/billing.ts.
 export async function POST(_request: Request, { params }: RouteParams) {
@@ -24,11 +25,11 @@ export async function POST(_request: Request, { params }: RouteParams) {
     }
 
     const membership = await prisma.organizationMember.findFirst({
-      where: { organizationId: groupId, userId: session.user.id, role: 'ADMIN' },
+      where: { organizationId: groupId, userId: session.user.id, role: { in: [...FINANCE_ROLES] } },
     });
 
     if (!membership) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+      return NextResponse.json({ error: 'Admin or treasurer access required' }, { status: 403 });
     }
 
     console.log('Starting billing cycle for group:', groupId);

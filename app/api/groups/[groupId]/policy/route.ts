@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isUuid } from '@/lib/validate';
 import { normalizePolicy } from '@/lib/club/policy';
+import { isFinanceRole } from '@/lib/club/roles';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -55,7 +56,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
   }
 }
 
-// PUT — upsert the club's booking policy (admin only).
+// PUT — upsert the club's policy. ADMIN may update everything; TREASURER
+// (finance role) may update ONLY the billing-schedule fields
+// (billingDayOfMonth/emailStatements) — booking-policy fields in a
+// treasurer's request body are ignored, never written.
 export async function PUT(request: Request, { params }: RouteParams) {
   try {
     const session = await auth();
@@ -74,31 +78,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if (!membership) {
       return NextResponse.json({ error: 'Not a member' }, { status: 403 });
     }
-    if (membership.role !== 'ADMIN') {
+    if (!isFinanceRole(membership.role)) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
+    const isAdmin = membership.role === 'ADMIN';
 
     const body = await request.json();
-
-    // Positive number or null (clears the limit).
-    const posNumOrNull = (v: unknown): number | null => {
-      if (v === null || v === undefined || v === '') return null;
-      const n = Number(v);
-      return Number.isFinite(n) && n >= 0 ? n : null;
-    };
-
-    const data = {
-      maxBookingHours: posNumOrNull(body.maxBookingHours),
-      maxAdvanceDays:
-        body.maxAdvanceDays == null || body.maxAdvanceDays === ''
-          ? null
-          : Math.max(0, Math.round(Number(body.maxAdvanceDays))),
-      minBookingNoticeHours: posNumOrNull(body.minBookingNoticeHours),
-      blockOnOverdueInspection: body.blockOnOverdueInspection !== false,
-      blockOnGroundedSquawk: body.blockOnGroundedSquawk !== false,
-      requireCurrencyToBook: body.requireCurrencyToBook === true,
-      blockOnUnpaidBalance: body.blockOnUnpaidBalance === true,
-    };
 
     // billingDayOfMonth: 1-28, or null for manual-only.
     let billingDayOfMonth: number | null = null;
@@ -110,11 +95,43 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
     const emailStatements = body.emailStatements !== false;
 
-    const saved = await prisma.clubPolicy.upsert({
-      where: { organizationId: groupId },
-      create: { organizationId: groupId, ...data },
-      update: data,
-    });
+    let saved;
+    if (isAdmin) {
+      // Positive number or null (clears the limit).
+      const posNumOrNull = (v: unknown): number | null => {
+        if (v === null || v === undefined || v === '') return null;
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      };
+
+      const data = {
+        maxBookingHours: posNumOrNull(body.maxBookingHours),
+        maxAdvanceDays:
+          body.maxAdvanceDays == null || body.maxAdvanceDays === ''
+            ? null
+            : Math.max(0, Math.round(Number(body.maxAdvanceDays))),
+        minBookingNoticeHours: posNumOrNull(body.minBookingNoticeHours),
+        blockOnOverdueInspection: body.blockOnOverdueInspection !== false,
+        blockOnGroundedSquawk: body.blockOnGroundedSquawk !== false,
+        requireCurrencyToBook: body.requireCurrencyToBook === true,
+        blockOnUnpaidBalance: body.blockOnUnpaidBalance === true,
+      };
+
+      saved = await prisma.clubPolicy.upsert({
+        where: { organizationId: groupId },
+        create: { organizationId: groupId, ...data },
+        update: data,
+      });
+    } else {
+      // TREASURER: only ensure the row exists (schema defaults for booking
+      // fields; an empty update leaves an existing row untouched) — the
+      // booking-policy fields in the body are deliberately not applied.
+      saved = await prisma.clubPolicy.upsert({
+        where: { organizationId: groupId },
+        create: { organizationId: groupId },
+        update: {},
+      });
+    }
 
     // billingDayOfMonth/emailStatements predate the generated Prisma Client —
     // write via raw SQL after the upsert guarantees the row exists.

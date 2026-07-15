@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { isUuid } from '@/lib/validate';
 import { sendEmail } from '@/lib/email';
 import { rateLimit } from '@/lib/rate-limit';
+import { FINANCE_ROLES } from '@/lib/club/roles';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -12,9 +13,9 @@ interface RouteParams {
 const SUBJECT_MAX = 200;
 const MESSAGE_MAX = 5000;
 
-// POST /api/groups/[groupId]/notify — admin-only: email every member of the
-// club a one-off notice (used by the "Also email this notice to all members"
-// option on club Updates posts).
+// POST /api/groups/[groupId]/notify — admin or treasurer: email every member
+// of the club a one-off notice (used by the "Also email this notice to all
+// members" option on club Updates posts).
 export async function POST(request: Request, { params }: RouteParams) {
   try {
     const session = await auth();
@@ -28,10 +29,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const membership = await prisma.organizationMember.findFirst({
-      where: { organizationId: groupId, userId: session.user.id, role: 'ADMIN' },
+      where: { organizationId: groupId, userId: session.user.id, role: { in: [...FINANCE_ROLES] } },
     });
     if (!membership) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+      return NextResponse.json({ error: 'Admin or treasurer access required' }, { status: 403 });
     }
 
     // Abuse guard: one notify blast per club per 5 minutes. `rateLimit` is

@@ -1122,6 +1122,7 @@ export default function AdminPage() {
                               <option value="MEMBER">Member</option>
                               <option value="PILOT">Pilot</option>
                               <option value="INSTRUCTOR">Instructor</option>
+                              <option value="TREASURER">Treasurer</option>
                               <option value="ADMIN">Admin</option>
                             </select>
                             <span className="text-[10px] text-muted-foreground">

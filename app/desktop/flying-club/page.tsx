@@ -1343,10 +1343,13 @@ function DeleteClubModal({ group, onClose, onDeleted }: {
 
 // ---- NewPostModal ----
 
-function NewPostModal({ groupId, onClose, onCreated }: {
+function NewPostModal({ groupId, onClose, onCreated, canEmailNotice }: {
   groupId: string
   onClose: () => void
   onCreated: () => void
+  /** Whether the "email this notice" option is offered — the /notify endpoint
+   *  is finance-gated (ADMIN/TREASURER), while posting itself is ADMIN/OFFICER. */
+  canEmailNotice: boolean
 }) {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
@@ -1373,7 +1376,7 @@ function NewPostModal({ groupId, onClose, onCreated }: {
       if (!res.ok) { setError(data.error || 'Failed to create post'); return }
       onCreated()
 
-      if (!alsoEmail) {
+      if (!canEmailNotice || !alsoEmail) {
         onClose()
         return
       }
@@ -1431,10 +1434,12 @@ function NewPostModal({ groupId, onClose, onCreated }: {
             <input type="checkbox" checked={pinned} onChange={e => setPinned(e.target.checked)} disabled={posted} className="rounded" />
             Pin this post
           </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={alsoEmail} onChange={e => setAlsoEmail(e.target.checked)} disabled={posted} className="rounded" />
-            Also email this notice to all members
-          </label>
+          {canEmailNotice && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={alsoEmail} onChange={e => setAlsoEmail(e.target.checked)} disabled={posted} className="rounded" />
+              Also email this notice to all members
+            </label>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           {posted && !statusMessage && (
             <p className="text-sm text-muted-foreground flex items-center gap-1.5">
@@ -1732,7 +1737,8 @@ function BookingPolicyCard({ groupId }: { groupId: string }) {
 }
 
 // ---- PaymentsCard ----
-// Admin-only Stripe Connect status/onboarding card for the Settings tab.
+// Finance-only (ADMIN/TREASURER) Stripe Connect status/onboarding card,
+// shown in the Billing tab so treasurers can reach it.
 // Money model: each club onboards its own Stripe account and members pay the
 // club directly — the platform never holds club funds.
 
@@ -1813,9 +1819,10 @@ function PaymentsCard({ groupId }: { groupId: string }) {
 }
 
 // ---- BillingTab ----
-// Member statements + admin billing-cycle controls. Members see and pay
-// their own invoices; admins (role === 'ADMIN') also see every member's
-// invoices and can trigger a billing run.
+// Member statements + finance billing-cycle controls. Members see and pay
+// their own invoices; finance roles (ADMIN or TREASURER) also see every
+// member's invoices, the billing schedule, the Stripe payments card, and can
+// trigger a billing run.
 
 interface InvoiceItemRow {
   id: string
@@ -1852,9 +1859,10 @@ function InvoiceStatusBadge({ status }: { status: string }) {
 }
 
 // ---- BillingScheduleCard ----
-// Admin-only controls for when billing cycles run automatically and whether
-// members get emailed a statement afterward. Same fetch/PUT/saved-indicator
-// pattern as BookingPolicyCard, against the same /policy endpoint.
+// Finance-only (ADMIN/TREASURER) controls for when billing cycles run
+// automatically and whether members get emailed a statement afterward. Same
+// fetch/PUT/saved-indicator pattern as BookingPolicyCard, against the same
+// /policy endpoint (treasurers may only write the billing fields there).
 
 interface BillingScheduleSettings {
   billingDayOfMonth: number | null
@@ -1971,14 +1979,14 @@ function BillingScheduleCard({ groupId }: { groupId: string }) {
   )
 }
 
-function BillingTab({ groupId, isOwnerOrAdmin }: { groupId: string; isOwnerOrAdmin: boolean }) {
+function BillingTab({ groupId, isFinance }: { groupId: string; isFinance: boolean }) {
   const { data: myInvoices = [], error: myInvoicesError, isLoading: myInvoicesLoading, mutate: mutateMyInvoices } = useSWR<InvoiceRow[]>(
     `/api/groups/${groupId}/invoices`,
     fetcher,
     { refreshInterval: 15000 }
   )
   const { data: allInvoices = [], isLoading: allInvoicesLoading, mutate: mutateAllInvoices } = useSWR<InvoiceRow[]>(
-    isOwnerOrAdmin ? `/api/groups/${groupId}/invoices?scope=all` : null,
+    isFinance ? `/api/groups/${groupId}/invoices?scope=all` : null,
     fetcher,
     { refreshInterval: 15000 }
   )
@@ -2107,9 +2115,11 @@ function BillingTab({ groupId, isOwnerOrAdmin }: { groupId: string; isOwnerOrAdm
         </CardContent>
       </Card>
 
-      {isOwnerOrAdmin && <BillingScheduleCard groupId={groupId} />}
+      {isFinance && <PaymentsCard groupId={groupId} />}
 
-      {isOwnerOrAdmin && (
+      {isFinance && <BillingScheduleCard groupId={groupId} />}
+
+      {isFinance && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -2248,6 +2258,9 @@ export default function FlyingClubPage() {
 
   const isAdminOrOfficer = selectedGroup?.role === 'ADMIN' || selectedGroup?.role === 'OFFICER'
   const isOwnerOrAdmin = selectedGroup?.role === 'ADMIN'
+  // Finance functions (billing runs, all-member invoices, Stripe, schedule,
+  // email notices) are open to the TREASURER role as well as ADMIN.
+  const isFinance = selectedGroup?.role === 'ADMIN' || selectedGroup?.role === 'TREASURER'
 
   function getDaysInMonth() {
     const y = currentMonth.getFullYear(), m = currentMonth.getMonth()
@@ -2334,6 +2347,7 @@ export default function FlyingClubPage() {
           groupId={selectedGroup.id}
           onClose={() => setShowNewPost(false)}
           onCreated={() => mutatePosts()}
+          canEmailNotice={isFinance}
         />
       )}
 
@@ -2992,7 +3006,7 @@ export default function FlyingClubPage() {
 
         {/* ---- BILLING ---- */}
         {hasGroups && activeTab === 'billing' && selectedGroup && (
-          <BillingTab groupId={selectedGroup.id} isOwnerOrAdmin={isOwnerOrAdmin} />
+          <BillingTab groupId={selectedGroup.id} isFinance={isFinance} />
         )}
 
         {/* ---- MEMBERS ---- */}
@@ -3038,7 +3052,9 @@ export default function FlyingClubPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <Badge variant={m.role === 'ADMIN' ? 'default' : 'secondary'} className="text-xs">{m.role}</Badge>
+                      <Badge variant={m.role === 'ADMIN' || m.role === 'TREASURER' ? 'default' : 'secondary'} className="text-xs capitalize">
+                        {m.role.toLowerCase()}
+                      </Badge>
                       <p className="text-xs text-muted-foreground hidden sm:block">Joined {fmt(m.joinedAt, 'date')}</p>
                     </div>
                   </div>
@@ -3075,7 +3091,7 @@ export default function FlyingClubPage() {
 
             <BookingPolicyCard groupId={selectedGroup.id} />
 
-            <PaymentsCard groupId={selectedGroup.id} />
+            {/* PaymentsCard lives in the Billing tab so treasurers can reach it. */}
 
             <Card className="border-destructive/40">
               <CardHeader>

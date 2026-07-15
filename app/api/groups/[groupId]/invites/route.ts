@@ -8,7 +8,7 @@ interface RouteParams {
   params: Promise<{ groupId: string }>;
 }
 
-const VALID_ROLES = ['ADMIN', 'MEMBER', 'INSTRUCTOR', 'VIEWER'];
+const VALID_ROLES = ['ADMIN', 'TREASURER', 'MEMBER', 'INSTRUCTOR', 'VIEWER'];
 
 // GET all invites for a group (admin only)
 export async function GET(_request: Request, { params }: RouteParams) {

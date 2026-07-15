@@ -3,13 +3,14 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isUuid } from '@/lib/validate';
 import { stripe, createConnectedAccount, createAccountOnboardingLink } from '@/lib/stripe';
+import { FINANCE_ROLES } from '@/lib/club/roles';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
 }
 
 // POST /api/groups/[groupId]/stripe/onboard — create (if needed) the club's
-// Stripe Standard connected account and return an onboarding link (admin only).
+// Stripe Standard connected account and return an onboarding link (admin or treasurer).
 export async function POST(_request: Request, { params }: RouteParams) {
   try {
     if (!stripe) {
@@ -27,10 +28,10 @@ export async function POST(_request: Request, { params }: RouteParams) {
     }
 
     const membership = await prisma.organizationMember.findFirst({
-      where: { organizationId: groupId, userId: session.user.id, role: 'ADMIN' },
+      where: { organizationId: groupId, userId: session.user.id, role: { in: [...FINANCE_ROLES] } },
     });
     if (!membership) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+      return NextResponse.json({ error: 'Admin or treasurer access required' }, { status: 403 });
     }
 
     // stripeAccountId predates the generated Prisma Client — read via raw SQL.

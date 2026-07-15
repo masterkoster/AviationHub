@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isUuid } from '@/lib/validate';
+import { isFinanceRole } from '@/lib/club/roles';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -52,7 +53,7 @@ function serializeInvoice(invoice: {
 }
 
 // GET /api/groups/[groupId]/invoices — the current member's own invoices,
-// newest first. Admins may pass ?scope=all to see every member's invoices.
+// newest first. Admins/treasurers may pass ?scope=all to see every member's invoices.
 export async function GET(request: Request, { params }: RouteParams) {
   try {
     const session = await auth();
@@ -76,8 +77,8 @@ export async function GET(request: Request, { params }: RouteParams) {
     const scope = searchParams.get('scope');
 
     if (scope === 'all') {
-      if (membership.role !== 'ADMIN') {
-        return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+      if (!isFinanceRole(membership.role)) {
+        return NextResponse.json({ error: 'Admin or treasurer access required' }, { status: 403 });
       }
 
       const invoices = await prisma.invoice.findMany({

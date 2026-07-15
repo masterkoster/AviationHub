@@ -98,7 +98,7 @@ removal, zero behavior change — since it was blocking a clean typecheck.
 | /api/auth/delete-account | DELETE | session, scoped to caller | |
 | /api/billing | GET | session, scoped to caller | |
 | /api/bookings | GET | session, scoped to caller | |
-| /api/clubs/[groupId]/billing/run | POST | session + org membership + role:ADMIN | |
+| /api/clubs/[groupId]/billing/run | POST | session + org membership + role:ADMIN/TREASURER | Finance-gated (see `lib/club/roles.ts`) |
 | /api/clubs/[groupId]/blockouts | GET/POST/DELETE | session + org membership + role:ADMIN | |
 | /api/clubs/[groupId]/flights/active | GET | session | |
 | /api/clubs/[groupId]/flights/checkin | POST | session + ownership check | |
@@ -140,8 +140,8 @@ removal, zero behavior change — since it was blocking a clean typecheck.
 | /api/groups/[groupId]/join | POST | session + org membership | |
 | /api/groups/[groupId]/logs | GET | session + org membership | |
 | /api/groups/[groupId]/members | GET/PUT/DELETE | session + org membership + role:ADMIN | |
-| /api/groups/[groupId]/notify | POST | session + org membership + role:ADMIN | Emails every member of the club a notice; naive per-org in-memory rate limit (see route comment) |
-| /api/groups/[groupId]/policy | GET/PUT | session + org membership (GET); role:ADMIN (PUT) | |
+| /api/groups/[groupId]/notify | POST | session + org membership + role:ADMIN/TREASURER | Emails every member of the club a notice; naive per-org in-memory rate limit (see route comment) |
+| /api/groups/[groupId]/policy | GET/PUT | session + org membership (GET); role:ADMIN or TREASURER (PUT) | TREASURER may write only billingDayOfMonth/emailStatements; booking-policy fields require ADMIN |
 | /api/groups/[groupId]/posts | GET/POST | session + org membership + role:ADMIN/OFFICER | error `details` leak fixed |
 | /api/groups/[groupId]/posts/[postId] | PATCH/DELETE | session + org membership + role:ADMIN/OFFICER or author | error `details` leak fixed |
 | /api/groups/all-bookings | GET | session, scoped to caller | |

@@ -212,6 +212,8 @@ function StatusBadge({ status }: { status: string }) {
     Due:         "bg-destructive/10 text-destructive border-destructive/30",
     urgent:      "bg-destructive/10 text-destructive border-destructive/30",
     Pending:     "bg-muted text-muted-foreground border-border",
+    Admin:       "bg-primary/10  text-primary  border-primary/30",
+    Treasurer:   "bg-primary/10  text-primary  border-primary/30",
     OK:          "bg-chart-2/10 text-chart-2 border-chart-2/30",
     low:         "bg-muted text-muted-foreground border-border",
     medium:      "bg-chart-3/10 text-chart-3 border-chart-3/30",
@@ -426,7 +428,7 @@ export default function ClubAdminPage() {
           userId: m.userId,
           name: m.user?.name || m.user?.email || "Unknown",
           email: m.user?.email ?? "—",
-          role: m.role === "ADMIN" ? "Admin" : m.role === "INSTRUCTOR" ? "Instructor" : "Member",
+          role: m.role === "ADMIN" ? "Admin" : m.role === "TREASURER" ? "Treasurer" : m.role === "INSTRUCTOR" ? "Instructor" : "Member",
           rawRole: m.role,
           status: "Active",
           hours: null,
@@ -1303,7 +1305,7 @@ export default function ClubAdminPage() {
                         {invites.map((inv) => (
                           <tr key={inv.id} className="border-b border-border/50 last:border-0">
                             <td className="py-2.5 pr-4 font-medium">{inv.email || "Open invite link"}</td>
-                            <td className="py-2.5 pr-4"><StatusBadge status={inv.role === "ADMIN" ? "Admin" : "Member"} /></td>
+                            <td className="py-2.5 pr-4"><StatusBadge status={inv.role === "ADMIN" ? "Admin" : inv.role === "TREASURER" ? "Treasurer" : "Member"} /></td>
                             <td className="py-2.5 pr-4 text-muted-foreground">
                               {inv.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : "Never"}
                             </td>
@@ -1388,6 +1390,7 @@ export default function ClubAdminPage() {
                         className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
                       >
                         <option value="MEMBER">Member</option>
+                        <option value="TREASURER">Treasurer</option>
                         <option value="ADMIN">Admin</option>
                       </select>
                     </div>
@@ -1422,6 +1425,7 @@ export default function ClubAdminPage() {
                       className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
                     >
                       <option value="MEMBER">Member</option>
+                      <option value="TREASURER">Treasurer</option>
                       <option value="ADMIN">Admin</option>
                     </select>
                     <p className="text-[11px] text-muted-foreground">Changing the role saves immediately.</p>

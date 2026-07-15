@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isUuid } from '@/lib/validate';
 import { stripe, createInvoiceCheckoutSession } from '@/lib/stripe';
+import { FINANCE_ROLES } from '@/lib/club/roles';
 
 interface RouteParams {
   params: Promise<{ invoiceId: string }>;
@@ -10,7 +11,7 @@ interface RouteParams {
 
 // POST /api/invoices/[invoiceId]/pay — creates a Stripe Checkout Session for
 // a single invoice, charged directly to the club's connected Stripe account.
-// Callable by the invoice's own member, or an org admin.
+// Callable by the invoice's own member, or an org admin/treasurer.
 export async function POST(request: Request, { params }: RouteParams) {
   try {
     if (!stripe) {
@@ -39,14 +40,14 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const isOwnInvoice = invoice.pilotProfile?.userId === session.user.id;
-    let isAdmin = false;
+    let isFinance = false;
     if (!isOwnInvoice) {
       const membership = await prisma.organizationMember.findFirst({
-        where: { organizationId: invoice.organizationId, userId: session.user.id, role: 'ADMIN' },
+        where: { organizationId: invoice.organizationId, userId: session.user.id, role: { in: [...FINANCE_ROLES] } },
       });
-      isAdmin = !!membership;
+      isFinance = !!membership;
     }
-    if (!isOwnInvoice && !isAdmin) {
+    if (!isOwnInvoice && !isFinance) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
