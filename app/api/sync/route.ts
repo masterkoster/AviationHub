@@ -383,11 +383,16 @@ async function applyChange(
             reportedDate: new Date(),
           },
         });
+
+        if (maintenance.isGrounded && maintenance.clubAircraftId) {
+          await notifyGroundingForAircraft(maintenance.clubAircraftId, maintenance.description, userId);
+        }
+
         return maintenance.id;
       }
-      
+
       if (action === 'update') {
-        await prisma.maintenance.update({
+        const updated = await prisma.maintenance.update({
           where: { id: data.id as string },
           data: {
             status: data.status as string | undefined,
@@ -397,6 +402,13 @@ async function applyChange(
             resolvedDate: data.status === 'DONE' ? new Date() : undefined,
           },
         });
+
+        // Only alert when this sync explicitly set isGrounded=true (a new
+        // grounding, not an unrelated field update on an already-open item).
+        if (data.isGrounded === true && updated.clubAircraftId) {
+          await notifyGroundingForAircraft(updated.clubAircraftId, updated.description, userId);
+        }
+
         return data.id as string;
       }
       

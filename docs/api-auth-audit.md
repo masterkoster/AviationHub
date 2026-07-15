@@ -11,10 +11,10 @@ membership/role/ownership check. Canonical example:
 | Classification | Count | Notes |
 |---|---|---|
 | GATED (session required for every exported method) | 142 | Canonical pattern; membership/role/ownership checks vary by route, see table |
-| PUBLIC-BY-DESIGN (no session, intentionally open) | 44 | Reference data, auth flows, public share-token routes, crowd-sourced contributions, Stripe webhook (signature auth), cron shared-secret auth |
+| PUBLIC-BY-DESIGN (no session, intentionally open) | 45 | Reference data, auth flows, public share-token routes, crowd-sourced contributions, Stripe webhook (signature auth), cron shared-secret auth |
 | DEV-ONLY | 4 | `dev/login`, `debug`, `fix-passwords`, `test-login` — all 404 outside `NODE_ENV=development`; the latter three also require an admin/owner session even in dev |
 | UNGUARDED-SENSITIVE — found and fixed | 4 | See "Fixes applied" below |
-| **Total routes audited** | **193** (188 minus the deleted debug route, plus 4 new club-payments routes, plus `cron/billing` and `groups/[groupId]/notify` added after this audit) | |
+| **Total routes audited** | **194** (188 minus the deleted debug route, plus 4 new club-payments routes, plus `cron/billing`, `groups/[groupId]/notify`, and `cron/reminders` added after this audit) | |
 
 Secondary defects fixed across the codebase (not tied to a single
 classification): 6 routes constructing their own `new PrismaClient()`
@@ -248,6 +248,7 @@ removal, zero behavior change — since it was blocking a clean typecheck.
 | /api/auth/verify-email | GET | Auth flow |
 | /api/clubs/[groupId]/flights/complete | POST | Alias — re-exports `POST` from the gated `checkin` route, inherits its auth |
 | /api/cron/billing | POST | Scheduled job — shared-secret auth (`x-cron-secret` header strictly equal to `CRON_SECRET`), 503 if `CRON_SECRET` unset, 401 on mismatch. Runs billing cycles for clubs whose `ClubPolicy.billingDayOfMonth` matches today (UTC) and haven't already run this month. See `.github/workflows/billing-cron.yml`. |
+| /api/cron/reminders | POST | Scheduled job — same shared-secret auth as `/api/cron/billing` (`x-cron-secret` strictly equal to `CRON_SECRET`, 503 unset / 401 mismatch). Runs hourly: emails booking reminders for bookings starting in [now+23h, now+24h) (window width == cadence, so each booking is caught exactly once), and on Mondays 06:00 UTC emails admins/treasurers a per-club digest of DUE_SOON/OVERDUE inspections. See `.github/workflows/reminders-cron.yml`. |
 | /api/data-status | GET | Cache/ops status — judgment call, see above |
 | /api/discover/clubs | GET | Public club discovery map |
 | /api/events/nearby | GET | Public aviation events |

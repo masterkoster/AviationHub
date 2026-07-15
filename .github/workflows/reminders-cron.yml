@@ -1,0 +1,24 @@
+name: Scheduled Club Reminders
+
+on:
+  schedule:
+    # Hourly at :10 — the reminders route's 1-hour dedupe window assumes an
+    # hourly cadence (see app/api/cron/reminders/route.ts).
+    - cron: '10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reminders cron endpoint
+        run: |
+          status=$(curl -s -o response.json -w "%{http_code}" -X POST \
+            "${{ secrets.APP_BASE_URL }}/api/cron/reminders" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}")
+          echo "HTTP status: $status"
+          cat response.json
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "Reminders cron request failed with status $status"
+            exit 1
+          fi
