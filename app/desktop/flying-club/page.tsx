@@ -1763,7 +1763,12 @@ function PaymentsCard({ groupId }: { groupId: string }) {
       const res = await fetch(`/api/groups/${groupId}/stripe/onboard`, { method: 'POST' })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setError(data.error || 'Failed to start Stripe onboarding'); return }
-      if (data.url) window.open(data.url, '_blank')
+      if (data.url) {
+        // Popup blockers silently eat window.open — fall back to navigating
+        // this tab (Stripe onboarding returns to the app via return_url).
+        const popup = window.open(data.url, '_blank')
+        if (!popup) window.location.href = data.url
+      }
     } catch {
       setError('Network error')
     } finally {
