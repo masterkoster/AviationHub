@@ -26,17 +26,22 @@
     "dialog:allow-open",
     "fs:default",
     "fs:allow-write-text-file",
-    "fs:allow-write-file",
     "fs:allow-read-file",
-    "fs:allow-mkdir",
     {
-      "identifier": "fs:scope",
+      "identifier": "fs:allow-write-file",
       "allow": [
         { "path": "$HOME/**" },
         { "path": "$APPDATA/**" },
         { "path": "$DOWNLOAD/**" },
         { "path": "$DOCUMENT/**" },
         { "path": "$DESKTOP/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$APPDATA/**" }
       ]
     }
   ]

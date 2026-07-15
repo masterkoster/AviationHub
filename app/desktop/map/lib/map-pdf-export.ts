@@ -756,7 +756,8 @@ export async function generateFlightPackPdf(
       const { writeFile, mkdir } = await import('@tauri-apps/plugin-fs')
       const { appDataDir } = await import('@tauri-apps/api/path')
       const appDir = await appDataDir()
-      const exportsDir = `${appDir}exports`
+      const sep = appDir.includes('/') ? '/' : '\\'
+      const exportsDir = `${appDir}${sep}exports`
       await mkdir(exportsDir, { recursive: true })
       const fallbackPath = `${exportsDir}/${filename}`
       await writeFile(fallbackPath, pdfBytes)

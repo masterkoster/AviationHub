@@ -123,7 +123,8 @@ async function ensureTable(): Promise<void> {
 async function getDocsDir(userId: string): Promise<string> {
   const { appDataDir } = await import('@tauri-apps/api/path')
   const appDir = await appDataDir()
-  return `${appDir}documents/${userId}`
+  const sep = appDir.includes('/') ? '/' : '\\'
+  return `${appDir}${sep}documents${sep}${userId}`
 }
 
 /** Validate a file before storing. Returns error string or null if OK. */

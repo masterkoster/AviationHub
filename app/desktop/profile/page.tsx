@@ -765,9 +765,10 @@ export default function DesktopProfilePage() {
 
       const ext = (filePath as string).split('.').pop()?.toLowerCase() || 'png'
       const appDir = await appDataDir()
-      const avatarDir = `${appDir}documents/${resolvedUser.id}`
+      const sep = appDir.includes('/') ? '/' : '\\'
+      const avatarDir = `${appDir}${sep}documents${sep}${resolvedUser.id}`
       const avatarFileName = `avatar.${ext}`
-      const avatarFullPath = `${avatarDir}/${avatarFileName}`
+      const avatarFullPath = `${avatarDir}${sep}${avatarFileName}`
 
       await mkdir(avatarDir, { recursive: true })
       const bytes = await readFile(filePath as string)
