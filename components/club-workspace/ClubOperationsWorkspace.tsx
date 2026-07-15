@@ -210,7 +210,11 @@ function EmptyView({ message, href = '/flying-club' }: { message: string; href?:
   )
 }
 
-export function ClubOperationsWorkspace() {
+export function ClubOperationsWorkspace({
+  surface = 'web',
+}: {
+  surface?: 'web' | 'desktop'
+}) {
   const [clubs, setClubs] = useState<Club[]>([])
   const [selectedClubId, setSelectedClubId] = useState('')
   const [activeView, setActiveView] = useState<ClubWorkspaceView>('overview')
@@ -226,6 +230,8 @@ export function ClubOperationsWorkspace() {
     () => clubs.find((club) => club.id === selectedClubId) ?? null,
     [clubs, selectedClubId],
   )
+  const clubHomeHref = surface === 'desktop' ? '/desktop/flying-club' : '/flying-club'
+  const squawksHref = surface === 'desktop' ? '/desktop/flying-club/squawks' : '/flying-club/squawks'
 
   const loadWorkspace = useCallback(async (refresh = false) => {
     if (refresh) setIsRefreshing(true)
@@ -309,9 +315,9 @@ export function ClubOperationsWorkspace() {
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={Plane} label="Fleet available" value={selectedClub?.aircraft.filter((aircraft) => aircraft.status === 'Available').length ?? 0} detail={(selectedClub?.aircraft.length ?? 0) + ' aircraft in the club'} />
-        <MetricCard icon={CalendarDays} label="Upcoming bookings" value={upcomingBookings.length} detail="Scheduled reservations from now"} />
+        <MetricCard icon={CalendarDays} label="Upcoming bookings" value={upcomingBookings.length} detail="Scheduled reservations from now" />
         <MetricCard icon={Wrench} label="Open maintenance" value={openMaintenance.length} detail={openMaintenance.some((item) => item.isGrounded) ? 'A grounding condition needs attention' : 'No grounded aircraft reported'} />
-        <MetricCard icon={UsersRound} label="Members" value={finance?.totals.members ?? members.length} detail="Active members visible to you"} />
+        <MetricCard icon={UsersRound} label="Members" value={finance?.totals.members ?? members.length} detail="Active members visible to you" />
       </div>
       <div className="grid gap-6 xl:grid-cols-[1.35fr_0.85fr]">
         <Card>
@@ -367,7 +373,7 @@ export function ClubOperationsWorkspace() {
             <Badge>Scheduled now</Badge>
           </div>
         ))}
-        {activeSchedule.length === 0 && <EmptyView message="No aircraft are scheduled right now. Bookings will appear here at their scheduled time." />}
+        {activeSchedule.length === 0 && <EmptyView href={clubHomeHref} message="No aircraft are scheduled right now. Bookings will appear here at their scheduled time." />}
       </CardContent>
     </Card>
   )
@@ -376,7 +382,7 @@ export function ClubOperationsWorkspace() {
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div><CardTitle>Bookings</CardTitle><CardDescription>Reservations currently recorded for this club.</CardDescription></div>
-        <Button asChild><Link href="/flying-club">New booking <ArrowUpRight className="size-4" /></Link></Button>
+        <Button asChild><Link href={clubHomeHref}>New booking <ArrowUpRight className="size-4" /></Link></Button>
       </CardHeader>
       <CardContent className="space-y-3">
         {upcomingBookings.map((booking) => (
@@ -385,7 +391,7 @@ export function ClubOperationsWorkspace() {
             <p className="text-sm text-muted-foreground sm:text-right">{formatDate(booking.startTime)} – {formatDate(booking.endTime)}</p>
           </div>
         ))}
-        {upcomingBookings.length === 0 && <EmptyView message="No future bookings were found for this club." />}
+        {upcomingBookings.length === 0 && <EmptyView href={clubHomeHref} message="No future bookings were found for this club." />}
       </CardContent>
     </Card>
   )
@@ -398,7 +404,7 @@ export function ClubOperationsWorkspace() {
           <CardContent className="px-5"><p className="text-sm text-muted-foreground">Hourly rate</p><p className="mt-1 text-xl font-semibold">{aircraft.hourlyRate ? formatCurrency(aircraft.hourlyRate) + '/hr' : 'Not set'}</p></CardContent>
         </Card>
       ))}
-      {(selectedClub?.aircraft.length ?? 0) === 0 && <div className="md:col-span-2 xl:col-span-3"><EmptyView message="This club does not have aircraft in the shared fleet yet." /></div>}
+      {(selectedClub?.aircraft.length ?? 0) === 0 && <div className="md:col-span-2 xl:col-span-3"><EmptyView href={clubHomeHref} message="This club does not have aircraft in the shared fleet yet." /></div>}
     </div>
   )
 
@@ -412,7 +418,7 @@ export function ClubOperationsWorkspace() {
             <div className="flex gap-2"><Badge variant={statusVariant(item.severity)}>{item.severity || item.status || 'Open'}</Badge>{item.isGrounded && <Badge variant="destructive">Grounded</Badge>}</div>
           </div>
         ))}
-        {openMaintenance.length === 0 && <EmptyView href="/flying-club/squawks" message="No unresolved maintenance items were found. You can report a new squawk from the current club tools." />}
+        {openMaintenance.length === 0 && <EmptyView href={squawksHref} message="No unresolved maintenance items were found. You can report a new squawk from the current club tools." />}
       </CardContent>
     </Card>
   )
@@ -424,13 +430,13 @@ export function ClubOperationsWorkspace() {
         {members.map((member) => (
           <div key={member.userId} className="rounded-lg border p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{member.name || member.email || 'Club member'}</p><p className="text-sm text-muted-foreground">{member.email}</p></div><Badge variant="outline">{member.role || 'Member'}</Badge></div>{typeof member.hours === 'number' && <p className="mt-3 text-sm text-muted-foreground">{member.flights ?? 0} flights · {member.hours.toFixed(1)} hours</p>}</div>
         ))}
-        {members.length === 0 && <div className="md:col-span-2"><EmptyView message="Member details are restricted to club administrators and treasurers in the current API." /></div>}
+        {members.length === 0 && <div className="md:col-span-2"><EmptyView href={clubHomeHref} message="Member details are restricted to club administrators and treasurers in the current API." /></div>}
       </CardContent>
     </Card>
   )
 
   const renderFinances = () => {
-    if (!finance) return <EmptyView href="/flying-club/billing" message="Finance information is limited to club administrators and treasurers. Open the current billing tools to review your permitted scope." />
+    if (!finance) return <EmptyView href={clubHomeHref} message="Finance information is limited to club administrators and treasurers. Open the current club tools to review your permitted scope." />
     return (
       <div className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-3">
@@ -450,8 +456,8 @@ export function ClubOperationsWorkspace() {
 
   const renderView = () => {
     if (isLoading) return <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-36 rounded-xl" />)}</div>
-    if (error) return <EmptyView message={error} />
-    if (!selectedClub) return <EmptyView message="Create or join a club in the current Flying Club tools, then return here for the operational workspace." />
+    if (error) return <EmptyView href={clubHomeHref} message={error} />
+    if (!selectedClub) return <EmptyView href={clubHomeHref} message="Create or join a club in the current Flying Club tools, then return here for the operational workspace." />
     if (activeView === 'overview') return renderOverview()
     if (activeView === 'dispatch') return renderDispatch()
     if (activeView === 'bookings') return renderBookings()
@@ -459,7 +465,7 @@ export function ClubOperationsWorkspace() {
     if (activeView === 'maintenance') return renderMaintenance()
     if (activeView === 'members') return renderMembers()
     if (activeView === 'finances') return renderFinances()
-    return <EmptyView message={viewCopy[activeView].subtitle} />
+    return <EmptyView href={clubHomeHref} message={viewCopy[activeView].subtitle} />
   }
 
   return (
