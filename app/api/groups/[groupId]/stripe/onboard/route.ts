@@ -56,6 +56,15 @@ export async function POST(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ url: link.url });
   } catch (error) {
     console.error('Error starting Stripe onboarding:', error);
+    // Platform-setup errors are actionable — surface them instead of a
+    // generic failure (e.g. Connect not yet enabled on the platform account).
+    const msg = error instanceof Error ? error.message : '';
+    if (msg.includes('signed up for Connect')) {
+      return NextResponse.json(
+        { error: 'Stripe Connect is not enabled on the platform account yet. Enable it at dashboard.stripe.com/connect (in test mode), then try again.' },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: 'Failed to start onboarding' }, { status: 500 });
   }
 }
