@@ -20,7 +20,7 @@ import {
   Plane, Calendar, Users, Wrench, DollarSign, Clock,
   AlertCircle, Plus, ChevronLeft, ChevronRight,
   BookOpen, X, Loader2, Cloud, ArrowRight, ArrowLeft,
-  FileText, Download, Trash2, Pin, CheckCircle2, CreditCard, Mail,
+  FileText, Download, Trash2, Pin, CheckCircle2, CreditCard, Mail, Circle,
 } from "lucide-react"
 import { FlightCompleteWizard } from "@/components/flight-complete/FlightCompleteWizard"
 import { worstStatus, type InspectionComputed } from "@/lib/club/inspections"
@@ -50,11 +50,14 @@ interface Group {
 interface Booking {
   id: string
   aircraftId: string
+  /** NOTE: the bookings API maps this from pilotProfileId — it is NOT a user id.
+   *  Use `user.id` to compare against the signed-in user. */
   userId: string
   instructorId: string | null
   startTime: string
   endTime: string
   purpose: string | null
+  createdAt?: string | null
   aircraft: { id: string; nNumber: string; customName: string | null; nickname: string | null; make: string | null; model: string | null }
   user: { id: string; name: string; email: string }
   instructor: { id: string; name: string; email: string } | null
@@ -141,6 +144,18 @@ async function logsFetcher(url: string): Promise<LogsResponse> {
   return res.json()
 }
 
+// ---- Shared modal a11y hook ----
+// Escape-to-close for the custom fixed-overlay modals in this file.
+function useEscapeToClose(onClose: () => void) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+}
+
 // ---- NewGroupModal ----
 
 type GroupCreateStep = 'choose' | 'partnership' | 'club'
@@ -154,6 +169,7 @@ interface AirportSuggestion {
 }
 
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: (group: Group) => void }) {
+  useEscapeToClose(onClose)
   const [step, setStep] = useState<GroupCreateStep>('choose')
   const [selectedType, setSelectedType] = useState<GroupCreateType | null>(null)
 
@@ -218,6 +234,9 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
       e.preventDefault()
       selectAirport(airportSuggestions[airportHighlight])
     } else if (e.key === 'Escape') {
+      // Close only the suggestion dropdown — don't let Escape bubble up to
+      // the modal's escape-to-close listener while suggestions are open.
+      e.stopPropagation()
       setShowAirportSuggestions(false)
     }
   }
@@ -287,11 +306,11 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="new-group-modal-title">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Create New Group</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <h2 id="new-group-modal-title" className="text-lg font-semibold">Create New Group</h2>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
         </div>
 
         {step === 'choose' && (
@@ -345,8 +364,9 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               <ArrowLeft className="h-3.5 w-3.5" /> Back
             </button>
             <div>
-              <label className="text-sm font-medium">Name</label>
+              <label htmlFor="ng-partnership-name" className="text-sm font-medium">Name</label>
               <input
+                id="ng-partnership-name"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={partnershipName}
                 onChange={e => setPartnershipName(e.target.value)}
@@ -375,8 +395,9 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               <ArrowLeft className="h-3.5 w-3.5" /> Back
             </button>
             <div>
-              <label className="text-sm font-medium">Name *</label>
+              <label htmlFor="ng-club-name" className="text-sm font-medium">Name *</label>
               <input
+                id="ng-club-name"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={clubName}
                 onChange={e => setClubName(e.target.value)}
@@ -386,8 +407,9 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Club Size</label>
+              <label htmlFor="ng-club-size" className="text-sm font-medium">Club Size</label>
               <select
+                id="ng-club-size"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={sizeBracket}
                 onChange={e => setSizeBracket(e.target.value)}
@@ -400,8 +422,9 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               </select>
             </div>
             <div className="relative">
-              <label className="text-sm font-medium">Home Airport</label>
+              <label htmlFor="ng-home-airport" className="text-sm font-medium">Home Airport</label>
               <input
+                id="ng-home-airport"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-ring"
                 value={homeAirport}
                 onChange={e => {
@@ -439,8 +462,9 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               )}
             </div>
             <div>
-              <label className="text-sm font-medium">Website</label>
+              <label htmlFor="ng-website" className="text-sm font-medium">Website</label>
               <input
+                id="ng-website"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={website}
                 onChange={e => setWebsite(e.target.value)}
@@ -448,8 +472,9 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Contact email <span className="font-normal text-muted-foreground">(optional)</span></label>
+              <label htmlFor="ng-contact-email" className="text-sm font-medium">Contact email <span className="font-normal text-muted-foreground">(optional)</span></label>
               <input
+                id="ng-contact-email"
                 type="email"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={contactEmail}
@@ -459,8 +484,9 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               <p className="mt-1 text-xs text-muted-foreground">Shown publicly so pilots can reach your club</p>
             </div>
             <div>
-              <label className="text-sm font-medium">Bio</label>
+              <label htmlFor="ng-bio" className="text-sm font-medium">Bio</label>
               <textarea
+                id="ng-bio"
                 className="mt-1 w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={description}
                 onChange={e => setDescription(e.target.value.slice(0, 2000))}
@@ -503,6 +529,7 @@ function NewBookingModal({ group, onClose, onCreated }: {
   onClose: () => void
   onCreated: (booking: Booking) => void
 }) {
+  useEscapeToClose(onClose)
   const [aircraftId, setAircraftId] = useState(group.aircraft[0]?.id || '')
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [startTime, setStartTime] = useState('09:00')
@@ -543,16 +570,17 @@ function NewBookingModal({ group, onClose, onCreated }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="new-booking-modal-title">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">New Booking — {group.name}</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <h2 id="new-booking-modal-title" className="text-lg font-semibold">New Booking — {group.name}</h2>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
         </div>
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium">Aircraft</label>
+            <label htmlFor="nb-aircraft" className="text-sm font-medium">Aircraft</label>
             <select
+              id="nb-aircraft"
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={aircraftId}
               onChange={e => setAircraftId(e.target.value)}
@@ -565,22 +593,23 @@ function NewBookingModal({ group, onClose, onCreated }: {
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium">Date</label>
-            <input type="date" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={date} onChange={e => setDate(e.target.value)} />
+            <label htmlFor="nb-date" className="text-sm font-medium">Date</label>
+            <input id="nb-date" type="date" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={date} onChange={e => setDate(e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium">Start Time</label>
-              <input type="time" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={startTime} onChange={e => setStartTime(e.target.value)} />
+              <label htmlFor="nb-start-time" className="text-sm font-medium">Start Time</label>
+              <input id="nb-start-time" type="time" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={startTime} onChange={e => setStartTime(e.target.value)} />
             </div>
             <div>
-              <label className="text-sm font-medium">End Time</label>
-              <input type="time" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={endTime} onChange={e => setEndTime(e.target.value)} />
+              <label htmlFor="nb-end-time" className="text-sm font-medium">End Time</label>
+              <input id="nb-end-time" type="time" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={endTime} onChange={e => setEndTime(e.target.value)} />
             </div>
           </div>
           <div>
-            <label className="text-sm font-medium">Purpose (optional)</label>
+            <label htmlFor="nb-purpose" className="text-sm font-medium">Purpose (optional)</label>
             <input
+              id="nb-purpose"
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={purpose}
               onChange={e => setPurpose(e.target.value)}
@@ -606,6 +635,154 @@ function NewBookingModal({ group, onClose, onCreated }: {
   )
 }
 
+// ---- BookingDetailsModal ----
+// Read-only booking details with contextual actions: cancel (owner or club
+// admin; blocked for past bookings) and complete-flight (today/past-start,
+// routes into the existing FlightCompleteWizard).
+//
+// Cancellation contract (DELETE /api/groups/{groupId}/bookings/{bookingId}):
+// the server requires a JSON `reason` when an admin cancels someone else's
+// booking (400 without it) and forwards it in the member's cancellation
+// email; for your own booking the note is optional.
+
+function BookingDetailsModal({ booking, groupId, aircraftStatus, isOwn, isAdmin, onClose, onCancelled, onCompleteFlight }: {
+  booking: Booking
+  groupId: string
+  aircraftStatus: string | null
+  isOwn: boolean
+  isAdmin: boolean
+  onClose: () => void
+  onCancelled: () => void
+  onCompleteFlight: () => void
+}) {
+  useEscapeToClose(onClose)
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const [reason, setReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const status = bookingStatus(booking)
+  const isPast = status === 'past'
+  const canCancel = !isPast && (isOwn || isAdmin)
+  // A note is REQUIRED when cancelling someone else's booking (admin case) —
+  // the server 400s without it. Optional for your own booking.
+  const reasonRequired = !isOwn
+
+  const now = new Date()
+  const start = new Date(booking.startTime)
+  const canComplete = start <= now || start.toDateString() === now.toDateString()
+
+  async function handleCancel() {
+    if (reasonRequired && !reason.trim()) return
+    setCancelling(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}/bookings/${booking.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() || undefined }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || 'Failed to cancel booking'); return }
+      onCancelled()
+    } catch {
+      setError('Network error')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  const rows: { label: string; value: React.ReactNode }[] = [
+    {
+      label: 'Aircraft',
+      value: (
+        <span className="flex items-center gap-2">
+          <span className="font-medium">{acLabel(booking.aircraft)}</span>
+          <Badge variant={aircraftStatus === 'Available' ? 'secondary' : 'destructive'} className="text-xs">{aircraftStatus || 'Unknown'}</Badge>
+        </span>
+      ),
+    },
+    { label: 'Date', value: fmt(booking.startTime, 'date') },
+    { label: 'Time', value: `${fmt(booking.startTime, 'time')} – ${fmt(booking.endTime, 'time')}` },
+    { label: 'Pilot', value: booking.user?.name || booking.user?.email || 'Unknown' },
+    { label: 'Instructor', value: booking.instructor ? (booking.instructor.name || booking.instructor.email) : '—' },
+    { label: 'Purpose', value: booking.purpose || '—' },
+    // The bookings list API doesn't return createdAt today — show it when present.
+    ...(booking.createdAt ? [{ label: 'Created', value: fmt(booking.createdAt, 'date') }] : []),
+  ]
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="booking-details-modal-title">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 id="booking-details-modal-title" className="text-lg font-semibold">Booking Details</h2>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
+        </div>
+
+        <div className="space-y-1 text-sm">
+          {rows.map(r => (
+            <div key={r.label} className="flex items-center justify-between gap-4 border-b border-border/60 py-2 last:border-b-0">
+              <span className="text-muted-foreground">{r.label}</span>
+              <span className="text-right">{r.value}</span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-4 py-2">
+            <span className="text-muted-foreground">Status</span>
+            <Badge variant={status === 'active' ? 'default' : status === 'past' ? 'secondary' : 'outline'} className={`text-xs capitalize ${status === 'active' ? 'bg-emerald-500' : ''}`}>{status}</Badge>
+          </div>
+        </div>
+
+        {confirmingCancel ? (
+          <div className="mt-4 space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <p className="text-sm font-medium">
+              {isOwn ? 'Cancel this booking?' : `Cancel ${booking.user?.name || 'this member'}'s booking?`}
+            </p>
+            <div>
+              <label htmlFor="bd-cancel-reason" className="text-sm font-medium">
+                {reasonRequired ? 'Why is this booking being cancelled? *' : 'Add a note (optional)'}
+              </label>
+              {reasonRequired && (
+                <p className="text-xs text-muted-foreground">The member will receive this note with their cancellation email.</p>
+              )}
+              <textarea
+                id="bd-cancel-reason"
+                className="mt-1 w-full min-h-[64px] rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={reason}
+                onChange={e => setReason(e.target.value.slice(0, 500))}
+                placeholder={reasonRequired ? 'e.g. Aircraft grounded for maintenance' : 'e.g. Weather'}
+                maxLength={500}
+                autoFocus
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => { setConfirmingCancel(false); setError(null) }}>Keep booking</Button>
+              <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancelling || (reasonRequired && !reason.trim())}>
+                {cancelling ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cancelling…</> : 'Cancel booking'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+            {error && <p className="mr-auto text-sm text-destructive">{error}</p>}
+            {canCancel && (
+              <Button variant="destructive" size="sm" onClick={() => setConfirmingCancel(true)}>
+                <Trash2 className="mr-2 h-4 w-4" />Cancel booking
+              </Button>
+            )}
+            {canComplete && (
+              <Button size="sm" onClick={onCompleteFlight}>
+                <CheckCircle2 className="mr-2 h-4 w-4" />Complete flight
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ---- ConvertAccountModal ----
 
 function ConvertAccountModal({ open, onClose, prefillName }: {
@@ -613,6 +790,7 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
   onClose: () => void
   prefillName: string
 }) {
+  useEscapeToClose(() => { if (open) onClose() })
   const [view, setView] = useState<'convert' | 'signin'>('convert')
 
   // Convert form
@@ -721,18 +899,19 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="convert-account-modal-title">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
         {view === 'convert' ? (
           <>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Convert to Online Account</h2>
-              <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+              <h2 id="convert-account-modal-title" className="text-lg font-semibold">Convert to Online Account</h2>
+              <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
             </div>
             <form onSubmit={handleSignup} className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Name</label>
+                <label htmlFor="ca-name" className="text-sm font-medium">Name</label>
                 <input
+                  id="ca-name"
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   value={name}
                   onChange={e => setName(e.target.value)}
@@ -742,8 +921,9 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Email</label>
+                <label htmlFor="ca-email" className="text-sm font-medium">Email</label>
                 <input
+                  id="ca-email"
                   type="email"
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   value={email}
@@ -753,9 +933,10 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Username</label>
+                <label htmlFor="ca-username" className="mb-1.5 block text-sm font-medium">Username</label>
                 <div className="relative mt-1">
                   <input
+                    id="ca-username"
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm pr-8 focus:outline-none focus:ring-2 focus:ring-ring"
                     value={username}
                     onChange={e => setUsername(e.target.value)}
@@ -766,8 +947,8 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
                   />
                   <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
                     {usernameChecking && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                    {!usernameChecking && usernameAvailable === true && <span className="text-emerald-500 text-sm">✓</span>}
-                    {!usernameChecking && usernameAvailable === false && <span className="text-destructive text-sm">✗</span>}
+                    {!usernameChecking && usernameAvailable === true && <span className="text-emerald-500 text-sm" role="img" aria-label="Username available">✓</span>}
+                    {!usernameChecking && usernameAvailable === false && <span className="text-destructive text-sm" role="img" aria-label="Username taken">✗</span>}
                     {!usernameChecking && usernameCheckError && <span className="text-muted-foreground text-sm" title="Could not verify">?</span>}
                   </span>
                 </div>
@@ -779,8 +960,9 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
                 )}
               </div>
               <div>
-                <label className="text-sm font-medium">Password</label>
+                <label htmlFor="ca-password" className="text-sm font-medium">Password</label>
                 <input
+                  id="ca-password"
                   type="password"
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   value={password}
@@ -805,13 +987,14 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
         ) : (
           <>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Sign In</h2>
-              <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+              <h2 id="convert-account-modal-title" className="text-lg font-semibold">Sign In</h2>
+              <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
             </div>
             <form onSubmit={handleSignin} className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Username or Email</label>
+                <label htmlFor="ca-signin-username" className="text-sm font-medium">Username or Email</label>
                 <input
+                  id="ca-signin-username"
                   type="text"
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   value={signinUsername}
@@ -822,8 +1005,9 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Password</label>
+                <label htmlFor="ca-signin-password" className="text-sm font-medium">Password</label>
                 <input
+                  id="ca-signin-password"
                   type="password"
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   value={signinPassword}
@@ -1027,6 +1211,7 @@ function AddAircraftModal({ group, onClose, onCreated }: {
   onClose: () => void
   onCreated: (aircraft: ClubAircraft) => void
 }) {
+  useEscapeToClose(onClose)
   const [nNumber, setNNumber] = useState('')
   const [nickname, setNickname] = useState('')
   const [customName, setCustomName] = useState('')
@@ -1066,16 +1251,17 @@ function AddAircraftModal({ group, onClose, onCreated }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="add-aircraft-modal-title">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Add Aircraft — {group.name}</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <h2 id="add-aircraft-modal-title" className="text-lg font-semibold">Add Aircraft — {group.name}</h2>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
         </div>
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium">N-Number *</label>
+            <label htmlFor="aa-n-number" className="text-sm font-medium">N-Number *</label>
             <input
+              id="aa-n-number"
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring uppercase"
               value={nNumber}
               onChange={e => setNNumber(e.target.value)}
@@ -1087,8 +1273,9 @@ function AddAircraftModal({ group, onClose, onCreated }: {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium">Make</label>
+              <label htmlFor="aa-make" className="text-sm font-medium">Make</label>
               <input
+                id="aa-make"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={make}
                 onChange={e => setMake(e.target.value)}
@@ -1096,8 +1283,9 @@ function AddAircraftModal({ group, onClose, onCreated }: {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Model</label>
+              <label htmlFor="aa-model" className="text-sm font-medium">Model</label>
               <input
+                id="aa-model"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={model}
                 onChange={e => setModel(e.target.value)}
@@ -1107,8 +1295,9 @@ function AddAircraftModal({ group, onClose, onCreated }: {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium">Nickname</label>
+              <label htmlFor="aa-nickname" className="text-sm font-medium">Nickname</label>
               <input
+                id="aa-nickname"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={nickname}
                 onChange={e => setNickname(e.target.value)}
@@ -1117,8 +1306,9 @@ function AddAircraftModal({ group, onClose, onCreated }: {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Custom Name</label>
+              <label htmlFor="aa-custom-name" className="text-sm font-medium">Custom Name</label>
               <input
+                id="aa-custom-name"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={customName}
                 onChange={e => setCustomName(e.target.value)}
@@ -1129,8 +1319,9 @@ function AddAircraftModal({ group, onClose, onCreated }: {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium">Year</label>
+              <label htmlFor="aa-year" className="text-sm font-medium">Year</label>
               <input
+                id="aa-year"
                 type="number"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={year}
@@ -1141,8 +1332,9 @@ function AddAircraftModal({ group, onClose, onCreated }: {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Hourly Rate ($)</label>
+              <label htmlFor="aa-hourly-rate" className="text-sm font-medium">Hourly Rate ($)</label>
               <input
+                id="aa-hourly-rate"
                 type="number"
                 step="0.01"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1172,6 +1364,7 @@ function InviteMemberModal({ group, onClose, onAdded }: {
   onClose: () => void
   onAdded?: () => void
 }) {
+  useEscapeToClose(onClose)
   const [email, setEmail] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1216,11 +1409,11 @@ function InviteMemberModal({ group, onClose, onAdded }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="invite-member-modal-title">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Invite Member — {group.name}</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <h2 id="invite-member-modal-title" className="text-lg font-semibold">Invite Member — {group.name}</h2>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
         </div>
         {result?.type === 'direct_add' ? (
           <div className="py-8 text-center space-y-4">
@@ -1237,6 +1430,7 @@ function InviteMemberModal({ group, onClose, onAdded }: {
                 className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={result.inviteLink}
                 readOnly
+                aria-label="Invite link"
               />
               <Button onClick={copyLink} variant="outline">
                 {copied ? 'Link copied!' : 'Copy Link'}
@@ -1249,8 +1443,9 @@ function InviteMemberModal({ group, onClose, onAdded }: {
         ) : (
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Email Address</label>
+              <label htmlFor="im-email" className="text-sm font-medium">Email Address</label>
               <input
+                id="im-email"
                 type="email"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={email}
@@ -1281,6 +1476,7 @@ function DeleteClubModal({ group, onClose, onDeleted }: {
   onClose: () => void
   onDeleted: () => void
 }) {
+  useEscapeToClose(onClose)
   const [confirmText, setConfirmText] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1305,21 +1501,22 @@ function DeleteClubModal({ group, onClose, onDeleted }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="delete-club-modal-title">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-destructive">Delete {group.name}</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <h2 id="delete-club-modal-title" className="text-lg font-semibold text-destructive">Delete {group.name}</h2>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
         </div>
         <div className="space-y-4">
           <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             This permanently deletes the club, its aircraft records, bookings, and member associations. This cannot be undone.
           </div>
           <div>
-            <label className="text-sm font-medium">
+            <label htmlFor="dc-confirm" className="text-sm font-medium">
               Type <span className="font-mono font-semibold">delete</span> to confirm
             </label>
             <input
+              id="dc-confirm"
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-destructive"
               value={confirmText}
               onChange={e => setConfirmText(e.target.value)}
@@ -1351,6 +1548,7 @@ function NewPostModal({ groupId, onClose, onCreated, canEmailNotice }: {
    *  is finance-gated (ADMIN/TREASURER), while posting itself is ADMIN/OFFICER. */
   canEmailNotice: boolean
 }) {
+  useEscapeToClose(onClose)
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [pinned, setPinned] = useState(false)
@@ -1404,20 +1602,20 @@ function NewPostModal({ groupId, onClose, onCreated, canEmailNotice }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="new-post-modal-title">
       <div className="w-full max-w-2xl rounded-xl border border-border bg-card p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">New Post</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <h2 id="new-post-modal-title" className="text-lg font-semibold">New Post</h2>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
         </div>
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium">Title</label>
-            <input className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" autoFocus />
+            <label htmlFor="np-title" className="text-sm font-medium">Title</label>
+            <input id="np-title" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" autoFocus />
           </div>
           <div>
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Content (Markdown)</label>
+              <label htmlFor="np-content" className="text-sm font-medium">Content (Markdown)</label>
               <button type="button" onClick={() => setPreview(!preview)} className="text-xs text-muted-foreground hover:text-foreground underline">
                 {preview ? 'Edit' : 'Preview'}
               </button>
@@ -1427,7 +1625,7 @@ function NewPostModal({ groupId, onClose, onCreated, canEmailNotice }: {
                 <ReactMarkdown>{content || '*No content*'}</ReactMarkdown>
               </div>
             ) : (
-              <textarea className="mt-1 w-full min-h-[200px] rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" value={content} onChange={e => setContent(e.target.value)} placeholder="Write in Markdown…" />
+              <textarea id="np-content" className="mt-1 w-full min-h-[200px] rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" value={content} onChange={e => setContent(e.target.value)} placeholder="Write in Markdown…" />
             )}
           </div>
           <label className="flex items-center gap-2 text-sm">
@@ -1476,6 +1674,7 @@ function UploadDocumentModal({ groupId, onClose, onCreated }: {
   onClose: () => void
   onCreated: () => void
 }) {
+  useEscapeToClose(onClose)
   const [file, setFile] = useState<File | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -1508,28 +1707,28 @@ function UploadDocumentModal({ groupId, onClose, onCreated }: {
   const categories = ['general', 'bylaws', 'forms', 'manuals', 'minutes', 'insurance', 'financial', 'other']
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="upload-document-modal-title">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Upload Document</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <h2 id="upload-document-modal-title" className="text-lg font-semibold">Upload Document</h2>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
         </div>
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium">File *</label>
-            <input type="file" className="mt-1 w-full text-sm" onChange={e => { const f = e.target.files?.[0]; setFile(f || null); if (f && !name) setName(f.name) }} />
+            <label htmlFor="ud-file" className="text-sm font-medium">File *</label>
+            <input id="ud-file" type="file" className="mt-1 w-full text-sm" onChange={e => { const f = e.target.files?.[0]; setFile(f || null); if (f && !name) setName(f.name) }} />
           </div>
           <div>
-            <label className="text-sm font-medium">Name</label>
-            <input className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={name} onChange={e => setName(e.target.value)} placeholder="Document name" />
+            <label htmlFor="ud-name" className="text-sm font-medium">Name</label>
+            <input id="ud-name" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={name} onChange={e => setName(e.target.value)} placeholder="Document name" />
           </div>
           <div>
-            <label className="text-sm font-medium">Description</label>
-            <input className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional description" />
+            <label htmlFor="ud-description" className="text-sm font-medium">Description</label>
+            <input id="ud-description" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional description" />
           </div>
           <div>
-            <label className="text-sm font-medium">Category</label>
-            <select className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={category} onChange={e => setCategory(e.target.value)}>
+            <label htmlFor="ud-category" className="text-sm font-medium">Category</label>
+            <select id="ud-category" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={category} onChange={e => setCategory(e.target.value)}>
               {categories.map(c => <option key={c} value={c} className="capitalize">{c}</option>)}
             </select>
           </div>
@@ -2021,6 +2220,13 @@ function isoDateOnly(d: Date) {
   return d.toISOString().slice(0, 10)
 }
 
+// RFC-4180-style CSV field quoting: wrap in quotes when the value contains a
+// comma, quote, or newline; double any embedded quotes.
+function csvField(v: string | number | null | undefined): string {
+  const s = v == null ? '' : String(v)
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
 const BILLING_REMINDER_DEFAULT_SUBJECT = 'Outstanding balance with {club}'
 const BILLING_REMINDER_DEFAULT_MESSAGE =
   'Hi {name},\n\nOur records show an outstanding balance of {balance} with {club}. Please log in and settle up when you get a chance.\n\nThanks!'
@@ -2031,6 +2237,7 @@ function FinanceEmailModal({ groupId, selectedCount, userIds, onClose }: {
   userIds: string[]
   onClose: () => void
 }) {
+  useEscapeToClose(onClose)
   const [template, setTemplate] = useState<'notice' | 'billing-reminder'>('notice')
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
@@ -2075,11 +2282,11 @@ function FinanceEmailModal({ groupId, selectedCount, userIds, onClose }: {
   const canSend = userIds.length > 0 && !!subject.trim() && !!message.trim() && !sending
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="finance-email-modal-title">
       <div className="w-full max-w-2xl rounded-xl border border-border bg-card p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Email {selectedCount} member{selectedCount === 1 ? '' : 's'}</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <h2 id="finance-email-modal-title" className="text-lg font-semibold">Email {selectedCount} member{selectedCount === 1 ? '' : 's'}</h2>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
         </div>
         <div className="space-y-4">
           <div>
@@ -2098,8 +2305,9 @@ function FinanceEmailModal({ groupId, selectedCount, userIds, onClose }: {
           )}
 
           <div>
-            <label className="text-sm font-medium">Subject</label>
+            <label htmlFor="fe-subject" className="text-sm font-medium">Subject</label>
             <input
+              id="fe-subject"
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={subject}
               onChange={e => setSubject(e.target.value)}
@@ -2107,8 +2315,9 @@ function FinanceEmailModal({ groupId, selectedCount, userIds, onClose }: {
             />
           </div>
           <div>
-            <label className="text-sm font-medium">Message</label>
+            <label htmlFor="fe-message" className="text-sm font-medium">Message</label>
             <textarea
+              id="fe-message"
               className="mt-1 w-full min-h-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={message}
               onChange={e => setMessage(e.target.value)}
@@ -2199,6 +2408,39 @@ function FinanceConsole({ groupId, aircraft, clubName }: { groupId: string; airc
 
   const allFilteredSelected = filtered.length > 0 && filtered.every(m => selected.has(m.userId))
 
+  // Client-side CSV export of the CURRENT filtered rows.
+  function handleExportCsv() {
+    if (filtered.length === 0) return
+    const header = ['Name', 'Email', 'Role', 'Flights', 'Hours', 'Billed', 'Outstanding', 'OldestUnpaidDays', 'LastFlight', 'Aircraft']
+    const lines = [
+      header,
+      ...filtered.map(m => [
+        m.name || '',
+        m.email,
+        m.role,
+        m.flights,
+        m.hours.toFixed(1),
+        m.billedInPeriod.toFixed(2),
+        m.outstanding.toFixed(2),
+        m.oldestUnpaidDays ?? '',
+        m.lastFlight ? isoDateOnly(new Date(m.lastFlight)) : '',
+        m.aircraft.length ? m.aircraft.map(a => `${a.nNumber ?? '?'} ${a.hours.toFixed(1)}h`).join(' · ') : '',
+      ]),
+    ].map(row => row.map(csvField).join(','))
+    const csv = lines.join('\r\n') + '\r\n'
+
+    const clubSlug = clubName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'club'
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `finance-${clubSlug}-${from || 'start'}-${to || 'end'}.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   function toggleAllFiltered() {
     setSelected(prev => {
       const next = new Set(prev)
@@ -2219,9 +2461,14 @@ function FinanceConsole({ groupId, aircraft, clubName }: { groupId: string; airc
             <CardTitle>Finance console</CardTitle>
             <CardDescription>Every member's flight activity and balance for {clubName}. Select members to email a notice or billing reminder.</CardDescription>
           </div>
-          <Button size="sm" onClick={() => setShowEmailModal(true)} disabled={selected.size === 0}>
-            <Mail className="mr-2 h-4 w-4" />Email selected ({selected.size})
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button size="sm" variant="outline" onClick={handleExportCsv} disabled={filtered.length === 0}>
+              <Download className="mr-2 h-4 w-4" />Export CSV
+            </Button>
+            <Button size="sm" onClick={() => setShowEmailModal(true)} disabled={selected.size === 0}>
+              <Mail className="mr-2 h-4 w-4" />Email selected ({selected.size})
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -2569,6 +2816,111 @@ function BillingTab({ groupId, isFinance, aircraft, clubName }: { groupId: strin
   )
 }
 
+// ---- ClubSetupChecklist ----
+// Admin-only, dismissible "get your club set up" card on the dashboard tab.
+// Steps are computed from live data; each jumps to the relevant tab.
+// Dismissal is per-club via localStorage ('club-setup-dismissed:{groupId}'),
+// and step 5 also honours 'club-policy-reviewed:{groupId}', which the page
+// sets whenever an admin opens the Settings tab. Auto-hides once every step
+// is complete.
+
+function ClubSetupChecklist({ group, membersCount, onGoToTab }: {
+  group: Group
+  membersCount: number
+  onGoToTab: (tab: string) => void
+}) {
+  const groupId = group.id
+  const [dismissed, setDismissed] = useState(false)
+  const [policyReviewed, setPolicyReviewed] = useState(false)
+
+  // localStorage reads happen client-side after mount (and again on club switch).
+  useEffect(() => {
+    try {
+      setDismissed(localStorage.getItem(`club-setup-dismissed:${groupId}`) === '1')
+      setPolicyReviewed(localStorage.getItem(`club-policy-reviewed:${groupId}`) === '1')
+    } catch { /* localStorage unavailable — just show the checklist */ }
+  }, [groupId])
+
+  const { data: stripeStatus } = useSWR<StripeStatus>(
+    `/api/groups/${groupId}/stripe/status`,
+    fetcher,
+    { revalidateOnFocus: false }
+  )
+  const { data: policy } = useSWR<ClubPolicy & BillingScheduleSettings>(
+    `/api/groups/${groupId}/policy`,
+    fetcher,
+    { revalidateOnFocus: false }
+  )
+
+  // "Reviewed" also counts if ANY booking-policy field differs from the
+  // defaults (limits null, both block toggles on) — they clearly looked at it.
+  const policyDiffers = !!policy && (
+    policy.maxBookingHours != null ||
+    policy.maxAdvanceDays != null ||
+    policy.minBookingNoticeHours != null ||
+    policy.blockOnOverdueInspection === false ||
+    policy.blockOnGroundedSquawk === false
+  )
+
+  const steps: { key: string; label: string; done: boolean; tab: string }[] = [
+    { key: 'aircraft', label: 'Add your first aircraft', done: group.aircraft.length > 0, tab: 'aircraft' },
+    { key: 'members', label: 'Invite members', done: membersCount > 1, tab: 'members' },
+    { key: 'stripe', label: 'Connect Stripe payments', done: !!stripeStatus?.chargesEnabled, tab: 'billing' },
+    { key: 'billing-day', label: 'Set a billing day', done: policy?.billingDayOfMonth != null, tab: 'billing' },
+    { key: 'policy', label: 'Review your booking policy', done: policyDiffers || policyReviewed, tab: 'settings' },
+  ]
+  const doneCount = steps.filter(s => s.done).length
+
+  // Wait for both fetches so a fully-set-up club doesn't get a flash of an
+  // incomplete checklist; hide when dismissed or everything is done.
+  if (dismissed || !stripeStatus || !policy || doneCount === steps.length) return null
+
+  function dismiss() {
+    try { localStorage.setItem(`club-setup-dismissed:${groupId}`, '1') } catch { /* ignore */ }
+    setDismissed(true)
+  }
+
+  return (
+    <Card className="border-dashed">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-base">Get your club set up</CardTitle>
+            <CardDescription>{doneCount} of {steps.length} complete</CardDescription>
+          </div>
+          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={dismiss} aria-label="Dismiss setup checklist">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <ul className="space-y-1">
+          {steps.map(step => (
+            <li key={step.key}>
+              <button
+                type="button"
+                onClick={() => onGoToTab(step.tab)}
+                className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50"
+              >
+                {step.done ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden="true" />
+                ) : (
+                  <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+                )}
+                <span className={step.done ? 'text-muted-foreground line-through decoration-muted-foreground/40' : ''}>
+                  {step.label}
+                </span>
+                <span className="sr-only">{step.done ? '(done)' : '(not done)'}</span>
+                {!step.done && <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
+
 // ---- Page ----
 
 export default function FlyingClubPage() {
@@ -2638,6 +2990,7 @@ export default function FlyingClubPage() {
   const [showNewPost, setShowNewPost] = useState(false)
   const [showUploadDocument, setShowUploadDocument] = useState(false)
   const [showDeleteClub, setShowDeleteClub] = useState(false)
+  const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   // Auto-dismiss success message
@@ -2646,6 +2999,29 @@ export default function FlyingClubPage() {
     const t = setTimeout(() => setSuccessMessage(null), 4000)
     return () => clearTimeout(t)
   }, [successMessage])
+
+  // Opening the Settings tab counts as "reviewed the booking policy" for the
+  // setup checklist (see ClubSetupChecklist step 5).
+  useEffect(() => {
+    if (activeTab === 'settings' && selectedGroupId) {
+      try { localStorage.setItem(`club-policy-reviewed:${selectedGroupId}`, '1') } catch { /* ignore */ }
+    }
+  }, [activeTab, selectedGroupId])
+
+  // Route a booking into the FlightCompleteWizard (from the details modal).
+  function startCompleteFlight(b: Booking) {
+    setActiveFlight({
+      id: b.id,
+      aircraftId: b.aircraftId,
+      aircraftName: acLabel(b.aircraft),
+      userId: b.userId,
+      userName: b.user?.name || 'Unknown',
+      hobbsStart: 0,
+      date: b.startTime?.split('T')[0],
+      time: fmt(b.startTime, 'time'),
+    })
+    setShowFlightComplete(true)
+  }
 
   // ---- Derived state ----
 
@@ -2846,6 +3222,13 @@ export default function FlyingClubPage() {
         {/* ---- DASHBOARD ---- */}
         {hasGroups && activeTab === 'dashboard' && (
           <div className="space-y-6">
+            {isOwnerOrAdmin && selectedGroup && (
+              <ClubSetupChecklist
+                group={selectedGroup}
+                membersCount={members.length}
+                onGoToTab={setActiveTab}
+              />
+            )}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -3045,6 +3428,7 @@ export default function FlyingClubPage() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7"
+                                aria-label={`Delete post "${post.title}"`}
                                 onClick={async () => {
                                   await fetch(`/api/groups/${selectedGroupId}/posts/${post.id}`, { method: 'DELETE' })
                                   mutatePosts()
@@ -3136,6 +3520,7 @@ export default function FlyingClubPage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  aria-label={`Delete document "${doc.name}"`}
                                   onClick={async () => {
                                     await fetch(`/api/groups/${selectedGroupId}/documents/${doc.id}`, { method: 'DELETE' })
                                     mutateDocuments()
@@ -3178,11 +3563,10 @@ export default function FlyingClubPage() {
             blockouts={blockouts}
             onBook={() => setShowNewBooking(true)}
             onSelectBooking={(id) => {
+              // Open the booking details modal — the FlightCompleteWizard
+              // stays reachable via the modal's "Complete flight" action.
               const b = bookings.find(x => x.id === id)
-              if (b) {
-                setActiveFlight({ id: b.id, aircraftId: b.aircraftId, aircraftName: acLabel(b.aircraft), userId: b.userId, userName: b.user?.name || 'Unknown', hobbsStart: 0, date: b.startTime?.split('T')[0], time: fmt(b.startTime, 'time') })
-                setShowFlightComplete(true)
-              }
+              if (b) setDetailsBooking(b)
             }}
             onSelectAircraft={(id) => { window.location.href = `/desktop/flying-club/aircraft/${id}` }}
           />
@@ -3220,7 +3604,12 @@ export default function FlyingClubPage() {
                 {bookings.map(b => {
                   const status = bookingStatus(b)
                   return (
-                    <div key={b.id} className="flex items-center justify-between rounded-lg border border-border p-4">
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => setDetailsBooking(b)}
+                      className="flex w-full items-center justify-between rounded-lg border border-border p-4 text-left hover:bg-muted/50 transition-colors"
+                    >
                       <div className="flex items-center gap-4">
                         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10"><Plane className="h-5 w-5 text-primary" /></div>
                         <div className="space-y-1">
@@ -3235,7 +3624,7 @@ export default function FlyingClubPage() {
                         <p className="text-sm font-medium">{b.user?.name}</p>
                         <p className="text-xs text-muted-foreground">{fmt(b.startTime, 'date')} · {fmt(b.startTime, 'time')}–{fmt(b.endTime, 'time')}</p>
                       </div>
-                    </div>
+                    </button>
                   )
                 })}
               </div>
@@ -3533,6 +3922,29 @@ export default function FlyingClubPage() {
               setActiveTab('dashboard')
               setShowDeleteClub(false)
               setSuccessMessage(`"${deletedName}" was deleted.`)
+            }}
+          />
+        )}
+
+        {detailsBooking && selectedGroup && (
+          <BookingDetailsModal
+            booking={detailsBooking}
+            groupId={selectedGroup.id}
+            aircraftStatus={selectedGroup.aircraft.find(a => a.id === detailsBooking.aircraftId)?.status ?? null}
+            // Own-booking identity: the row's userId is a pilotProfileId, so
+            // compare the joined user record against the signed-in cloud user.
+            isOwn={!!cloudUser?.id && detailsBooking.user?.id === cloudUser.id}
+            isAdmin={isOwnerOrAdmin}
+            onClose={() => setDetailsBooking(null)}
+            onCancelled={() => {
+              setDetailsBooking(null)
+              mutateBookings()
+              setSuccessMessage('Booking cancelled.')
+            }}
+            onCompleteFlight={() => {
+              const b = detailsBooking
+              setDetailsBooking(null)
+              startCompleteFlight(b)
             }}
           />
         )}
