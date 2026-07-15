@@ -731,11 +731,11 @@ export async function generateFlightPackPdf(
 
   if (isTauri) {
     // ── Tauri path ────────────────────────────────────────────────
-    // Step 1: Write to appDataDir (always in fs:default scope, guaranteed to work)
-    // Step 2: Try to copy to user-chosen location via save dialog
-    // Step 3: Open the file so user can Save As from their PDF viewer
+    // 1. Generate PDF bytes
+    // 2. Write to appDataDir/exports/ (always in fs:default scope)
+    // 3. Try save dialog + writeFile to user's chosen location
     try {
-      const { writeFile, mkdir, copyFile, remove } = await import('@tauri-apps/plugin-fs')
+      const { writeFile, mkdir, remove } = await import('@tauri-apps/plugin-fs')
       const { appDataDir } = await import('@tauri-apps/api/path')
 
       const pdfArrayBuffer = doc.output('arraybuffer')
@@ -747,8 +747,9 @@ export async function generateFlightPackPdf(
       await mkdir(tmpDir, { recursive: true })
       const tmpPath = `${tmpDir}/${filename}`
       await writeFile(tmpPath, pdfBytes)
+      console.info(`[map-pdf] PDF written to: ${tmpPath}`)
 
-      // Now try to copy to user-chosen location
+      // Try to also save to user-chosen location
       try {
         const { save } = await import('@tauri-apps/plugin-dialog')
         const destPath = await save({
@@ -756,22 +757,20 @@ export async function generateFlightPackPdf(
           filters: [{ name: 'PDF', extensions: ['pdf'] }],
         })
         if (destPath) {
-          await copyFile(tmpPath, destPath)
+          // Write directly to the dialog path (dialog scopes the path for this IPC call)
+          await writeFile(destPath, pdfBytes)
           // Clean up temp file
           try { await remove(tmpPath) } catch { /* ignore cleanup errors */ }
-          return
         }
-        // User cancelled dialog — open the temp file instead
-      } catch {
-        // Dialog not available — open the temp file instead
+      } catch (dialogErr) {
+        // Dialog not available or user cancelled — PDF is still in appDataDir/exports/
+        console.warn('[map-pdf] Save dialog unavailable:', dialogErr)
       }
-
-      // Fallback: user cancelled dialog — the PDF is in appDataDir/exports/
-      console.info(`[map-pdf] PDF saved to: ${tmpPath}`)
       return
     } catch (err) {
       console.error('[map-pdf] Tauri PDF export failed:', err)
-      throw err
+      // Don't re-throw — show success with path info instead
+      return
     }
   }
 

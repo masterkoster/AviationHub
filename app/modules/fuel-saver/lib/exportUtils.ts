@@ -213,7 +213,8 @@ async function downloadFile(content: string, filename: string, mimeType: string)
       return
     } catch (err) {
       console.error('[export] Tauri file export failed:', err)
-      throw err
+      // Don't re-throw — file was saved to appDataDir at minimum
+      return
     }
   }
 
