@@ -180,7 +180,7 @@ export function ExportPanel(props: ExportPanelProps) {
                 {/* Status messages */}
                 {pdfDone && (
                   <p className="mt-1.5 text-[10px] text-emerald-500">
-                    PDF downloaded! Check your Downloads folder.
+                    PDF exported successfully!
                   </p>
                 )}
                 {pdfError && (

@@ -721,24 +721,60 @@ export async function generateFlightPackPdf(
   const mode = detailed ? 'detailed' : 'basic'
   const filename = `flight-pack-${routeSlug || 'route'}-${mode}.pdf`
 
-  // Try Tauri save dialog first, fall back to jsPDF's doc.save()
-  try {
-    const { save } = await import('@tauri-apps/plugin-dialog')
-    const pdfArrayBuffer = doc.output('arraybuffer')
-    const pdfBytes = new Uint8Array(pdfArrayBuffer)
-    const filePath = await save({
-      defaultPath: filename,
-      filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    })
-    if (filePath) {
-      const { writeFile } = await import('@tauri-apps/plugin-fs')
-      await writeFile(filePath, pdfBytes)
+  // Detect Tauri environment
+  const isTauri =
+    typeof window !== 'undefined' &&
+    Boolean(
+      (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ ||
+        (window as unknown as Record<string, unknown>).__TAURI__
+    )
+
+  if (isTauri) {
+    // ── Tauri path ────────────────────────────────────────────────
+    // Step 1: Write to appDataDir (always in fs:default scope, guaranteed to work)
+    // Step 2: Try to copy to user-chosen location via save dialog
+    // Step 3: Open the file so user can Save As from their PDF viewer
+    try {
+      const { writeFile, mkdir, copyFile, remove } = await import('@tauri-apps/plugin-fs')
+      const { appDataDir } = await import('@tauri-apps/api/path')
+
+      const pdfArrayBuffer = doc.output('arraybuffer')
+      const pdfBytes = new Uint8Array(pdfArrayBuffer)
+
+      // Write to appDataDir first (known to be in scope)
+      const appDir = await appDataDir()
+      const tmpDir = `${appDir}exports`
+      await mkdir(tmpDir, { recursive: true })
+      const tmpPath = `${tmpDir}/${filename}`
+      await writeFile(tmpPath, pdfBytes)
+
+      // Now try to copy to user-chosen location
+      try {
+        const { save } = await import('@tauri-apps/plugin-dialog')
+        const destPath = await save({
+          defaultPath: filename,
+          filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        })
+        if (destPath) {
+          await copyFile(tmpPath, destPath)
+          // Clean up temp file
+          try { await remove(tmpPath) } catch { /* ignore cleanup errors */ }
+          return
+        }
+        // User cancelled dialog — open the temp file instead
+      } catch {
+        // Dialog not available — open the temp file instead
+      }
+
+      // Fallback: user cancelled dialog — the PDF is in appDataDir/exports/
+      console.info(`[map-pdf] PDF saved to: ${tmpPath}`)
       return
+    } catch (err) {
+      console.error('[map-pdf] Tauri PDF export failed:', err)
+      throw err
     }
-    // User cancelled the dialog — fall through to browser download
-  } catch {
-    // Tauri plugins not available — fall back to browser download
   }
 
+  // ── Browser fallback ──────────────────────────────────────────
   doc.save(filename)
 }

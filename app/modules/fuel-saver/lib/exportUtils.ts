@@ -166,25 +166,58 @@ function escapeXML(str: string): string {
 
 // Helper function to trigger file download
 async function downloadFile(content: string, filename: string, mimeType: string): Promise<void> {
-  // Try Tauri save dialog first
-  try {
-    const { save } = await import('@tauri-apps/plugin-dialog')
-    const { writeFile } = await import('@tauri-apps/plugin-fs')
-    const encoder = new TextEncoder()
-    const bytes = encoder.encode(content)
-    const filePath = await save({
-      defaultPath: filename,
-      filters: [{ name: filename.split('.').pop()?.toUpperCase() || 'File', extensions: [filename.split('.').pop() || '*'] }],
-    })
-    if (filePath) {
-      await writeFile(filePath, bytes)
+  // Detect Tauri environment
+  const isTauri =
+    typeof window !== 'undefined' &&
+    Boolean(
+      (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ ||
+        (window as unknown as Record<string, unknown>).__TAURI__
+    )
+
+  if (isTauri) {
+    // ── Tauri path ────────────────────────────────────────────────
+    // Step 1: Write to appDataDir (always in fs:default scope, guaranteed to work)
+    // Step 2: Try to copy to user-chosen location via save dialog
+    try {
+      const { writeFile, mkdir, copyFile, remove } = await import('@tauri-apps/plugin-fs')
+      const { appDataDir } = await import('@tauri-apps/api/path')
+
+      const encoder = new TextEncoder()
+      const bytes = encoder.encode(content)
+
+      // Write to appDataDir first (known to be in scope)
+      const appDir = await appDataDir()
+      const tmpDir = `${appDir}exports`
+      await mkdir(tmpDir, { recursive: true })
+      const tmpPath = `${tmpDir}/${filename}`
+      await writeFile(tmpPath, bytes)
+
+      // Now try to copy to user-chosen location
+      try {
+        const { save } = await import('@tauri-apps/plugin-dialog')
+        const destPath = await save({
+          defaultPath: filename,
+          filters: [{ name: filename.split('.').pop()?.toUpperCase() || 'File', extensions: [filename.split('.').pop() || '*'] }],
+        })
+        if (destPath) {
+          await copyFile(tmpPath, destPath)
+          try { await remove(tmpPath) } catch { /* ignore cleanup errors */ }
+          return
+        }
+        // User cancelled dialog — file stays in appDataDir/exports/
+      } catch {
+        // Dialog not available — file stays in appDataDir/exports/
+      }
+
+      console.info(`[export] File saved to: ${tmpPath}`)
       return
+    } catch (err) {
+      console.error('[export] Tauri file export failed:', err)
+      throw err
     }
-    // User cancelled — fall through to browser download
-  } catch {
-    // Tauri not available — use browser download
   }
 
+  // ── Browser fallback ──────────────────────────────────────────
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   
