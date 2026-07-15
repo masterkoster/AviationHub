@@ -29,7 +29,26 @@ export async function GET(_request: Request, { params }: RouteParams) {
     }
 
     const row = await prisma.clubPolicy.findUnique({ where: { organizationId: groupId } });
-    return NextResponse.json(normalizePolicy(row as Record<string, unknown> | null));
+
+    // billingDayOfMonth/emailStatements predate the generated Prisma Client —
+    // read via raw SQL and merge into the response JSON.
+    let billingDayOfMonth: number | null = null;
+    let emailStatements = true;
+    if (row) {
+      const scheduleRows = await prisma.$queryRaw<{ billingDayOfMonth: number | null; emailStatements: boolean }[]>`
+        SELECT billingDayOfMonth, emailStatements FROM ClubPolicy WHERE organizationId = ${groupId}
+      `;
+      if (scheduleRows.length > 0) {
+        billingDayOfMonth = scheduleRows[0].billingDayOfMonth;
+        emailStatements = !!scheduleRows[0].emailStatements;
+      }
+    }
+
+    return NextResponse.json({
+      ...normalizePolicy(row as Record<string, unknown> | null),
+      billingDayOfMonth,
+      emailStatements,
+    });
   } catch (error) {
     console.error('Error fetching policy:', error);
     return NextResponse.json({ error: 'Failed to fetch policy' }, { status: 500 });
@@ -81,13 +100,35 @@ export async function PUT(request: Request, { params }: RouteParams) {
       blockOnUnpaidBalance: body.blockOnUnpaidBalance === true,
     };
 
+    // billingDayOfMonth: 1-28, or null for manual-only.
+    let billingDayOfMonth: number | null = null;
+    if (body.billingDayOfMonth !== null && body.billingDayOfMonth !== undefined && body.billingDayOfMonth !== '') {
+      const day = Math.round(Number(body.billingDayOfMonth));
+      if (Number.isFinite(day) && day >= 1 && day <= 28) {
+        billingDayOfMonth = day;
+      }
+    }
+    const emailStatements = body.emailStatements !== false;
+
     const saved = await prisma.clubPolicy.upsert({
       where: { organizationId: groupId },
       create: { organizationId: groupId, ...data },
       update: data,
     });
 
-    return NextResponse.json(normalizePolicy(saved as Record<string, unknown>));
+    // billingDayOfMonth/emailStatements predate the generated Prisma Client —
+    // write via raw SQL after the upsert guarantees the row exists.
+    await prisma.$executeRaw`
+      UPDATE ClubPolicy
+      SET billingDayOfMonth = ${billingDayOfMonth}, emailStatements = ${emailStatements}
+      WHERE organizationId = ${groupId}
+    `;
+
+    return NextResponse.json({
+      ...normalizePolicy(saved as Record<string, unknown>),
+      billingDayOfMonth,
+      emailStatements,
+    });
   } catch (error) {
     console.error('Error saving policy:', error);
     return NextResponse.json({ error: 'Failed to save policy' }, { status: 500 });

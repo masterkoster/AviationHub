@@ -1,0 +1,22 @@
+name: Scheduled Club Billing
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-billing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger billing cron endpoint
+        run: |
+          status=$(curl -s -o response.json -w "%{http_code}" -X POST \
+            "${{ secrets.APP_BASE_URL }}/api/cron/billing" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}")
+          echo "HTTP status: $status"
+          cat response.json
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "Billing cron request failed with status $status"
+            exit 1
+          fi

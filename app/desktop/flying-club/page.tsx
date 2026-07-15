@@ -1351,14 +1351,18 @@ function NewPostModal({ groupId, onClose, onCreated }: {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [pinned, setPinned] = useState(false)
+  const [alsoEmail, setAlsoEmail] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [posted, setPosted] = useState(false)
 
   async function handleSubmit() {
     if (!title.trim() || !content.trim()) return
     setSaving(true)
     setError(null)
+    setStatusMessage(null)
     try {
       const res = await fetch(`/api/groups/${groupId}/posts`, {
         method: 'POST',
@@ -1368,6 +1372,30 @@ function NewPostModal({ groupId, onClose, onCreated }: {
       const data = await res.json()
       if (!res.ok) { setError(data.error || 'Failed to create post'); return }
       onCreated()
+
+      if (!alsoEmail) {
+        onClose()
+        return
+      }
+
+      // Keep the modal open just long enough to show combined feedback —
+      // the post already succeeded, so only the notify step can still fail.
+      setPosted(true)
+      try {
+        const notifyRes = await fetch(`/api/groups/${groupId}/notify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subject: title.trim(), message: content.trim() }),
+        })
+        const notifyData = await notifyRes.json().catch(() => ({}))
+        if (!notifyRes.ok) {
+          setStatusMessage(`Posted · email failed: ${notifyData.error || 'Unable to send'}`)
+        } else {
+          setStatusMessage(`Posted · emailed to ${notifyData.sent} member${notifyData.sent === 1 ? '' : 's'}${notifyData.failed ? ` (${notifyData.failed} failed)` : ''}`)
+        }
+      } catch {
+        setStatusMessage('Posted · email failed: Network error')
+      }
     } catch { setError('Network error') }
     finally { setSaving(false) }
   }
@@ -1400,15 +1428,35 @@ function NewPostModal({ groupId, onClose, onCreated }: {
             )}
           </div>
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={pinned} onChange={e => setPinned(e.target.checked)} className="rounded" />
+            <input type="checkbox" checked={pinned} onChange={e => setPinned(e.target.checked)} disabled={posted} className="rounded" />
             Pin this post
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={alsoEmail} onChange={e => setAlsoEmail(e.target.checked)} disabled={posted} className="rounded" />
+            Also email this notice to all members
+          </label>
           {error && <p className="text-sm text-destructive">{error}</p>}
+          {posted && !statusMessage && (
+            <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="h-4 w-4 animate-spin" />Posted · sending emails…
+            </p>
+          )}
+          {statusMessage && (
+            <p className={`text-sm font-medium flex items-center gap-1.5 ${statusMessage.includes('failed') ? 'text-destructive' : 'text-emerald-600'}`}>
+              {!statusMessage.includes('failed') && <CheckCircle2 className="h-4 w-4" />}{statusMessage}
+            </p>
+          )}
           <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSubmit} disabled={saving || !title.trim() || !content.trim()}>
-              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Posting…</> : 'Publish'}
-            </Button>
+            {posted ? (
+              <Button onClick={onClose}>Close</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={onClose}>Cancel</Button>
+                <Button onClick={handleSubmit} disabled={saving || !title.trim() || !content.trim()}>
+                  {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Posting…</> : 'Publish'}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -1803,6 +1851,126 @@ function InvoiceStatusBadge({ status }: { status: string }) {
   return <Badge className={`text-xs border ${cls}`}>{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>
 }
 
+// ---- BillingScheduleCard ----
+// Admin-only controls for when billing cycles run automatically and whether
+// members get emailed a statement afterward. Same fetch/PUT/saved-indicator
+// pattern as BookingPolicyCard, against the same /policy endpoint.
+
+interface BillingScheduleSettings {
+  billingDayOfMonth: number | null
+  emailStatements: boolean
+}
+
+const BILLING_DAY_OPTIONS = [1, 5, 10, 15, 20, 25, 28]
+
+function BillingScheduleCard({ groupId }: { groupId: string }) {
+  const { data: policy, isLoading, mutate: mutatePolicy } = useSWR<BillingScheduleSettings>(
+    `/api/groups/${groupId}/policy`,
+    fetcher
+  )
+
+  const [billingDayOfMonth, setBillingDayOfMonth] = useState<string>('')
+  const [emailStatements, setEmailStatements] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (!policy) return
+    setBillingDayOfMonth(policy.billingDayOfMonth != null ? String(policy.billingDayOfMonth) : '')
+    setEmailStatements(policy.emailStatements)
+  }, [policy])
+
+  useEffect(() => {
+    if (!saved) return
+    const t = setTimeout(() => setSaved(false), 3000)
+    return () => clearTimeout(t)
+  }, [saved])
+
+  async function handleSave() {
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+    try {
+      // The policy PUT expects the full booking-policy payload too; fetch the
+      // current values so this save doesn't clobber them.
+      const current = await fetch(`/api/groups/${groupId}/policy`).then(r => r.json()).catch(() => ({}))
+      const res = await fetch(`/api/groups/${groupId}/policy`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...current,
+          billingDayOfMonth: billingDayOfMonth === '' ? null : parseInt(billingDayOfMonth, 10),
+          emailStatements,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || 'Failed to save billing schedule'); return }
+      mutatePolicy(data, { revalidate: false })
+      setSaved(true)
+    } catch {
+      setError('Network error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Billing schedule</CardTitle>
+        <CardDescription>Control when billing cycles run automatically and whether members get emailed.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5 text-sm">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            <div>
+              <label className="text-sm font-medium">Run automatically on day…</label>
+              <select
+                className="mt-1 w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={billingDayOfMonth}
+                onChange={e => setBillingDayOfMonth(e.target.value)}
+              >
+                <option value="">Manual only</option>
+                {BILLING_DAY_OPTIONS.map(day => (
+                  <option key={day} value={day}>{day}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-medium">Email statements to members</p>
+                <p className="text-xs text-muted-foreground">
+                  After each billing run, email every billed member their statement (with a PDF).
+                </p>
+              </div>
+              <Switch checked={emailStatements} onCheckedChange={setEmailStatements} />
+            </div>
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            {saved && !error && (
+              <p className="text-sm font-medium text-emerald-600 flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4" />Billing schedule saved
+              </p>
+            )}
+
+            <div className="flex justify-end">
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</> : 'Save schedule'}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function BillingTab({ groupId, isOwnerOrAdmin }: { groupId: string; isOwnerOrAdmin: boolean }) {
   const { data: myInvoices = [], error: myInvoicesError, isLoading: myInvoicesLoading, mutate: mutateMyInvoices } = useSWR<InvoiceRow[]>(
     `/api/groups/${groupId}/invoices`,
@@ -1938,6 +2106,8 @@ function BillingTab({ groupId, isOwnerOrAdmin }: { groupId: string; isOwnerOrAdm
           )}
         </CardContent>
       </Card>
+
+      {isOwnerOrAdmin && <BillingScheduleCard groupId={groupId} />}
 
       {isOwnerOrAdmin && (
         <Card>
@@ -2163,10 +2333,7 @@ export default function FlyingClubPage() {
         <NewPostModal
           groupId={selectedGroup.id}
           onClose={() => setShowNewPost(false)}
-          onCreated={() => {
-            mutatePosts()
-            setShowNewPost(false)
-          }}
+          onCreated={() => mutatePosts()}
         />
       )}
 

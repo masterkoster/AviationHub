@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
-
+import { sendEmail, isEmailConfigured } from '@/lib/email';
+import { generateInvoicePDF } from '@/lib/invoice';
 
 export interface BillingResult {
   userId: string;
@@ -9,6 +10,10 @@ export interface BillingResult {
   amount: number;
   invoiceId?: string;
   error?: string;
+  /** Statement email outcome. Undefined when emailStatements is off, SMTP
+   *  isn't configured, or the invoice was auto-settled at $0 (nothing to pay). */
+  emailSent?: boolean;
+  emailError?: string;
 }
 
 function hoursForFlight(flight: { hobbsStart: unknown; hobbsEnd: unknown; hobbsTime: unknown; tachTime: unknown }): number {
@@ -82,6 +87,24 @@ export async function runBillingCycle(groupId: string): Promise<BillingResult[]>
     },
   });
 
+  // Club name (for statement emails) — fetched once, not per member.
+  const club = await prisma.organization.findUnique({ where: { id: groupId }, select: { name: true } });
+  const clubName = club?.name || 'Your Flying Club';
+
+  // emailStatements predates the generated Prisma Client — read via raw SQL.
+  // No policy row = default on (matches the column's DB default).
+  const policyRows = await prisma.$queryRaw<{ emailStatements: boolean }[]>`
+    SELECT emailStatements FROM ClubPolicy WHERE organizationId = ${groupId}
+  `;
+  const emailStatementsEnabled = policyRows.length > 0 ? !!policyRows[0].emailStatements : true;
+
+  // Check SMTP once up front so a whole run doesn't spam the console with a
+  // per-member "not configured" line — one warning covers the entire cycle.
+  const emailReady = emailStatementsEnabled && isEmailConfigured();
+  if (emailStatementsEnabled && !emailReady) {
+    console.warn(`[billing] emailStatements is on for org ${groupId} but SMTP is not configured — skipping statement emails.`);
+  }
+
   for (const [pilotProfileId, flights] of flightsByPilot) {
     const user = flights[0].pilotProfile!.user!;
     const email = user.email;
@@ -89,6 +112,7 @@ export async function runBillingCycle(groupId: string): Promise<BillingResult[]>
 
     let total = 0;
     const invoiceItems: { flightLogId: string; clubAircraftId: string | null; hobbsHours: number; hourlyRate: number; amount: number }[] = [];
+    const pdfItems: { date: string; aircraft: string; hobbsHours: number; hourlyRate: number; amount: number }[] = [];
 
     for (const flight of flights) {
       const hobbs = hoursForFlight(flight);
@@ -99,6 +123,13 @@ export async function runBillingCycle(groupId: string): Promise<BillingResult[]>
       invoiceItems.push({
         flightLogId: flight.id,
         clubAircraftId: flight.clubAircraftId,
+        hobbsHours: hobbs,
+        hourlyRate: rate,
+        amount,
+      });
+      pdfItems.push({
+        date: flight.date ? new Date(flight.date).toLocaleDateString() : '',
+        aircraft: flight.clubAircraft?.nNumber || '',
         hobbsHours: hobbs,
         hourlyRate: rate,
         amount,
@@ -150,6 +181,57 @@ export async function runBillingCycle(groupId: string): Promise<BillingResult[]>
       await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'paid' } });
     }
 
+    // Statement email — best-effort. A failure here must never fail the
+    // billing run itself; it's just recorded on the result.
+    let emailSent: boolean | undefined;
+    let emailError: string | undefined;
+
+    if (emailReady && total > 0) {
+      try {
+        const firstDate = flights[0]?.date ? new Date(flights[0].date) : null;
+        const lastDate = flights[flights.length - 1]?.date ? new Date(flights[flights.length - 1].date) : null;
+        const period = firstDate && lastDate ? `${firstDate.toLocaleDateString()} – ${lastDate.toLocaleDateString()}` : new Date().toLocaleDateString();
+
+        const pdfBuffer = await generateInvoicePDF({
+          id: invoice.id,
+          clubName,
+          memberName: name,
+          memberEmail: email,
+          date: new Date().toLocaleDateString(),
+          items: pdfItems,
+          totalAmount: total,
+        });
+
+        const html = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Your ${clubName} statement</h2>
+            <p>Hi ${name},</p>
+            <p>Your latest statement from ${clubName} is ready.</p>
+            <ul>
+              <li>Period: ${period}</li>
+              <li>Flights: ${flights.length}</li>
+              <li>Total: $${total.toFixed(2)}</li>
+            </ul>
+            <p>Your full invoice is attached as a PDF. You can pay from the app whenever you're ready.</p>
+          </div>
+        `;
+
+        const result = await sendEmail(
+          email,
+          `Your ${clubName} statement`,
+          html,
+          [{ filename: `statement-${invoice.id.slice(0, 8)}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
+        );
+
+        emailSent = result.success;
+        if (!result.success) emailError = result.error;
+      } catch (err) {
+        emailSent = false;
+        emailError = err instanceof Error ? err.message : 'Failed to send statement email';
+        console.error(`[billing] Failed to email statement to ${email}:`, emailError);
+      }
+    }
+
     results.push({
       userId: user.id,
       email,
@@ -158,6 +240,8 @@ export async function runBillingCycle(groupId: string): Promise<BillingResult[]>
       amount: total,
       invoiceId: invoice.id,
       error,
+      emailSent,
+      emailError,
     });
   }
 

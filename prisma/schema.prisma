@@ -1430,6 +1430,8 @@ model ClubPolicy {
   blockOnGroundedSquawk    Boolean  @default(true) // block if grounded by a maintenance squawk
   requireCurrencyToBook    Boolean  @default(false) // reserved: gate on pilot currency (not yet enforced)
   blockOnUnpaidBalance     Boolean  @default(false) // reserved: gate on outstanding balance (not yet enforced)
+  billingDayOfMonth        Int? // day of month (1-28) to auto-run billing via cron; null = manual only
+  emailStatements          Boolean  @default(true) // email members their statement (with PDF) after each billing run
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 

@@ -58,9 +58,25 @@ export interface SendEmailResult {
   id?: string;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
+/** Whether SMTP is configured — lets callers skip a batch of sends with one warning instead of one per recipient. */
+export function isEmailConfigured(): boolean {
+  return getTransporter() !== null;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-async function sendMail(to: string, subject: string, html: string): Promise<SendEmailResult> {
+async function sendMail(
+  to: string,
+  subject: string,
+  html: string,
+  attachments?: EmailAttachment[],
+): Promise<SendEmailResult> {
   const transporter = getTransporter();
   if (!transporter) {
     return { success: false, error: 'SMTP not configured' };
@@ -72,6 +88,7 @@ async function sendMail(to: string, subject: string, html: string): Promise<Send
       to,
       subject: `${subject} - ${APP_NAME}`,
       html,
+      attachments,
     });
 
     return { success: true, id: info.messageId };
@@ -108,8 +125,9 @@ export async function sendEmail(
   to: string,
   subject: string,
   html: string,
+  attachments?: EmailAttachment[],
 ): Promise<SendEmailResult> {
-  return sendMail(to, subject, html);
+  return sendMail(to, subject, html, attachments);
 }
 
 export async function sendMechanicResponseEmail(
