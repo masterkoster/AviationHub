@@ -43,6 +43,8 @@
         { "path": "$HOME/**" },
         { "path": "$APPDATA/**" }
       ]
-    }
+    },
+    "updater:default",
+    "process:allow-restart"
   ]
 }
