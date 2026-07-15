@@ -20,7 +20,7 @@ import {
   Plane, Calendar, Users, Wrench, DollarSign, Clock,
   AlertCircle, Plus, ChevronLeft, ChevronRight,
   BookOpen, X, Loader2, Cloud, ArrowRight, ArrowLeft,
-  FileText, Download, Trash2, Pin, CheckCircle2, CreditCard,
+  FileText, Download, Trash2, Pin, CheckCircle2, CreditCard, Mail,
 } from "lucide-react"
 import { FlightCompleteWizard } from "@/components/flight-complete/FlightCompleteWizard"
 import { worstStatus, type InspectionComputed } from "@/lib/club/inspections"
@@ -1979,7 +1979,397 @@ function BillingScheduleCard({ groupId }: { groupId: string }) {
   )
 }
 
-function BillingTab({ groupId, isFinance }: { groupId: string; isFinance: boolean }) {
+// ---- FinanceConsole ----
+// Finance-only (ADMIN/TREASURER) roster of every member's flight activity and
+// invoice balances, with filtering, multi-select, and targeted email sends
+// (plain notice or a personalized billing reminder) via /notify.
+
+interface FinanceAircraftAgg {
+  id: string
+  nNumber: string | null
+  hours: number
+}
+
+interface FinanceMember {
+  userId: string
+  pilotProfileId: string | null
+  name: string | null
+  email: string
+  role: string
+  flights: number
+  hours: number
+  billedInPeriod: number
+  outstanding: number
+  lastFlight: string | null
+  aircraft: FinanceAircraftAgg[]
+  oldestUnpaidDays: number | null
+}
+
+interface FinanceOverview {
+  members: FinanceMember[]
+  totals: { members: number; hours: number; billed: number; outstanding: number }
+}
+
+type DatePreset = '30d' | '90d' | 'month' | 'custom'
+
+function isoDateOnly(d: Date) {
+  return d.toISOString().slice(0, 10)
+}
+
+const BILLING_REMINDER_DEFAULT_SUBJECT = 'Outstanding balance with {club}'
+const BILLING_REMINDER_DEFAULT_MESSAGE =
+  'Hi {name},\n\nOur records show an outstanding balance of {balance} with {club}. Please log in and settle up when you get a chance.\n\nThanks!'
+
+function FinanceEmailModal({ groupId, selectedCount, userIds, onClose }: {
+  groupId: string
+  selectedCount: number
+  userIds: string[]
+  onClose: () => void
+}) {
+  const [template, setTemplate] = useState<'notice' | 'billing-reminder'>('notice')
+  const [subject, setSubject] = useState('')
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<{ sent: number; failed: number; skipped: number } | null>(null)
+
+  function handleTemplateChange(next: 'notice' | 'billing-reminder') {
+    setTemplate(next)
+    setResult(null)
+    setError(null)
+    if (next === 'billing-reminder') {
+      setSubject(BILLING_REMINDER_DEFAULT_SUBJECT)
+      setMessage(BILLING_REMINDER_DEFAULT_MESSAGE)
+    } else {
+      setSubject('')
+      setMessage('')
+    }
+  }
+
+  async function handleSend() {
+    if (userIds.length === 0 || !subject.trim() || !message.trim()) return
+    setSending(true)
+    setError(null)
+    setResult(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject: subject.trim(), message: message.trim(), template, userIds }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || 'Failed to send'); return }
+      setResult({ sent: data.sent ?? 0, failed: data.failed ?? 0, skipped: data.skipped ?? 0 })
+    } catch {
+      setError('Network error')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const canSend = userIds.length > 0 && !!subject.trim() && !!message.trim() && !sending
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-2xl rounded-xl border border-border bg-card p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Email {selectedCount} member{selectedCount === 1 ? '' : 's'}</h2>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium">Template</label>
+            <div className="mt-1 flex gap-1">
+              <Button type="button" size="sm" variant={template === 'notice' ? 'default' : 'outline'} onClick={() => handleTemplateChange('notice')}>Notice</Button>
+              <Button type="button" size="sm" variant={template === 'billing-reminder' ? 'default' : 'outline'} onClick={() => handleTemplateChange('billing-reminder')}>Billing reminder</Button>
+            </div>
+          </div>
+
+          {template === 'billing-reminder' && (
+            <p className="text-xs text-muted-foreground">
+              Merge tokens: <code className="font-mono">{'{name}'}</code>, <code className="font-mono">{'{balance}'}</code>, <code className="font-mono">{'{club}'}</code>.
+              Members with no outstanding balance are skipped automatically.
+            </p>
+          )}
+
+          <div>
+            <label className="text-sm font-medium">Subject</label>
+            <input
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={subject}
+              onChange={e => setSubject(e.target.value)}
+              placeholder="Subject"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Message</label>
+            <textarea
+              className="mt-1 w-full min-h-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              placeholder="Message"
+            />
+          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          {result && !error && (
+            <p className="text-sm font-medium text-emerald-600">
+              Sent {result.sent}{result.failed ? `, ${result.failed} failed` : ''}{result.skipped ? `, ${result.skipped} skipped (no balance)` : ''}
+            </p>
+          )}
+
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={onClose}>Close</Button>
+            <Button onClick={handleSend} disabled={!canSend}>
+              {sending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending…</> : 'Send'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FinanceConsole({ groupId, aircraft, clubName }: { groupId: string; aircraft: ClubAircraft[]; clubName: string }) {
+  const [preset, setPreset] = useState<DatePreset>('90d')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [aircraftFilter, setAircraftFilter] = useState('')
+  const [minHours, setMinHours] = useState('')
+  const [hasOutstanding, setHasOutstanding] = useState(false)
+  const [overdue30, setOverdue30] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [showEmailModal, setShowEmailModal] = useState(false)
+
+  useEffect(() => { setSelected(new Set()) }, [groupId])
+
+  const { from, to } = useMemo(() => {
+    const now = new Date()
+    if (preset === '30d') return { from: isoDateOnly(new Date(now.getTime() - 30 * 86400000)), to: isoDateOnly(now) }
+    if (preset === '90d') return { from: isoDateOnly(new Date(now.getTime() - 90 * 86400000)), to: isoDateOnly(now) }
+    if (preset === 'month') return { from: isoDateOnly(new Date(now.getFullYear(), now.getMonth(), 1)), to: isoDateOnly(now) }
+    return { from: customFrom, to: customTo }
+  }, [preset, customFrom, customTo])
+
+  const rangeReady = preset !== 'custom' || (!!customFrom && !!customTo)
+
+  const swrKey = useMemo(() => {
+    if (!rangeReady) return null
+    const params = new URLSearchParams()
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
+    if (aircraftFilter) params.set('aircraftId', aircraftFilter)
+    return `/api/groups/${groupId}/finance/overview?${params.toString()}`
+  }, [groupId, from, to, aircraftFilter, rangeReady])
+
+  const { data, error, isLoading } = useSWR<FinanceOverview>(swrKey, fetcher)
+  const members = data?.members ?? []
+
+  const filtered = useMemo(() => {
+    const min = minHours.trim() === '' ? null : parseFloat(minHours)
+    return members.filter(m => {
+      if (min !== null && !Number.isNaN(min) && m.hours < min) return false
+      if (hasOutstanding && !(m.outstanding > 0)) return false
+      if (overdue30 && !(m.oldestUnpaidDays !== null && m.oldestUnpaidDays > 30)) return false
+      return true
+    })
+  }, [members, minHours, hasOutstanding, overdue30])
+
+  const filteredTotals = useMemo(() => filtered.reduce((acc, m) => {
+    acc.flights += m.flights
+    acc.hours += m.hours
+    acc.billed += m.billedInPeriod
+    acc.outstanding += m.outstanding
+    return acc
+  }, { flights: 0, hours: 0, billed: 0, outstanding: 0 }), [filtered])
+
+  function toggleOne(userId: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(userId)) next.delete(userId)
+      else next.add(userId)
+      return next
+    })
+  }
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every(m => selected.has(m.userId))
+
+  function toggleAllFiltered() {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (allFilteredSelected) {
+        filtered.forEach(m => next.delete(m.userId))
+      } else {
+        filtered.forEach(m => next.add(m.userId))
+      }
+      return next
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <CardTitle>Finance console</CardTitle>
+            <CardDescription>Every member's flight activity and balance for {clubName}. Select members to email a notice or billing reminder.</CardDescription>
+          </div>
+          <Button size="sm" onClick={() => setShowEmailModal(true)} disabled={selected.size === 0}>
+            <Mail className="mr-2 h-4 w-4" />Email selected ({selected.size})
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Date range</label>
+            <div className="mt-1 flex gap-1">
+              <Button type="button" size="sm" variant={preset === '30d' ? 'default' : 'outline'} onClick={() => setPreset('30d')}>30d</Button>
+              <Button type="button" size="sm" variant={preset === '90d' ? 'default' : 'outline'} onClick={() => setPreset('90d')}>90d</Button>
+              <Button type="button" size="sm" variant={preset === 'month' ? 'default' : 'outline'} onClick={() => setPreset('month')}>This month</Button>
+              <Button type="button" size="sm" variant={preset === 'custom' ? 'default' : 'outline'} onClick={() => setPreset('custom')}>Custom</Button>
+            </div>
+          </div>
+
+          {preset === 'custom' && (
+            <>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">From</label>
+                <input type="date" className="mt-1 block rounded-md border border-input bg-background px-2 py-1.5 text-sm" value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">To</label>
+                <input type="date" className="mt-1 block rounded-md border border-input bg-background px-2 py-1.5 text-sm" value={customTo} onChange={e => setCustomTo(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Aircraft</label>
+            <select className="mt-1 block rounded-md border border-input bg-background px-2 py-1.5 text-sm" value={aircraftFilter} onChange={e => setAircraftFilter(e.target.value)}>
+              <option value="">All aircraft</option>
+              {aircraft.map(a => <option key={a.id} value={a.id}>{a.nNumber}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Min hours</label>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              className="mt-1 block w-24 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+              value={minHours}
+              onChange={e => setMinHours(e.target.value)}
+              placeholder="0"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 pb-1.5 text-sm">
+            <input type="checkbox" className="rounded" checked={hasOutstanding} onChange={e => setHasOutstanding(e.target.checked)} />
+            Has outstanding balance
+          </label>
+          <label className="flex items-center gap-2 pb-1.5 text-sm">
+            <input type="checkbox" className="rounded" checked={overdue30} onChange={e => setOverdue30(e.target.checked)} />
+            Overdue &gt; 30 days
+          </label>
+        </div>
+
+        {data && (
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary" className="text-xs">{filtered.length} member{filtered.length === 1 ? '' : 's'}</Badge>
+            <Badge variant="secondary" className="text-xs">{filteredTotals.hours.toFixed(1)} hrs</Badge>
+            <Badge variant="secondary" className="text-xs">${money(filteredTotals.billed)} billed</Badge>
+            <Badge variant="secondary" className="text-xs">${money(filteredTotals.outstanding)} outstanding</Badge>
+          </div>
+        )}
+
+        {!rangeReady ? (
+          <p className="text-sm text-muted-foreground">Pick both a start and end date.</p>
+        ) : isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="rounded-full bg-muted p-4 mb-4"><DollarSign className="h-8 w-8 text-muted-foreground" /></div>
+            <h3 className="text-lg font-semibold mb-2">Unable to load finance data</h3>
+            <p className="text-sm text-muted-foreground">{error?.message || String(error)}</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="rounded-full bg-muted p-4 mb-4"><DollarSign className="h-8 w-8 text-muted-foreground" /></div>
+            <h3 className="text-lg font-semibold mb-2">No members match these filters</h3>
+            <p className="text-sm text-muted-foreground">Try widening the date range or clearing a filter.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                  <th className="w-8 py-2 pr-2">
+                    <input type="checkbox" className="rounded" checked={allFilteredSelected} onChange={toggleAllFiltered} aria-label="Select all filtered members" />
+                  </th>
+                  <th className="py-2 pr-3 font-medium">Member</th>
+                  <th className="py-2 pr-3 font-medium">Flights</th>
+                  <th className="py-2 pr-3 font-medium">Hours</th>
+                  <th className="py-2 pr-3 font-medium">Billed</th>
+                  <th className="py-2 pr-3 font-medium">Outstanding</th>
+                  <th className="py-2 pr-3 font-medium">Last flight</th>
+                  <th className="py-2 pr-3 font-medium">Aircraft</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(m => (
+                  <tr key={m.userId} className="border-b border-border/50">
+                    <td className="py-2 pr-2">
+                      <input type="checkbox" className="rounded" checked={selected.has(m.userId)} onChange={() => toggleOne(m.userId)} aria-label={`Select ${m.name || m.email}`} />
+                    </td>
+                    <td className="py-2 pr-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{m.name || m.email}</span>
+                        <Badge variant={m.role === 'ADMIN' || m.role === 'TREASURER' ? 'default' : 'secondary'} className="text-xs capitalize">{m.role.toLowerCase()}</Badge>
+                      </div>
+                    </td>
+                    <td className="py-2 pr-3">{m.flights}</td>
+                    <td className="py-2 pr-3">{m.hours.toFixed(1)}</td>
+                    <td className="py-2 pr-3">${money(m.billedInPeriod)}</td>
+                    <td className={`py-2 pr-3 ${m.outstanding > 0 ? 'text-destructive font-medium' : ''}`}>${money(m.outstanding)}</td>
+                    <td className="py-2 pr-3">{m.lastFlight ? fmt(m.lastFlight, 'date') : '—'}</td>
+                    <td className="py-2 pr-3 text-xs text-muted-foreground">
+                      {m.aircraft.length ? m.aircraft.map(a => `${a.nNumber ?? '?'} ${a.hours.toFixed(1)}h`).join(' · ') : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-border font-medium">
+                  <td></td>
+                  <td className="py-2 pr-3">Totals</td>
+                  <td className="py-2 pr-3">{filteredTotals.flights}</td>
+                  <td className="py-2 pr-3">{filteredTotals.hours.toFixed(1)}</td>
+                  <td className="py-2 pr-3">${money(filteredTotals.billed)}</td>
+                  <td className={`py-2 pr-3 ${filteredTotals.outstanding > 0 ? 'text-destructive' : ''}`}>${money(filteredTotals.outstanding)}</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </CardContent>
+
+      {showEmailModal && (
+        <FinanceEmailModal
+          groupId={groupId}
+          selectedCount={selected.size}
+          userIds={Array.from(selected)}
+          onClose={() => setShowEmailModal(false)}
+        />
+      )}
+    </Card>
+  )
+}
+
+function BillingTab({ groupId, isFinance, aircraft, clubName }: { groupId: string; isFinance: boolean; aircraft: ClubAircraft[]; clubName: string }) {
   const { data: myInvoices = [], error: myInvoicesError, isLoading: myInvoicesLoading, mutate: mutateMyInvoices } = useSWR<InvoiceRow[]>(
     `/api/groups/${groupId}/invoices`,
     fetcher,
@@ -2118,6 +2508,8 @@ function BillingTab({ groupId, isFinance }: { groupId: string; isFinance: boolea
       {isFinance && <PaymentsCard groupId={groupId} />}
 
       {isFinance && <BillingScheduleCard groupId={groupId} />}
+
+      {isFinance && <FinanceConsole groupId={groupId} aircraft={aircraft} clubName={clubName} />}
 
       {isFinance && (
         <Card>
@@ -3006,7 +3398,7 @@ export default function FlyingClubPage() {
 
         {/* ---- BILLING ---- */}
         {hasGroups && activeTab === 'billing' && selectedGroup && (
-          <BillingTab groupId={selectedGroup.id} isFinance={isFinance} />
+          <BillingTab groupId={selectedGroup.id} isFinance={isFinance} aircraft={selectedGroup.aircraft} clubName={selectedGroup.name} />
         )}
 
         {/* ---- MEMBERS ---- */}
