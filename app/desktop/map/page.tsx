@@ -732,10 +732,10 @@ export default function DesktopMapPage() {
     })
   }
 
-  function exportRoute(kind: 'gpx' | 'fpl' | 'json') {
+  async function exportRoute(kind: 'gpx' | 'fpl' | 'json') {
     if (waypoints.length < 2) return
     if (kind === 'gpx') {
-      downloadGPX({ name: 'Desktop Route', waypoints })
+      await downloadGPX({ name: 'Desktop Route', waypoints })
       return
     }
     if (kind === 'fpl') {
@@ -757,10 +757,10 @@ export default function DesktopMapPage() {
         armBaggage: armBaggageStation,
         armFuel: armFuelStation,
       }
-      downloadFPL(waypoints, wbData)
+      await downloadFPL(waypoints, wbData)
       return
     }
-    downloadJSON({ name: 'Desktop Route', waypoints })
+    await downloadJSON({ name: 'Desktop Route', waypoints })
   }
 
   function applyImportedRoute(imported: Waypoint[], mode: 'replace' | 'merge') {

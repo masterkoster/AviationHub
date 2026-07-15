@@ -329,6 +329,7 @@ export default function DesktopProfilePage() {
 
   // ── Avatar upload ──────────────────────────────────────────────
   const [avatarPath, setAvatarPath] = useState<string | null>(null)
+  const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
 
   // ── Certifications ─────────────────────────────────────────────
@@ -381,11 +382,33 @@ export default function DesktopProfilePage() {
         (window as unknown as Record<string, unknown>).__TAURI__
     )
 
+  // Load avatar image from disk when path changes
+  useEffect(() => {
+    if (!avatarPath || !isTauri) { setAvatarDataUrl(null); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { readFile } = await import('@tauri-apps/plugin-fs')
+        const bytes = await readFile(avatarPath)
+        if (cancelled) return
+        const ext = avatarPath.split('.').pop()?.toLowerCase() || 'png'
+        const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
+        const mime = mimeMap[ext] || 'image/png'
+        const base64 = btoa(Array.from(bytes).map(b => String.fromCharCode(b)).join(''))
+        setAvatarDataUrl(`data:${mime};base64,${base64}`)
+      } catch {
+        setAvatarDataUrl(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [avatarPath, isTauri])
+
   // ── Initialise fields from resolvedUser ───────────────────────────
   useEffect(() => {
     if (!resolvedUser) return
     setEditName(resolvedUser.name)
     setEditHomeAirport(resolvedUser.homeAirport || '')
+    setAvatarPath(resolvedUser.avatarPath || null)
   }, [resolvedUser])
 
   // In cloud mode the server is the source of truth for home airport —
@@ -750,9 +773,10 @@ export default function DesktopProfilePage() {
       const bytes = await readFile(filePath as string)
       await writeFile(avatarFullPath, bytes)
 
-      // Store reference in avatar_path — we can save it to user metadata or pilot_profile
-      // For simplicity, store it as an avatar note in pilot_profile or just track locally
+      // Store reference in the user record so it survives reloads
+      await updateLocalUser(resolvedUser.id, { avatarPath: avatarFullPath })
       setAvatarPath(avatarFullPath)
+      setResolvedUser({ ...resolvedUser, avatarPath: avatarFullPath })
       window.dispatchEvent(new CustomEvent('desktop-auth-changed'))
     } catch (err) {
       console.error('[profile] avatar upload failed', err)
@@ -928,13 +952,23 @@ export default function DesktopProfilePage() {
               {/* Avatar column */}
               <div className="flex flex-col items-center gap-2 shrink-0">
                 <div className="relative group">
-                  <div
-                    className={`h-20 w-20 rounded-full ${AVATAR_BG[activeColor] || 'bg-emerald-500'} flex items-center justify-center text-xl font-bold text-white shadow-md cursor-pointer`}
-                    onClick={() => setShowColorPicker(!showColorPicker)}
-                    title="Click to change color or upload photo"
-                  >
-                    {getInitials(resolvedUser.name)}
-                  </div>
+                  {avatarDataUrl ? (
+                    <img
+                      src={avatarDataUrl}
+                      alt="Avatar"
+                      className="h-20 w-20 rounded-full object-cover shadow-md cursor-pointer"
+                      onClick={() => setShowColorPicker(!showColorPicker)}
+                      title="Click to change photo"
+                    />
+                  ) : (
+                    <div
+                      className={`h-20 w-20 rounded-full ${AVATAR_BG[activeColor] || 'bg-emerald-500'} flex items-center justify-center text-xl font-bold text-white shadow-md cursor-pointer`}
+                      onClick={() => setShowColorPicker(!showColorPicker)}
+                      title="Click to change color or upload photo"
+                    >
+                      {getInitials(resolvedUser.name)}
+                    </div>
+                  )}
                   <button
                     onClick={handleAvatarUpload}
                     disabled={uploadingAvatar || !isTauri}

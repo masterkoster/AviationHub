@@ -1,6 +1,42 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { sendGroundingAlert } from '@/lib/club/notifications';
+import { FINANCE_ROLES } from '@/lib/club/roles';
+
+// Best-effort: email every ADMIN/TREASURER in the aircraft's org when a
+// synced-from-offline maintenance change grounds an aircraft. Never throws.
+async function notifyGroundingForAircraft(clubAircraftId: string, description: string, reporterUserId: string) {
+  try {
+    const aircraft = await prisma.clubAircraft.findUnique({
+      where: { id: clubAircraftId },
+      select: { organizationId: true, nNumber: true, customName: true, nickname: true },
+    });
+    if (!aircraft?.organizationId) return;
+
+    const [club, reporter, admins] = await Promise.all([
+      prisma.organization.findUnique({ where: { id: aircraft.organizationId }, select: { name: true } }),
+      prisma.user.findUnique({ where: { id: reporterUserId }, select: { name: true } }),
+      prisma.organizationMember.findMany({
+        where: { organizationId: aircraft.organizationId, role: { in: [...FINANCE_ROLES] } },
+        include: { user: { select: { email: true } } },
+      }),
+    ]);
+
+    const to = admins.map(a => a.user?.email).filter((email): email is string => !!email);
+    if (to.length === 0) return;
+
+    await sendGroundingAlert({
+      to,
+      clubName: club?.name || 'Your Flying Club',
+      aircraftLabel: aircraft.nickname || aircraft.customName || aircraft.nNumber || 'An aircraft',
+      description,
+      reporterName: reporter?.name || 'A member',
+    });
+  } catch (err) {
+    console.error('Error sending grounding alert email (sync):', err);
+  }
+}
 
 interface SyncChange {
   type: 'flight_log' | 'maintenance' | 'aircraft_status' | 'booking';

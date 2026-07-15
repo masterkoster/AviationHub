@@ -358,7 +358,10 @@ export default function DesktopDashboard() {
   const customizeRef = useRef<HTMLDivElement>(null)
 
   const agendaUserId = mode === 'local' ? localUser?.id : (cloudUser?.id || 'cloud-default')
-  const homeAirport = localUser?.homeAirport || (cloudUser as Record<string, any>)?.homeAirport || null
+  const [resolvedHomeAirport, setResolvedHomeAirport] = useState<string | null>(
+    localUser?.homeAirport || (cloudUser as Record<string, any>)?.homeAirport || null
+  )
+  const homeAirport = resolvedHomeAirport
 
   // ── Load widget preferences ──────────────────────────────────────────────
   useEffect(() => {
@@ -410,6 +413,18 @@ export default function DesktopDashboard() {
     if (!agendaUserId) return
     loadAgenda(agendaUserId)
   }, [agendaUserId])
+
+  // ── In cloud mode, fetch homeAirport from the server profile ──────────
+  useEffect(() => {
+    if (mode !== 'cloud') return
+    cloudApi
+      .getProfile()
+      .then((profile) => {
+        const ha = profile && typeof profile.homeAirport === 'string' ? profile.homeAirport : null
+        if (ha) setResolvedHomeAirport(ha)
+      })
+      .catch(() => {})
+  }, [mode])
 
   // ── Load weather when home airport is known (direct from NOAA) ──────────
   useEffect(() => {

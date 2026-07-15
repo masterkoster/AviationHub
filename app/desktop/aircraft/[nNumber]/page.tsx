@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
+import { getAllLocalUsers } from '@/desktop/lib/local-auth'
 import { getLocalAircraft, updateLocalAircraft } from '@/apps/desktop/src/lib/local-logbook'
 import { ArrowLeft, Plane, Loader2, Scale, Fuel, Gauge, Database as DatabaseIcon, Save, RefreshCw } from 'lucide-react'
 import { notifySaved } from '@/desktop/lib/toast-helpers'
@@ -50,11 +51,23 @@ export default function AircraftDetailPage({ params }: { params: Promise<{ nNumb
   })
   const [autoFillLoading, setAutoFillLoading] = useState(false)
   const [autoFillError, setAutoFillError] = useState('')
+  const [resolvedUserId, setResolvedUserId] = useState<string | null>(null)
+
+  // Resolve local user ID — works in both local and cloud mode
+  useEffect(() => {
+    if (localUser) {
+      setResolvedUserId(localUser.id)
+    } else if (mode === 'cloud') {
+      getAllLocalUsers().then(users => {
+        if (users.length > 0) setResolvedUserId(users[0].id)
+      })
+    }
+  }, [localUser, mode])
 
   useEffect(() => {
-    if (mode !== 'local' || !localUser) return
+    if (!resolvedUserId) return
     loadAircraft()
-  }, [mode, localUser, nNumber])
+  }, [resolvedUserId, nNumber])
 
   useEffect(() => {
     if (!aircraft) return
@@ -81,9 +94,9 @@ export default function AircraftDetailPage({ params }: { params: Promise<{ nNumb
   }, [aircraft])
 
   async function loadAircraft() {
-    if (!localUser) return
+    if (!resolvedUserId) return
     try {
-      const list = await getLocalAircraft(localUser.id)
+      const list = await getLocalAircraft(resolvedUserId)
       const ac = list.find((a: any) => a.nNumber === nNumber)
       setAircraft(ac || null)
     } catch (err) {
@@ -104,11 +117,11 @@ export default function AircraftDetailPage({ params }: { params: Promise<{ nNumb
   }
 
   async function handleUpload(file: File) {
-    if (!localUser) return
+    if (!resolvedUserId) return
     const buf = await file.arrayBuffer()
     const bytes = new Uint8Array(buf)
     await saveDocument(
-      localUser.id,
+      resolvedUserId,
       'aircraft',
       nNumber,
       file.name,

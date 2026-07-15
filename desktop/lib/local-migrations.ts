@@ -182,6 +182,13 @@ const MIGRATIONS: LocalMigration[] = [
       )`,
     ],
   },
+  {
+    version: 2,
+    name: 'add_avatar_path',
+    statements: [
+      `ALTER TABLE users ADD COLUMN avatar_path TEXT`,
+    ],
+  },
 ]
 
 async function readUserVersion(db: Database): Promise<number> {

@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isUuid } from '@/lib/validate';
 import { evaluateBooking, normalizePolicy } from '@/lib/club/policy';
+import { sendBookingConfirmation } from '@/lib/club/notifications';
 
 interface RouteParams {
   params: Promise<{ groupId: string }>;
@@ -200,6 +201,23 @@ export async function POST(request: Request, { params }: RouteParams) {
       });
     }
 
+    // Double-booking guard: a pilot can't hold two overlapping bookings in
+    // this org at once, even across different aircraft. Checked ahead of the
+    // aircraft-conflict transaction below (which only guards a single
+    // aircraft's calendar).
+    const pilotOverlap = await prisma.booking.findFirst({
+      where: {
+        organizationId: groupId,
+        pilotProfileId: pilotProfile.id,
+        startTime: { lt: end },
+        endTime: { gt: start },
+      },
+    });
+
+    if (pilotOverlap) {
+      return NextResponse.json({ error: 'You already have a booking during this time' }, { status: 409 });
+    }
+
     let booking;
     try {
       booking = await prisma.$transaction(async (tx) => {
@@ -244,6 +262,27 @@ export async function POST(request: Request, { params }: RouteParams) {
         return NextResponse.json({ error: 'Booking conflict detected, please try again' }, { status: 409 });
       }
       throw error;
+    }
+
+    // Best-effort confirmation email — never fails the request.
+    if (booking.pilotProfile?.user?.email) {
+      const club = await prisma.organization.findUnique({ where: { id: groupId }, select: { name: true } });
+      const aircraftLabel = booking.clubAircraft
+        ? booking.clubAircraft.nickname || booking.clubAircraft.customName || booking.clubAircraft.nNumber || 'the aircraft'
+        : 'the aircraft';
+      try {
+        await sendBookingConfirmation({
+          to: booking.pilotProfile.user.email,
+          memberName: booking.pilotProfile.user.name || 'Member',
+          clubName: club?.name || 'Your Flying Club',
+          aircraftLabel,
+          start: booking.startTime,
+          end: booking.endTime,
+          purpose: booking.purpose,
+        });
+      } catch (err) {
+        console.error('Error sending booking confirmation email:', err);
+      }
     }
 
     return NextResponse.json({

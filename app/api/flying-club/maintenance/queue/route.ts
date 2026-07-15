@@ -1,8 +1,46 @@
 import { NextResponse } from 'next/server';
 import { auth, prisma } from '@/lib/auth';
 import { isUuid } from '@/lib/validate';
+import { sendGroundingAlert } from '@/lib/club/notifications';
+import { FINANCE_ROLES } from '@/lib/club/roles';
 
 const SEVERITY_RANK: Record<string, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+
+// Best-effort: email every ADMIN/TREASURER in the org when a new grounding
+// squawk is created. Never throws — a failure here must not fail the
+// maintenance-report request.
+async function notifyGrounding(organizationId: string, clubAircraftId: string | null, description: string, reporterUserId: string) {
+  try {
+    const [club, aircraft, reporter, admins] = await Promise.all([
+      prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } }),
+      clubAircraftId
+        ? prisma.clubAircraft.findUnique({ where: { id: clubAircraftId }, select: { nNumber: true, customName: true, nickname: true } })
+        : Promise.resolve(null),
+      prisma.user.findUnique({ where: { id: reporterUserId }, select: { name: true } }),
+      prisma.organizationMember.findMany({
+        where: { organizationId, role: { in: [...FINANCE_ROLES] } },
+        include: { user: { select: { email: true } } },
+      }),
+    ]);
+
+    const to = admins.map(a => a.user?.email).filter((email): email is string => !!email);
+    if (to.length === 0) return;
+
+    const aircraftLabel = aircraft
+      ? aircraft.nickname || aircraft.customName || aircraft.nNumber || 'An aircraft'
+      : 'An aircraft';
+
+    await sendGroundingAlert({
+      to,
+      clubName: club?.name || 'Your Flying Club',
+      aircraftLabel,
+      description,
+      reporterName: reporter?.name || 'A member',
+    });
+  } catch (err) {
+    console.error('Error sending grounding alert email:', err);
+  }
+}
 
 // GET maintenance queue. Optionally scoped to a single club via ?groupId=.
 export async function GET(request: Request) {
@@ -150,6 +188,10 @@ export async function POST(request: Request) {
       }
     });
 
+    if (maintenance.isGrounded) {
+      await notifyGrounding(organizationId, clubAircraftId || null, description, userId);
+    }
+
     return NextResponse.json(maintenance);
   } catch (error) {
     console.error('Error reporting maintenance:', error);
@@ -207,6 +249,9 @@ export async function PATCH(request: Request) {
           reportedDate: new Date(),
         },
       });
+
+      await notifyGrounding(aircraft.organizationId, aircraft.id, created.description, userId);
+
       return NextResponse.json({ success: true, action, maintenance: created });
     }
 

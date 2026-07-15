@@ -87,11 +87,11 @@ export function generateGPX(plan: FlightPlanData): string {
   return gpxHeader + routePoints + gpxFooter;
 }
 
-export function downloadGPX(plan: FlightPlanData): void {
+export async function downloadGPX(plan: FlightPlanData): Promise<void> {
   const gpx = generateGPX(plan);
   const filename = (plan.name || 'flight-plan').replace(/[^a-z0-9]/gi, '-').toLowerCase();
   
-  downloadFile(gpx, `${filename}.gpx`, 'application/gpx+xml');
+  await downloadFile(gpx, `${filename}.gpx`, 'application/gpx+xml');
 }
 
 /**
@@ -137,21 +137,21 @@ export function generateFPL(waypoints: Waypoint[], wb?: WbExportData): string {
   return lines.join('\n')
 }
 
-export function downloadFPL(waypoints: Waypoint[], wb?: WbExportData): void {
+export async function downloadFPL(waypoints: Waypoint[], wb?: WbExportData): Promise<void> {
   const fpl = generateFPL(waypoints, wb);
   const filename = 'flight-plan';
 
-  downloadFile(fpl, `${filename}.fpl`, 'text/plain');
+  await downloadFile(fpl, `${filename}.fpl`, 'text/plain');
 }
 
 /**
  * JSON Export - Full flight plan data
  */
-export function downloadJSON(plan: FlightPlanData): void {
+export async function downloadJSON(plan: FlightPlanData): Promise<void> {
   const json = JSON.stringify(plan, null, 2);
   const filename = (plan.name || 'flight-plan').replace(/[^a-z0-9]/gi, '-').toLowerCase();
   
-  downloadFile(json, `${filename}.json`, 'application/json');
+  await downloadFile(json, `${filename}.json`, 'application/json');
 }
 
 // Helper function to escape XML special characters
@@ -165,7 +165,26 @@ function escapeXML(str: string): string {
 }
 
 // Helper function to trigger file download
-function downloadFile(content: string, filename: string, mimeType: string): void {
+async function downloadFile(content: string, filename: string, mimeType: string): Promise<void> {
+  // Try Tauri save dialog first
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const { writeFile } = await import('@tauri-apps/plugin-fs')
+    const encoder = new TextEncoder()
+    const bytes = encoder.encode(content)
+    const filePath = await save({
+      defaultPath: filename,
+      filters: [{ name: filename.split('.').pop()?.toUpperCase() || 'File', extensions: [filename.split('.').pop() || '*'] }],
+    })
+    if (filePath) {
+      await writeFile(filePath, bytes)
+      return
+    }
+    // User cancelled — fall through to browser download
+  } catch {
+    // Tauri not available — use browser download
+  }
+
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   

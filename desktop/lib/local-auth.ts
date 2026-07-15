@@ -15,6 +15,7 @@ export interface LocalUser {
   displayId: string | null
   pin: string | null
   avatarColor: string
+  avatarPath: string | null
   /** Whether this profile already has a recovery PIN provisioned (hash stored). */
   hasRecoveryPin: boolean
 }
@@ -233,6 +234,7 @@ export async function createLocalUser(
     displayId,
     pin: pinHash,
     avatarColor,
+    avatarPath: null,
     hasRecoveryPin: false,
   }
 }
@@ -304,6 +306,7 @@ export async function createCloudLinkedLocalUser(
     displayId: null,
     pin: pinHash,
     avatarColor,
+    avatarPath: null,
     hasRecoveryPin,
   }
 }
@@ -397,6 +400,7 @@ export async function getLocalUser(userId: string): Promise<LocalUser | null> {
       displayId: profileRows[0]?.display_id ?? null,
       pin: u.pin,
       avatarColor: u.avatar_color ?? 'emerald',
+      avatarPath: (u as any).avatar_path ?? null,
       hasRecoveryPin: Boolean(u.recovery_pin_hash),
     }
   } catch (err) {
@@ -443,6 +447,7 @@ export async function getAllLocalUsers(): Promise<LocalUser[]> {
         displayId,
         pin: u.pin,
         avatarColor: u.avatar_color ?? 'emerald',
+        avatarPath: (u as any).avatar_path ?? null,
         hasRecoveryPin: Boolean(u.recovery_pin_hash),
       })
     }
@@ -475,7 +480,7 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
 /** Update local user profile. */
 export async function updateLocalUser(
   userId: string,
-  updates: { name?: string; homeAirport?: string; pin?: string; avatarColor?: string }
+  updates: { name?: string; homeAirport?: string; pin?: string; avatarColor?: string; avatarPath?: string }
 ): Promise<void> {
   const db = await getDb()
   if (!db) return
@@ -504,6 +509,12 @@ export async function updateLocalUser(
         `UPDATE users SET avatar_color = $1 WHERE id = $2`,
         `UPDATE users SET avatar_color = ? WHERE id = ?`,
       ], [updates.avatarColor, userId])
+    }
+    if (updates.avatarPath !== undefined) {
+      await tryExecute(db, [
+        `UPDATE users SET avatar_path = $1 WHERE id = $2`,
+        `UPDATE users SET avatar_path = ? WHERE id = ?`,
+      ], [updates.avatarPath, userId])
     }
   } catch (err) {
     console.error('[local-auth] updateLocalUser failed:', err)
