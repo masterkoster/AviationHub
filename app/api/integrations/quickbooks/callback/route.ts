@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { QuickBooksClient } from '@/lib/integrations/quickbooks-client'
+import { isFinanceRole } from '@/lib/club/roles'
+import { exchangeCode, tokenExpiryDate } from '@/lib/quickbooks'
 
 /**
  * GET /api/integrations/quickbooks/callback
  *
- * OAuth callback from QuickBooks
- * Exchanges authorization code for access/refresh tokens
- * Creates or updates Integration record in database
+ * OAuth callback from QuickBooks. Exchanges the authorization code for
+ * access/refresh tokens and persists them to the Integration record.
+ *
+ * The browser still carries the user's session cookie on this redirect back
+ * from Intuit. We require it, and require the caller to be a finance role
+ * (ADMIN or TREASURER) of the group the connection is being made for --
+ * otherwise anyone who could get this URL to load in an authenticated browser
+ * could bind OAuth tokens to another club's Integration record.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -18,10 +24,9 @@ export async function GET(request: NextRequest) {
     const realmId = searchParams.get('realmId')
     const error = searchParams.get('error')
 
-    // Check for OAuth errors
     if (error) {
       return NextResponse.redirect(
-        new URL(`/flying-club/manage/add-ons?error=${error}`, request.url)
+        new URL(`/flying-club/manage/add-ons?error=${encodeURIComponent(error)}`, request.url)
       )
     }
 
@@ -40,12 +45,6 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // The browser still carries the user's session cookie on this redirect
-    // back from QuickBooks. Require it, and require the caller to be an
-    // admin of the group the connection is being made for — otherwise
-    // anyone who can guess/observe a groupId could bind their own
-    // QuickBooks tokens to another club's Integration record by crafting
-    // this callback URL directly.
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.redirect(
@@ -54,24 +53,19 @@ export async function GET(request: NextRequest) {
     }
 
     const membership = await prisma.organizationMember.findFirst({
-      where: { organizationId: groupId, userId: session.user.id, role: 'ADMIN' },
+      where: { organizationId: groupId, userId: session.user.id },
     })
-    if (!membership) {
+    if (!membership || !isFinanceRole(membership.role)) {
       return NextResponse.redirect(
         new URL('/flying-club/manage/add-ons?error=not_authorized', request.url)
       )
     }
 
-    // Exchange code for tokens
-    const client = new QuickBooksClient()
-    const tokens = await client.exchangeCodeForToken(code)
+    // Exchange the code for tokens (throws QuickBooksApiError on failure).
+    const tokens = await exchangeCode(code)
+    const tokenExpiry = tokenExpiryDate(tokens.expiresIn)
 
-    // Calculate token expiry
-    const tokenExpiry = new Date()
-    tokenExpiry.setSeconds(tokenExpiry.getSeconds() + tokens.expiresIn)
-
-    // Create or update integration record
-    const integration = await prisma.integration.upsert({
+    await prisma.integration.upsert({
       where: {
         organizationId_provider: {
           organizationId: groupId,
@@ -84,22 +78,19 @@ export async function GET(request: NextRequest) {
         status: 'connected',
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        tokenExpiry: tokenExpiry,
-        realmId: tokens.realmId || realmId,
-        lastSyncStatus: 'success',
+        tokenExpiry,
+        realmId,
       },
       update: {
         status: 'connected',
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        tokenExpiry: tokenExpiry,
-        realmId: tokens.realmId || realmId,
-        lastSyncStatus: 'success',
-        updatedAt: new Date(),
+        tokenExpiry,
+        realmId,
+        lastSyncError: null,
       },
     })
 
-    // Redirect back to add-ons page with success message
     return NextResponse.redirect(
       new URL('/flying-club/manage/add-ons?success=quickbooks_connected', request.url)
     )

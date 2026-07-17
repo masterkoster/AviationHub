@@ -2,24 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { isUuid } from '@/lib/validate'
-import { QuickBooksClient } from '@/lib/integrations/quickbooks-client'
+import { isFinanceRole } from '@/lib/club/roles'
+import { getAuthorizeUrl, isQuickBooksConfigured } from '@/lib/quickbooks'
 import { randomBytes } from 'crypto'
 
 /**
- * GET /api/integrations/quickbooks/connect
- * 
- * Initiates QuickBooks OAuth flow
- * Redirects user to QuickBooks authorization page
+ * GET /api/integrations/quickbooks/connect?groupId=xxx
+ *
+ * Initiates the QuickBooks OAuth flow. Returns { authUrl } for the client to
+ * redirect the admin/treasurer to Intuit. Finance-gated (ADMIN or TREASURER).
  */
 export async function GET(request: NextRequest) {
   try {
     const session = await auth()
-    
+
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get groupId from query params
     const searchParams = request.nextUrl.searchParams
     const groupId = searchParams.get('groupId')
 
@@ -31,25 +31,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 })
     }
 
-    // Verify user has admin access to this group
+    // Verify the caller is a finance role (ADMIN or TREASURER) of this group.
     const membership = await prisma.organizationMember.findFirst({
-      where: { organizationId: groupId, userId: session.user.id, role: 'ADMIN' },
+      where: { organizationId: groupId, userId: session.user.id },
     })
-    if (!membership) {
+    if (!membership || !isFinanceRole(membership.role)) {
       return NextResponse.json(
-        { error: 'Only group admins can manage the QuickBooks integration' },
+        { error: 'Only group admins or the treasurer can manage the QuickBooks integration' },
         { status: 403 }
       )
     }
 
-    // Generate random state for CSRF protection
-    const state = randomBytes(32).toString('hex')
+    if (!isQuickBooksConfigured()) {
+      return NextResponse.json(
+        { error: 'QuickBooks is not configured on this server. Set QUICKBOOKS_CLIENT_ID and QUICKBOOKS_CLIENT_SECRET.' },
+        { status: 503 }
+      )
+    }
 
-    // Store state in session/cookie for verification in callback
-    // For now, we'll encode it in the URL - in production use session storage
-    
-    const client = new QuickBooksClient()
-    const authUrl = client.getAuthorizationUrl(state, groupId)
+    // state carries the groupId so the callback can bind tokens to the right
+    // org (format "groupId:random"); the random half is CSRF entropy.
+    const state = `${groupId}:${randomBytes(24).toString('hex')}`
+    const authUrl = getAuthorizeUrl(state)
 
     return NextResponse.json({
       success: true,
