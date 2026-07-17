@@ -221,6 +221,7 @@ model User {
   MarketplaceListing          MarketplaceListing[]
   LogbookStartingTotal        LogbookStartingTotal?
   GroupChatMessage            GroupChatMessage[]
+  integrations                Integration[]
 
   @@index([resetToken])
   @@map("User")
@@ -1952,10 +1953,20 @@ model OutreachEmail {
 // ────────────────────────────────────────────────────────────────────────────
 
 model Integration {
-  id             String @id @default(uuid()) @db.NVarChar(36)
-  organizationId String @db.NVarChar(36) // Organization this integration belongs to
-  provider       String @db.NVarChar(50) // "quickbooks", "google-calendar", "zapier"
-  status         String @default("disconnected") @db.NVarChar(20) // "connected", "disconnected", "error"
+  id             String  @id @default(uuid()) @db.NVarChar(36)
+  // Exactly one of organizationId (club scope) / userId (personal scope) is
+  // set. Enforced by two SQL Server FILTERED unique indexes created via raw
+  // SQL in prisma/migrations/integration_user_scope.sql — NOT representable
+  // as a single Prisma @@unique since either column may be NULL:
+  //   Integration_org_provider  UNIQUE (organizationId, provider) WHERE organizationId IS NOT NULL
+  //   Integration_user_provider UNIQUE (userId, provider)         WHERE userId IS NOT NULL
+  // The generated Prisma client predates this migration (client was not
+  // regenerated - see docs/QUICKBOOKS.md), so personal-Integration reads and
+  // writes go through parameterized raw SQL rather than the typed client.
+  organizationId String? @db.NVarChar(36) // Organization this integration belongs to (club scope)
+  userId         String? @db.NVarChar(36) // User this integration belongs to (personal scope)
+  provider       String  @db.NVarChar(50) // "quickbooks", "google-calendar", "zapier"
+  status         String  @default("disconnected") @db.NVarChar(20) // "connected", "disconnected", "error"
 
   // OAuth tokens (encrypted in production)
   accessToken  String?   @db.NVarChar(Max)
@@ -1975,12 +1986,15 @@ model Integration {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization?       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
   mappings     QuickBooksMapping[]
   syncLogs     SyncLog[]
 
-  @@unique([organizationId, provider])
+  @@index([organizationId, provider])
+  @@index([userId, provider])
   @@index([organizationId])
+  @@index([userId])
   @@index([provider])
   @@index([status])
   @@map("Integration")

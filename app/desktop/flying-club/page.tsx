@@ -14,6 +14,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 import ClubScheduleView from './_components/ClubScheduleView'
+import { QuickBooksCard } from './_components/quickbooks-card'
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -2758,6 +2759,8 @@ function BillingTab({ groupId, isFinance, aircraft, clubName }: { groupId: strin
       </Card>
 
       {isFinance && <PaymentsCard groupId={groupId} />}
+
+      {isFinance && <QuickBooksCard groupId={groupId} />}
 
       {isFinance && <BillingScheduleCard groupId={groupId} />}
 

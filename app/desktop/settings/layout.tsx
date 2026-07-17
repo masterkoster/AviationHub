@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Monitor, Eye, Database, Bell, Shield, User, Info, Search, Gauge } from 'lucide-react'
+import { Monitor, Eye, Database, Bell, Shield, User, Info, Search, Gauge, Calculator } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -17,6 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/desktop/settings/units', label: 'Units & Formats', icon: <Eye className="h-3.5 w-3.5" /> },
   { href: '/desktop/settings/performance', label: 'Performance', icon: <Gauge className="h-3.5 w-3.5" /> },
   { href: '/desktop/settings/data', label: 'Data Management', icon: <Database className="h-3.5 w-3.5" /> },
+  { href: '/desktop/settings/accounting', label: 'Accounting', icon: <Calculator className="h-3.5 w-3.5" /> },
   { href: '/desktop/settings/notifications', label: 'Notifications', icon: <Bell className="h-3.5 w-3.5" /> },
   { href: '/desktop/settings/privacy', label: 'Privacy', icon: <Shield className="h-3.5 w-3.5" /> },
   { href: '/desktop/settings/account', label: 'Account', icon: <User className="h-3.5 w-3.5" /> },

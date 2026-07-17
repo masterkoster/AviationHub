@@ -26,13 +26,13 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       return NextResponse.redirect(
-        new URL(`/flying-club/manage/add-ons?error=${encodeURIComponent(error)}`, request.url)
+        new URL(`/desktop/flying-club?error=${encodeURIComponent(error)}`, request.url)
       )
     }
 
     if (!code || !state || !realmId) {
       return NextResponse.redirect(
-        new URL('/flying-club/manage/add-ons?error=missing_parameters', request.url)
+        new URL('/desktop/flying-club?error=missing_parameters', request.url)
       )
     }
 
@@ -41,14 +41,14 @@ export async function GET(request: NextRequest) {
 
     if (!groupId) {
       return NextResponse.redirect(
-        new URL('/flying-club/manage/add-ons?error=invalid_state', request.url)
+        new URL('/desktop/flying-club?error=invalid_state', request.url)
       )
     }
 
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.redirect(
-        new URL('/flying-club/manage/add-ons?error=not_authenticated', request.url)
+        new URL('/desktop/flying-club?error=not_authenticated', request.url)
       )
     }
 
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     })
     if (!membership || !isFinanceRole(membership.role)) {
       return NextResponse.redirect(
-        new URL('/flying-club/manage/add-ons?error=not_authorized', request.url)
+        new URL('/desktop/flying-club?error=not_authorized', request.url)
       )
     }
 
@@ -92,12 +92,12 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.redirect(
-      new URL('/flying-club/manage/add-ons?success=quickbooks_connected', request.url)
+      new URL('/desktop/flying-club?success=quickbooks_connected', request.url)
     )
   } catch (error) {
     console.error('QuickBooks callback error:', error)
     return NextResponse.redirect(
-      new URL('/flying-club/manage/add-ons?error=connection_failed', request.url)
+      new URL('/desktop/flying-club?error=connection_failed', request.url)
     )
   }
 }
