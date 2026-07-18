@@ -1369,6 +1369,8 @@ model FuelExpense {
   notes          String?   @db.NVarChar(Max)
   approvedBy     String?   @db.NVarChar(36)
   approvedAt     DateTime?
+  airportIcao    String?   @db.NVarChar(10)
+  fuelType       String?   @db.NVarChar(20)
   createdAt      DateTime? @default(now())
   updatedAt      DateTime? @default(now()) @updatedAt
 
