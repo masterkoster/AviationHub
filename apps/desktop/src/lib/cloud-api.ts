@@ -148,4 +148,159 @@ export const cloudApi = {
   getFuelLogs() {
     return request<{ fuelLogs: Array<{ id: string; airportIcao: string | null; gallons: number; pricePerGallon: number; totalCost: number; fuelType: string | null; notes: string | null; createdAt: string }> }>('/api/me/fuel')
   },
+
+  // ── Aircraft cost of ownership ──────────────────────────────
+
+  listAircraftCost() {
+    return request<{ profiles: AircraftCostProfile[] }>('/api/me/aircraft-cost')
+  },
+
+  createAircraftCost(payload: { nNumber: string; engineModelKey?: string; userAircraftId?: string; nickname?: string }) {
+    return request<{
+      profile: AircraftCostProfile
+      reservesPerHourPreview: ReservesBreakdown
+      engineMatched: boolean
+      matchedBy: 'engine' | 'airframe' | 'manual' | null
+    }>('/api/me/aircraft-cost', { method: 'POST', body: JSON.stringify(payload) })
+  },
+
+  updateAircraftCost(id: string, payload: Partial<AircraftCostEditableFields>) {
+    return request<{ profile: AircraftCostProfile }>(`/api/me/aircraft-cost/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  getAircraftCostSummary(id: string, fuelPrice?: number) {
+    const qs = fuelPrice !== undefined ? `?fuelPrice=${encodeURIComponent(String(fuelPrice))}` : ''
+    return request<AircraftCostSummary>(`/api/me/aircraft-cost/${id}/summary${qs}`)
+  },
+
+  calcFlightCost(
+    id: string,
+    payload: { hours: number; actualFuelCost?: number; fuelPricePerGal?: number; customItems?: { label: string; amount: number }[] }
+  ) {
+    return request<FlightCostResponse>(`/api/me/aircraft-cost/${id}/flight-cost`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  listEngineReference() {
+    return request<{ engines: EngineReference[] }>('/api/me/aircraft-cost/engines')
+  },
+}
+
+// ── Aircraft cost types ───────────────────────────────────────
+
+export interface ReservesBreakdown {
+  engine: number
+  prop: number
+  maint: number
+  oil: number
+  total: number
+}
+
+export interface AircraftCostProfile {
+  id: string
+  scope: string
+  userId: string | null
+  userAircraftId: string | null
+  clubAircraftId: string | null
+  organizationId: string | null
+  nNumber: string | null
+  engineModelKey: string | null
+  tboHours: number | null
+  overhaulCost: number | null
+  propOverhaulHours: number | null
+  propOverhaulCost: number | null
+  costYear: number | null
+  fuelBurnGph: number | null
+  oilReservePerHour: number | null
+  maintReservePerHour: number | null
+  insuranceAnnual: number | null
+  hangarMonthly: number | null
+  annualInspectionCost: number | null
+  financingMonthly: number | null
+  subscriptionsAnnual: number | null
+  otherFixedAnnual: number | null
+  expectedAnnualHours: number | null
+  hourlyRateOverride: number | null
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AircraftCostEditableFields {
+  fuelBurnGph: number | null
+  oilReservePerHour: number | null
+  maintReservePerHour: number | null
+  insuranceAnnual: number | null
+  hangarMonthly: number | null
+  annualInspectionCost: number | null
+  financingMonthly: number | null
+  subscriptionsAnnual: number | null
+  otherFixedAnnual: number | null
+  expectedAnnualHours: number | null
+  hourlyRateOverride: number | null
+  tboHours: number | null
+  overhaulCost: number | null
+  propOverhaulHours: number | null
+  propOverhaulCost: number | null
+  notes: string | null
+}
+
+export interface AircraftCostSummary {
+  profileId: string
+  nNumber: string | null
+  engineModelKey: string | null
+  reservesPerHour: ReservesBreakdown
+  fixedAnnual: number
+  fixedPerHour: number | null
+  allInPerHour: number
+  isEstimate: true
+  components: {
+    fuelPricePerGal: number | null
+    fuelBurnGph: number | null
+    expectedAnnualHours: number | null
+    hourlyRateOverride: number | null
+    insuranceAnnual: number | null
+    hangarMonthly: number | null
+    annualInspectionCost: number | null
+    financingMonthly: number | null
+    subscriptionsAnnual: number | null
+    otherFixedAnnual: number | null
+  }
+}
+
+export interface FlightCostResponse {
+  profileId: string
+  reserves: number
+  fuel: number
+  fixed: number
+  custom: number
+  total: number
+  breakdown: {
+    reservesPerHour: number
+    fixedPerHour: number | null
+    hours: number
+    fuelBurnGph: number
+    fuelPricePerGal: number | null
+    actualFuelCost: number | null
+    customItems: { label: string; amount: number }[]
+  }
+}
+
+export interface EngineReference {
+  engineModelKey: string
+  engineMfr: string | null
+  engineModel: string | null
+  aircraftClass: string | null
+  tboHours: number | null
+  overhaulCost: number | null
+  propOverhaulHours: number | null
+  propOverhaulCost: number | null
+  annualInspectionCost: number | null
+  costYear: number
+  isEstimate: boolean
 }
