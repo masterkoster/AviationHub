@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth, prisma } from '@/lib/auth';
+import { isDisputed } from '@/lib/fuel/dispute';
+import { getVoteAggregates } from '@/lib/fuel/votes';
 
 const VALID_FUEL_TYPES = ['100LL', 'JetA', 'MOGAS', 'UL94'];
 const WEEKS_WINDOW = 16;
 
 type PriceRow = {
+  id: string;
   icao: string;
   fuelType: string;
   price: unknown;
@@ -41,12 +44,24 @@ export async function GET(request: NextRequest) {
       where.icao = { startsWith: icaoParam };
     }
 
-    const rows = (await prisma.communityFuelPrice.findMany({
+    const fetched = (await prisma.communityFuelPrice.findMany({
       where,
       orderBy: { purchaseDate: 'asc' },
       take: 1000,
-      select: { icao: true, fuelType: true, price: true, purchaseDate: true, userId: true },
+      select: { id: true, icao: true, fuelType: true, price: true, purchaseDate: true, userId: true },
     })) as unknown as PriceRow[];
+
+    // Exclude disputed submissions so a manipulated/incorrect outlier can't
+    // skew the trend chart or stats (average, cheapest, history).
+    const voteById = await getVoteAggregates(
+      prisma,
+      fetched.map((r) => r.id),
+      session.user.id
+    );
+    const rows = fetched.filter((row) => {
+      const vote = voteById.get(row.id) ?? { up: 0, down: 0, myVote: 0 };
+      return !isDisputed(vote.up, vote.down);
+    });
 
     const distinctIcaos = Array.from(new Set(rows.map((r) => r.icao)));
     const scope: 'airport' | 'overall' = distinctIcaos.length === 1 ? 'airport' : 'overall';

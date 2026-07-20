@@ -2,7 +2,18 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
-import { Fuel, Loader2, PlusCircle, Search, DollarSign, TrendingDown, Users, ListChecks } from 'lucide-react'
+import {
+  Fuel,
+  Loader2,
+  PlusCircle,
+  Search,
+  DollarSign,
+  TrendingDown,
+  Users,
+  ListChecks,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react'
 import { cloudApi, type FuelFeedRow } from '@/apps/desktop/src/lib/cloud-api'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { ErrorCard } from '@/desktop/components/error-card'
@@ -99,6 +110,7 @@ export default function DesktopFuelPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [dialogInitial, setDialogInitial] = useState<{ icao: string; fuelType: string } | null>(null)
 
   // Trend + stats
   const [trendScope, setTrendScope] = useState<'airport' | 'overall'>('overall')
@@ -187,7 +199,43 @@ export default function DesktopFuelPage() {
 
   function handleReported() {
     setDialogOpen(false)
+    setDialogInitial(null)
     load(0, false)
+  }
+
+  function applyVoteResult(rowId: string, res: { upvotes: number; downvotes: number; score: number; myVote: number; disputed: boolean }) {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === rowId
+          ? { ...r, upvotes: res.upvotes, downvotes: res.downvotes, score: res.score, myVote: res.myVote, disputed: res.disputed }
+          : r
+      )
+    )
+  }
+
+  async function handleVote(row: FuelFeedRow, value: -1 | 0 | 1) {
+    try {
+      const res = await cloudApi.voteFuelPrice(row.id, value)
+      applyVoteResult(row.id, res)
+    } catch (err) {
+      notifyError('Vote', err instanceof Error ? err.message : 'Failed to vote')
+    }
+  }
+
+  async function handleDispute(row: FuelFeedRow) {
+    try {
+      const res = await cloudApi.voteFuelPrice(row.id, -1)
+      applyVoteResult(row.id, res)
+    } catch (err) {
+      notifyError('Vote', err instanceof Error ? err.message : 'Failed to vote')
+    }
+    setDialogInitial({ icao: row.icao, fuelType: row.fuelType })
+    setDialogOpen(true)
+  }
+
+  function openReportDialog() {
+    setDialogInitial(null)
+    setDialogOpen(true)
   }
 
   return (
@@ -202,7 +250,7 @@ export default function DesktopFuelPage() {
           <p className="text-sm text-muted-foreground">Community-submitted fuel prices from other pilots.</p>
         </div>
         {status === 'authenticated' && (
-          <Button onClick={() => setDialogOpen(true)}>
+          <Button onClick={openReportDialog}>
             <PlusCircle className="h-4 w-4" />
             Report a price
           </Button>
@@ -293,7 +341,7 @@ export default function DesktopFuelPage() {
             <>
               <div className="grid gap-3 sm:grid-cols-2">
                 {rows.map((row) => (
-                  <FuelPriceCard key={row.id} row={row} />
+                  <FuelPriceCard key={row.id} row={row} onVote={handleVote} onDispute={handleDispute} />
                 ))}
               </div>
 
@@ -310,7 +358,15 @@ export default function DesktopFuelPage() {
         </>
       )}
 
-      <ReportPriceDialog open={dialogOpen} onOpenChange={setDialogOpen} onReported={handleReported} />
+      <ReportPriceDialog
+        open={dialogOpen}
+        onOpenChange={(next) => {
+          setDialogOpen(next)
+          if (!next) setDialogInitial(null)
+        }}
+        onReported={handleReported}
+        initial={dialogInitial}
+      />
     </div>
   )
 }
@@ -454,17 +510,28 @@ function TrendChart({
 
 // ── Fuel price card ───────────────────────────────────────────
 
-function FuelPriceCard({ row }: { row: FuelFeedRow }) {
+function FuelPriceCard({
+  row,
+  onVote,
+  onDispute,
+}: {
+  row: FuelFeedRow
+  onVote: (row: FuelFeedRow, value: -1 | 0 | 1) => void
+  onDispute: (row: FuelFeedRow) => void
+}) {
   const chipClass = FUEL_TYPE_CHIP_CLASS[row.fuelType] || 'border-border bg-muted text-muted-foreground'
 
   return (
-    <Card className="py-4">
+    <Card className={row.disputed ? 'py-4 opacity-70' : 'py-4'}>
       <CardContent className="px-4">
         <div className="mb-2 flex items-start justify-between gap-2">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-base font-bold text-foreground">{row.icao}</span>
             {row.isMine && (
               <Badge variant="secondary" className="text-[10px]">you</Badge>
+            )}
+            {row.disputed && (
+              <Badge variant="destructive" className="text-[10px]">Disputed</Badge>
             )}
           </div>
           <Badge variant="outline" className={chipClass}>
@@ -472,21 +539,85 @@ function FuelPriceCard({ row }: { row: FuelFeedRow }) {
           </Badge>
         </div>
 
-        <div className="mb-2">
-          <span className="text-2xl font-bold tabular-nums text-foreground">{fmtMoney(row.price)}</span>
-          <span className="ml-1 text-xs font-normal text-muted-foreground">/gal</span>
+        <div className="mb-2 flex items-end justify-between gap-2">
+          <div>
+            <span className="text-2xl font-bold tabular-nums text-foreground">{fmtMoney(row.price)}</span>
+            <span className="ml-1 text-xs font-normal text-muted-foreground">/gal</span>
+          </div>
+          <VoteControl row={row} onVote={onVote} />
         </div>
 
         <p className="mb-2 truncate text-sm text-muted-foreground">{row.fbo || 'FBO not specified'}</p>
 
-        <p className="text-xs text-muted-foreground">
-          {fmtDate(row.purchaseDate)}{' '}
-          <span className="text-muted-foreground/70">({relativeTime(row.purchaseDate)})</span>
-          {' · reported by '}
-          {row.submittedBy || 'a pilot'}
-        </p>
+        <div className="flex items-end justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {fmtDate(row.purchaseDate)}{' '}
+            <span className="text-muted-foreground/70">({relativeTime(row.purchaseDate)})</span>
+            {' · reported by '}
+            {row.submittedBy || 'a pilot'}
+          </p>
+          {!row.isMine && (
+            <button
+              type="button"
+              onClick={() => onDispute(row)}
+              className="shrink-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-destructive hover:underline"
+            >
+              Dispute
+            </button>
+          )}
+        </div>
       </CardContent>
     </Card>
+  )
+}
+
+// ── Vote control ──────────────────────────────────────────────
+
+function VoteControl({
+  row,
+  onVote,
+}: {
+  row: FuelFeedRow
+  onVote: (row: FuelFeedRow, value: -1 | 0 | 1) => void
+}) {
+  const disabled = row.isMine
+
+  function cast(value: 1 | -1) {
+    if (disabled) return
+    onVote(row, row.myVote === value ? 0 : value)
+  }
+
+  return (
+    <div
+      className="flex items-center gap-1 rounded-md border border-border px-1.5 py-1"
+      title={disabled ? "You can't vote on your own submission" : undefined}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => cast(1)}
+        className={`rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-40 ${
+          row.myVote === 1 ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground hover:text-foreground'
+        }`}
+        aria-label="Upvote"
+      >
+        <ChevronUp className="h-4 w-4" />
+      </button>
+      <span className="min-w-[1.25rem] text-center text-xs font-semibold tabular-nums text-foreground">
+        {row.score}
+      </span>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => cast(-1)}
+        className={`rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-40 ${
+          row.myVote === -1 ? 'text-destructive' : 'text-muted-foreground hover:text-foreground'
+        }`}
+        aria-label="Downvote"
+      >
+        <ChevronDown className="h-4 w-4" />
+      </button>
+    </div>
   )
 }
 
@@ -496,10 +627,12 @@ function ReportPriceDialog({
   open,
   onOpenChange,
   onReported,
+  initial,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onReported: () => void
+  initial?: { icao: string; fuelType: string } | null
 }) {
   const [icao, setIcao] = useState('')
   const [fbo, setFbo] = useState('')
@@ -511,13 +644,18 @@ function ReportPriceDialog({
 
   useEffect(() => {
     if (open) {
-      setIcao('')
+      setIcao(initial?.icao || '')
       setFbo('')
-      setFuelType('100LL')
+      setFuelType(
+        initial?.fuelType && (FUEL_TYPES as readonly string[]).includes(initial.fuelType)
+          ? (initial.fuelType as FuelType)
+          : '100LL'
+      )
       setPrice('')
       setDate(todayIso())
       setFormError(null)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   function validate(): string | null {
@@ -564,7 +702,11 @@ function ReportPriceDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Report a fuel price</DialogTitle>
-          <DialogDescription>Share what you paid to help other pilots plan fuel stops.</DialogDescription>
+          <DialogDescription>
+            {initial
+              ? 'Submit the real price you paid — this helps correct the disputed submission.'
+              : 'Share what you paid to help other pilots plan fuel stops.'}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">

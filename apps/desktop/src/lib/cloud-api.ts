@@ -172,6 +172,20 @@ export const cloudApi = {
     })
   },
 
+  voteFuelPrice(fuelPriceId: string, value: -1 | 0 | 1) {
+    return request<{
+      fuelPriceId: string
+      upvotes: number
+      downvotes: number
+      score: number
+      myVote: number
+      disputed: boolean
+    }>('/api/fuel-prices/feed/vote', {
+      method: 'POST',
+      body: JSON.stringify({ fuelPriceId, value }),
+    })
+  },
+
   getFuelTrend(params: { icao?: string; fuelType?: string }) {
     const qs = new URLSearchParams()
     if (params.icao) qs.set('icao', params.icao)
@@ -245,6 +259,11 @@ export interface FuelFeedRow {
   createdAt: string
   isMine: boolean
   submittedBy: string | null
+  upvotes: number
+  downvotes: number
+  score: number
+  myVote: number
+  disputed: boolean
 }
 
 // ── Aircraft cost types ───────────────────────────────────────

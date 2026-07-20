@@ -1660,6 +1660,22 @@ model CommunityFuelPrice {
   @@map("CommunityFuelPrice")
 }
 
+// Documentation-only model — NOT part of the generated client in this
+// environment (the client is not regenerated here). Access is via raw SQL
+// only; see prisma/migrations/fuel_price_vote.sql and lib/fuel/votes.ts.
+model FuelPriceVote {
+  id          String   @id @default(uuid()) @db.NVarChar(36)
+  fuelPriceId String   @db.NVarChar(36)
+  userId      String   @db.NVarChar(36)
+  value       Int      @db.SmallInt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@unique([fuelPriceId, userId])
+  @@index([fuelPriceId])
+  @@map("FuelPriceVote")
+}
+
 model AircraftCache {
   id           Int     @id @default(autoincrement())
   manufacturer String  @db.NVarChar(100)

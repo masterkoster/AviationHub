@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth, prisma } from '@/lib/auth';
+import { isDisputed, voteScore } from '@/lib/fuel/dispute';
+import { getVoteAggregates, type VoteAggregate } from '@/lib/fuel/votes';
 
 const VALID_FUEL_TYPES = ['100LL', 'JetA', 'MOGAS', 'UL94'];
 const VALID_SORTS = ['recent', 'cheapest', 'highest'];
@@ -16,8 +18,14 @@ type FeedRow = {
   userId: string | null;
 };
 
-function serialize(row: FeedRow, currentUserId: string, usernameById: Map<string, string>) {
+function serialize(
+  row: FeedRow,
+  currentUserId: string,
+  usernameById: Map<string, string>,
+  voteById: Map<string, VoteAggregate>
+) {
   const username = row.userId ? usernameById.get(row.userId) : undefined;
+  const vote = voteById.get(row.id) ?? { up: 0, down: 0, myVote: 0 };
   return {
     id: row.id,
     icao: row.icao,
@@ -28,6 +36,11 @@ function serialize(row: FeedRow, currentUserId: string, usernameById: Map<string
     createdAt: row.createdAt,
     isMine: row.userId != null && row.userId === currentUserId,
     submittedBy: username ? `@${username}` : null,
+    upvotes: vote.up,
+    downvotes: vote.down,
+    score: voteScore(vote.up, vote.down),
+    myVote: vote.myVote,
+    disputed: isDisputed(vote.up, vote.down),
   };
 }
 
@@ -79,21 +92,34 @@ export async function GET(request: NextRequest) {
         : { purchaseDate: 'desc' as const };
 
     if (mode === 'latest') {
-      // Fetch a reasonable window of the most-recent matching rows, then
-      // dedupe in JS keeping only the most recent submission per icao+fuelType.
-      const window = await prisma.communityFuelPrice.findMany({
+      // Fetch a reasonable window of the most-recent matching rows, exclude
+      // disputed submissions so a manipulated/incorrect price can't win the
+      // "latest per airport" slot, then dedupe in JS keeping only the most
+      // recent remaining submission per icao+fuelType.
+      const window = (await prisma.communityFuelPrice.findMany({
         where,
         orderBy: { purchaseDate: 'desc' },
         take: 500,
+      })) as unknown as FeedRow[];
+
+      const windowVotes = await getVoteAggregates(
+        prisma,
+        window.map((r) => r.id),
+        session.user.id
+      );
+
+      const undisputed = window.filter((row) => {
+        const vote = windowVotes.get(row.id) ?? { up: 0, down: 0, myVote: 0 };
+        return !isDisputed(vote.up, vote.down);
       });
 
       const seen = new Set<string>();
       const deduped: FeedRow[] = [];
-      for (const row of window) {
+      for (const row of undisputed) {
         const key = `${row.icao}-${row.fuelType}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        deduped.push(row as unknown as FeedRow);
+        deduped.push(row);
       }
 
       // Apply requested sort to the deduped set.
@@ -110,7 +136,7 @@ export async function GET(request: NextRequest) {
       const usernameById = await buildUsernameMap(page);
 
       return NextResponse.json({
-        prices: page.map((row) => serialize(row, session.user!.id!, usernameById)),
+        prices: page.map((row) => serialize(row, session.user!.id!, usernameById, windowVotes)),
         mode,
         hasMore,
       });
@@ -127,9 +153,14 @@ export async function GET(request: NextRequest) {
     const hasMore = rows.length > limit;
     const page = (hasMore ? rows.slice(0, limit) : rows) as unknown as FeedRow[];
     const usernameById = await buildUsernameMap(page);
+    const voteById = await getVoteAggregates(
+      prisma,
+      page.map((r) => r.id),
+      session.user.id
+    );
 
     return NextResponse.json({
-      prices: page.map((row) => serialize(row, session.user!.id!, usernameById)),
+      prices: page.map((row) => serialize(row, session.user!.id!, usernameById, voteById)),
       mode,
       hasMore,
     });
