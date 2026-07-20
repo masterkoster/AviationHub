@@ -2400,3 +2400,67 @@ model FaaAircraftCache {
 
   @@map("FaaAircraftCache")
 }
+
+// ── Aircraft cost-of-ownership model (Phase 2) ──
+// NOTE: these tables are created via prisma/migrations/aircraft_cost_model.sql
+// and accessed via raw SQL (the generated client is not regenerated here).
+
+model EngineMaintenanceProfile {
+  id                   String    @id @default(dbgenerated("newid()"), map: "DF_EngMaint_id") @db.NVarChar(36)
+  engineModelKey       String    @db.NVarChar(120) // normalized family token, e.g. 'O-320', 'IO-550'
+  engineMfr            String?   @db.NVarChar(100)
+  engineModel          String?   @db.NVarChar(100)
+  aircraftClass        String?   @db.NVarChar(50) // PISTON_SINGLE, PISTON_TWIN, LSA
+  tboHours             Int?
+  tboMonths            Int?
+  overhaulCost         Decimal?  @db.Decimal(10, 2)
+  propOverhaulHours    Int?
+  propOverhaulCost     Decimal?  @db.Decimal(10, 2)
+  annualInspectionCost Decimal?  @db.Decimal(10, 2)
+  costYear             Int       @default(2026)
+  isEstimate           Boolean   @default(true)
+  source               String?   @db.NVarChar(200)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now()) @updatedAt
+
+  @@unique([engineModelKey, costYear], map: "UX_EngMaint_key_year")
+  @@map("EngineMaintenanceProfile")
+}
+
+model AircraftCostProfile {
+  id                   String    @id @default(dbgenerated("newid()"), map: "DF_AcCost_id") @db.NVarChar(36)
+  scope                String    @db.NVarChar(20) // PERSONAL | CLUB
+  userId               String?   @db.NVarChar(36)
+  userAircraftId       String?   @db.NVarChar(36)
+  clubAircraftId       String?   @db.NVarChar(36)
+  organizationId       String?   @db.NVarChar(36)
+  nNumber              String?   @db.NVarChar(10)
+  engineModelKey       String?   @db.NVarChar(120)
+  // cached reserve snapshot (from reference, editable):
+  tboHours             Int?
+  overhaulCost         Decimal?  @db.Decimal(10, 2)
+  propOverhaulHours    Int?
+  propOverhaulCost     Decimal?  @db.Decimal(10, 2)
+  costYear             Int?
+  // variable reserve inputs:
+  fuelBurnGph          Decimal?  @db.Decimal(6, 2)
+  oilReservePerHour    Decimal?  @db.Decimal(8, 2)
+  maintReservePerHour  Decimal?  @db.Decimal(8, 2)
+  // fixed annual costs:
+  insuranceAnnual      Decimal?  @db.Decimal(10, 2)
+  hangarMonthly        Decimal?  @db.Decimal(10, 2)
+  annualInspectionCost Decimal?  @db.Decimal(10, 2)
+  financingMonthly     Decimal?  @db.Decimal(10, 2)
+  subscriptionsAnnual  Decimal?  @db.Decimal(10, 2)
+  otherFixedAnnual     Decimal?  @db.Decimal(10, 2)
+  expectedAnnualHours  Decimal?  @db.Decimal(8, 2)
+  hourlyRateOverride   Decimal?  @db.Decimal(10, 2)
+  notes                String?   @db.NVarChar(Max)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now()) @updatedAt
+
+  @@index([userId], map: "IX_AcCost_user")
+  @@index([clubAircraftId], map: "IX_AcCost_club")
+  @@index([userAircraftId], map: "IX_AcCost_uac")
+  @@map("AircraftCostProfile")
+}
