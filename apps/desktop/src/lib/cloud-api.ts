@@ -141,4 +141,11 @@ export const cloudApi = {
   async deleteAircraft(id: string): Promise<void> {
     await request(`/api/v1/aircraft/${id}`, { method: 'DELETE' })
   },
+
+  logFuel(payload: { airportIcao: string; gallons: number; pricePerGallon: number; fuelType: string; purchaseDate?: string; notes?: string; contributeToCommunity?: boolean }) {
+    return request<{ id: string; totalCost: number; contributed: boolean }>('/api/me/fuel', { method: 'POST', body: JSON.stringify(payload) })
+  },
+  getFuelLogs() {
+    return request<{ fuelLogs: Array<{ id: string; airportIcao: string | null; gallons: number; pricePerGallon: number; totalCost: number; fuelType: string | null; notes: string | null; createdAt: string }> }>('/api/me/fuel')
+  },
 }

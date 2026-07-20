@@ -30,6 +30,7 @@ import {
   Lock,
   Compass,
   Shield,
+  Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
@@ -101,6 +102,7 @@ const NAV_GROUPS: NavGroup[] = [
         ],
       },
       { label: 'Reports', href: '/desktop/reports', icon: FileText },
+      { label: 'Expenses', href: '/desktop/expenses', icon: Receipt },
     ],
   },
   // ── MANAGE — assets & people ──
@@ -109,14 +111,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Manage',
     items: [
       { label: 'Aircraft', href: '/desktop/aircraft', icon: Plane, shortcut: '5' },
-      {
-        label: 'Flying Club',
-        href: '/desktop/flying-club',
-        icon: Users,
-        children: [
-          { label: 'Operations workspace', href: '/desktop/flying-club/ops', icon: LayoutDashboard },
-        ],
-      },
+      { label: 'Flying Club', href: '/desktop/flying-club', icon: Users },
       { label: 'Marketplace', href: '/desktop/modules/marketplace', icon: ShoppingBag, status: 'coming-soon' },
       { label: 'Engine Health', href: '/desktop/modules/engine-health', icon: Gauge, tier: 'pro', status: 'coming-soon' },
     ],
