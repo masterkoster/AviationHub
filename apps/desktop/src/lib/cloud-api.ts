@@ -172,6 +172,25 @@ export const cloudApi = {
     })
   },
 
+  getFuelTrend(params: { icao?: string; fuelType?: string }) {
+    const qs = new URLSearchParams()
+    if (params.icao) qs.set('icao', params.icao)
+    if (params.fuelType) qs.set('fuelType', params.fuelType)
+    const query = qs.toString()
+    return request<{
+      scope: 'airport' | 'overall'
+      fuelType: string
+      points: { date: string; price: number; count?: number; icao?: string }[]
+      stats: {
+        count: number
+        contributors: number
+        avgPrice: number | null
+        cheapest: { icao: string; price: number } | null
+        fuelType: string
+      }
+    }>(`/api/fuel-prices/feed/trend${query ? `?${query}` : ''}`)
+  },
+
   // ── Aircraft cost of ownership ──────────────────────────────
 
   listAircraftCost() {
@@ -225,6 +244,7 @@ export interface FuelFeedRow {
   purchaseDate: string
   createdAt: string
   isMine: boolean
+  submittedBy: string | null
 }
 
 // ── Aircraft cost types ───────────────────────────────────────

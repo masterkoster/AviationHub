@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Fuel, Loader2, PlusCircle, Search } from 'lucide-react'
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
+import { Fuel, Loader2, PlusCircle, Search, DollarSign, TrendingDown, Users, ListChecks } from 'lucide-react'
 import { cloudApi, type FuelFeedRow } from '@/apps/desktop/src/lib/cloud-api'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { ErrorCard } from '@/desktop/components/error-card'
@@ -11,7 +12,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import {
   Dialog,
   DialogContent,
@@ -28,6 +31,13 @@ type FuelType = (typeof FUEL_TYPES)[number]
 
 const PAGE_SIZE = 50
 
+const FUEL_TYPE_CHIP_CLASS: Record<string, string> = {
+  '100LL': 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400',
+  JetA: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  MOGAS: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  UL94: 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400',
+}
+
 // ── Formatting helpers ──────────────────────────────────────────
 
 function todayIso(): string {
@@ -36,6 +46,19 @@ function todayIso(): string {
 
 function fmtMoney(n: number): string {
   return `$${n.toFixed(2)}`
+}
+
+function fmtDate(dateStr: string): string {
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function fmtAxisDate(dateStr: string, scope: 'airport' | 'overall'): string {
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  const short = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return scope === 'overall' ? `wk of ${short}` : short
 }
 
 function relativeTime(dateStr: string): string {
@@ -77,6 +100,19 @@ export default function DesktopFuelPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
 
+  // Trend + stats
+  const [trendScope, setTrendScope] = useState<'airport' | 'overall'>('overall')
+  const [trendFuelType, setTrendFuelType] = useState<string>('100LL')
+  const [trendPoints, setTrendPoints] = useState<{ date: string; price: number; count?: number; icao?: string }[]>([])
+  const [stats, setStats] = useState<{
+    count: number
+    contributors: number
+    avgPrice: number | null
+    cheapest: { icao: string; price: number } | null
+    fuelType: string
+  } | null>(null)
+  const [trendLoading, setTrendLoading] = useState(true)
+
   // Debounce the search box.
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim().toUpperCase()), 300)
@@ -115,6 +151,35 @@ export default function DesktopFuelPage() {
     load(0, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQ, fuelType, sort, mode])
+
+  // Trend + stats — re-fetch on fuel type / airport search change.
+  useEffect(() => {
+    let cancelled = false
+    async function loadTrend() {
+      setTrendLoading(true)
+      try {
+        const res = await cloudApi.getFuelTrend({
+          icao: debouncedQ || undefined,
+          fuelType,
+        })
+        if (cancelled) return
+        setTrendScope(res.scope)
+        setTrendFuelType(res.fuelType)
+        setTrendPoints(Array.isArray(res.points) ? res.points : [])
+        setStats(res.stats)
+      } catch {
+        if (cancelled) return
+        setTrendPoints([])
+        setStats(null)
+      } finally {
+        if (!cancelled) setTrendLoading(false)
+      }
+    }
+    loadTrend()
+    return () => {
+      cancelled = true
+    }
+  }, [debouncedQ, fuelType])
 
   async function handleLoadMore() {
     await load(offset + PAGE_SIZE, true)
@@ -204,6 +269,12 @@ export default function DesktopFuelPage() {
             </div>
           </div>
 
+          {/* Stats band */}
+          <StatsBand stats={stats} loading={trendLoading} />
+
+          {/* Trend chart */}
+          <TrendChart scope={trendScope} fuelType={trendFuelType} points={trendPoints} loading={trendLoading} icaoFilter={debouncedQ} />
+
           {/* Results */}
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -220,42 +291,10 @@ export default function DesktopFuelPage() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-lg border border-border bg-card">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-border text-xs text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Airport</th>
-                      <th className="px-3 py-2 text-left">FBO</th>
-                      <th className="px-3 py-2 text-left">Fuel</th>
-                      <th className="px-3 py-2 text-right">Price</th>
-                      <th className="px-3 py-2 text-left">Reported</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/50">
-                        <td className="px-3 py-2 font-mono text-sm font-semibold">
-                          <div className="flex items-center gap-1.5">
-                            {row.icao}
-                            {row.isMine && (
-                              <Badge variant="secondary" className="text-[10px]">you</Badge>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">{row.fbo || '—'}</td>
-                        <td className="px-3 py-2">
-                          <Badge variant="outline">{row.fuelType}</Badge>
-                        </td>
-                        <td className="px-3 py-2 text-right text-base font-bold tabular-nums">
-                          {fmtMoney(row.price)}<span className="text-xs font-normal text-muted-foreground">/gal</span>
-                        </td>
-                        <td className="px-3 py-2 text-xs text-muted-foreground">
-                          reported {relativeTime(row.purchaseDate)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {rows.map((row) => (
+                  <FuelPriceCard key={row.id} row={row} />
+                ))}
               </div>
 
               {hasMore && (
@@ -273,6 +312,181 @@ export default function DesktopFuelPage() {
 
       <ReportPriceDialog open={dialogOpen} onOpenChange={setDialogOpen} onReported={handleReported} />
     </div>
+  )
+}
+
+// ── Stats band ────────────────────────────────────────────────
+
+function StatsBand({
+  stats,
+  loading,
+}: {
+  stats: { count: number; contributors: number; avgPrice: number | null; cheapest: { icao: string; price: number } | null; fuelType: string } | null
+  loading: boolean
+}) {
+  const cheapestLabel = stats?.cheapest ? `${stats.cheapest.icao} ${fmtMoney(stats.cheapest.price)}` : '—'
+  const avgLabel = stats?.avgPrice != null ? fmtMoney(stats.avgPrice) : '—'
+  const contributorsLabel = stats ? String(stats.contributors) : '—'
+  const reportsLabel = stats ? String(stats.count) : '—'
+
+  const items = [
+    { label: 'Cheapest', value: cheapestLabel, icon: TrendingDown },
+    { label: 'Average', value: avgLabel, icon: DollarSign },
+    { label: 'Contributors', value: contributorsLabel, icon: Users },
+    { label: 'Reports', value: reportsLabel, icon: ListChecks },
+  ]
+
+  return (
+    <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {items.map(({ label, value, icon: Icon }) => (
+        <Card key={label} className="py-3">
+          <CardContent className="flex items-center gap-2.5 px-4">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Icon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] text-muted-foreground">{label}</p>
+              <p className={`truncate text-sm font-semibold tabular-nums ${loading ? 'text-muted-foreground' : 'text-foreground'}`}>
+                {loading ? '…' : value}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+// ── Trend chart ───────────────────────────────────────────────
+
+function TrendChart({
+  scope,
+  fuelType,
+  points,
+  loading,
+  icaoFilter,
+}: {
+  scope: 'airport' | 'overall'
+  fuelType: string
+  points: { date: string; price: number; count?: number; icao?: string }[]
+  loading: boolean
+  icaoFilter: string
+}) {
+  const title =
+    scope === 'airport' && points[0]?.icao
+      ? `${points[0].icao} ${fuelType} price history`
+      : scope === 'airport' && icaoFilter
+      ? `${icaoFilter} ${fuelType} price history`
+      : `Average ${fuelType} price · recent weeks`
+
+  const chartConfig: ChartConfig = {
+    price: {
+      label: `${fuelType} price`,
+      color: 'hsl(199, 89%, 48%)',
+    },
+  }
+
+  return (
+    <Card className="mb-4 py-4">
+      <CardContent className="px-4">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+        {loading ? (
+          <div className="flex h-48 items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : points.length < 2 ? (
+          <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-border">
+            <p className="text-sm text-muted-foreground">Not enough data yet to chart a trend.</p>
+          </div>
+        ) : (
+          <ChartContainer config={chartConfig} className="h-48 w-full">
+            <AreaChart data={points} margin={{ top: 4, right: 8, left: -12, bottom: 4 }}>
+              <defs>
+                <linearGradient id="fuelPriceFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--color-price)" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="var(--color-price)" stopOpacity={0.03} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} />
+              <XAxis
+                dataKey="date"
+                tickFormatter={(v: string) => fmtAxisDate(v, scope)}
+                tick={{ fontSize: 10 }}
+                axisLine={{ strokeWidth: 1 }}
+                tickLine={false}
+                minTickGap={24}
+              />
+              <YAxis
+                tick={{ fontSize: 10 }}
+                axisLine={{ strokeWidth: 1 }}
+                tickLine={false}
+                width={44}
+                tickFormatter={(v: number) => fmtMoney(v)}
+                domain={['auto', 'auto']}
+              />
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    labelFormatter={(_label: unknown, payload: Array<{ payload?: { date: string } }>) => {
+                      const p = payload?.[0]?.payload
+                      return p ? fmtAxisDate(p.date, scope) : ''
+                    }}
+                    formatter={(value: unknown) => [fmtMoney(Number(value)), scope === 'airport' ? 'Price' : 'Avg price']}
+                  />
+                }
+              />
+              <Area
+                type="monotone"
+                dataKey="price"
+                stroke="var(--color-price)"
+                fill="url(#fuelPriceFill)"
+                strokeWidth={2}
+                dot={{ r: 2.5, fill: 'var(--color-price)', strokeWidth: 0 }}
+                activeDot={{ r: 4, strokeWidth: 0 }}
+              />
+            </AreaChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── Fuel price card ───────────────────────────────────────────
+
+function FuelPriceCard({ row }: { row: FuelFeedRow }) {
+  const chipClass = FUEL_TYPE_CHIP_CLASS[row.fuelType] || 'border-border bg-muted text-muted-foreground'
+
+  return (
+    <Card className="py-4">
+      <CardContent className="px-4">
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-base font-bold text-foreground">{row.icao}</span>
+            {row.isMine && (
+              <Badge variant="secondary" className="text-[10px]">you</Badge>
+            )}
+          </div>
+          <Badge variant="outline" className={chipClass}>
+            {row.fuelType}
+          </Badge>
+        </div>
+
+        <div className="mb-2">
+          <span className="text-2xl font-bold tabular-nums text-foreground">{fmtMoney(row.price)}</span>
+          <span className="ml-1 text-xs font-normal text-muted-foreground">/gal</span>
+        </div>
+
+        <p className="mb-2 truncate text-sm text-muted-foreground">{row.fbo || 'FBO not specified'}</p>
+
+        <p className="text-xs text-muted-foreground">
+          {fmtDate(row.purchaseDate)}{' '}
+          <span className="text-muted-foreground/70">({relativeTime(row.purchaseDate)})</span>
+          {' · reported by '}
+          {row.submittedBy || 'a pilot'}
+        </p>
+      </CardContent>
+    </Card>
   )
 }
 

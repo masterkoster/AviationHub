@@ -16,7 +16,8 @@ type FeedRow = {
   userId: string | null;
 };
 
-function serialize(row: FeedRow, currentUserId: string) {
+function serialize(row: FeedRow, currentUserId: string, usernameById: Map<string, string>) {
+  const username = row.userId ? usernameById.get(row.userId) : undefined;
   return {
     id: row.id,
     icao: row.icao,
@@ -26,7 +27,18 @@ function serialize(row: FeedRow, currentUserId: string) {
     purchaseDate: row.purchaseDate,
     createdAt: row.createdAt,
     isMine: row.userId != null && row.userId === currentUserId,
+    submittedBy: username ? `@${username}` : null,
   };
+}
+
+async function buildUsernameMap(rows: FeedRow[]): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(rows.map((r) => r.userId).filter((id): id is string => Boolean(id))));
+  if (ids.length === 0) return new Map();
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, username: true },
+  });
+  return new Map(users.map((u) => [u.id, u.username]));
 }
 
 // GET - browse community fuel price submissions (not airport-scoped)
@@ -95,9 +107,10 @@ export async function GET(request: NextRequest) {
 
       const page = deduped.slice(offset, offset + limit);
       const hasMore = offset + limit < deduped.length;
+      const usernameById = await buildUsernameMap(page);
 
       return NextResponse.json({
-        prices: page.map((row) => serialize(row, session.user!.id!)),
+        prices: page.map((row) => serialize(row, session.user!.id!, usernameById)),
         mode,
         hasMore,
       });
@@ -112,10 +125,11 @@ export async function GET(request: NextRequest) {
     });
 
     const hasMore = rows.length > limit;
-    const page = hasMore ? rows.slice(0, limit) : rows;
+    const page = (hasMore ? rows.slice(0, limit) : rows) as unknown as FeedRow[];
+    const usernameById = await buildUsernameMap(page);
 
     return NextResponse.json({
-      prices: page.map((row) => serialize(row as unknown as FeedRow, session.user!.id!)),
+      prices: page.map((row) => serialize(row, session.user!.id!, usernameById)),
       mode,
       hasMore,
     });
