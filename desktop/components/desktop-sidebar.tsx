@@ -31,6 +31,7 @@ import {
   Compass,
   Shield,
   Receipt,
+  Fuel,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
@@ -81,6 +82,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Fly',
     items: [
       { label: 'Map', href: '/desktop/map', icon: Globe, shortcut: '7' },
+      { label: 'Fuel', href: '/desktop/fuel', icon: Fuel },
       { label: 'Weather', href: '/desktop/weather', icon: CloudSun, shortcut: '8' },
       { label: 'Calendar', href: '/desktop/calendar', icon: CalendarDays, shortcut: '9' },
     ],

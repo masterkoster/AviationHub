@@ -149,6 +149,29 @@ export const cloudApi = {
     return request<{ fuelLogs: Array<{ id: string; airportIcao: string | null; gallons: number; pricePerGallon: number; totalCost: number; fuelType: string | null; notes: string | null; createdAt: string }> }>('/api/me/fuel')
   },
 
+  // ── Community fuel price feed ───────────────────────────────
+
+  getFuelFeed(params: { q?: string; fuelType?: string; sort?: string; mode?: string; limit?: number; offset?: number }) {
+    const qs = new URLSearchParams()
+    if (params.q) qs.set('q', params.q)
+    if (params.fuelType) qs.set('fuelType', params.fuelType)
+    if (params.sort) qs.set('sort', params.sort)
+    if (params.mode) qs.set('mode', params.mode)
+    if (params.limit !== undefined) qs.set('limit', String(params.limit))
+    if (params.offset !== undefined) qs.set('offset', String(params.offset))
+    const query = qs.toString()
+    return request<{ prices: FuelFeedRow[]; mode: string; hasMore: boolean }>(
+      `/api/fuel-prices/feed${query ? `?${query}` : ''}`
+    )
+  },
+
+  reportFuelPrice(payload: { icao: string; fbo?: string; fuelType: string; price: number; purchaseDate?: string }) {
+    return request<{ ok: boolean; id: string }>('/api/fuel-prices/feed', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
   // ── Aircraft cost of ownership ──────────────────────────────
 
   listAircraftCost() {
@@ -189,6 +212,19 @@ export const cloudApi = {
   listEngineReference() {
     return request<{ engines: EngineReference[] }>('/api/me/aircraft-cost/engines')
   },
+}
+
+// ── Fuel feed types ─────────────────────────────────────────────
+
+export interface FuelFeedRow {
+  id: string
+  icao: string
+  fbo: string | null
+  fuelType: string
+  price: number
+  purchaseDate: string
+  createdAt: string
+  isMine: boolean
 }
 
 // ── Aircraft cost types ───────────────────────────────────────
