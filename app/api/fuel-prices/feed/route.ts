@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth, prisma } from '@/lib/auth';
 import { isDisputed, voteScore } from '@/lib/fuel/dispute';
 import { getVoteAggregates, type VoteAggregate } from '@/lib/fuel/votes';
+import { awardContribution } from '@/lib/reputation/ledger';
+import { CONTRIBUTION_POINTS } from '@/lib/reputation/config';
 
 const VALID_FUEL_TYPES = ['100LL', 'JetA', 'MOGAS', 'UL94'];
 const VALID_SORTS = ['recent', 'cheapest', 'highest'];
@@ -25,7 +27,13 @@ function serialize(
   voteById: Map<string, VoteAggregate>
 ) {
   const username = row.userId ? usernameById.get(row.userId) : undefined;
-  const vote = voteById.get(row.id) ?? { up: 0, down: 0, myVote: 0 };
+  const vote = voteById.get(row.id) ?? {
+    up: 0,
+    down: 0,
+    weightedUp: 0,
+    weightedDown: 0,
+    myVote: 0,
+  };
   return {
     id: row.id,
     icao: row.icao,
@@ -40,7 +48,7 @@ function serialize(
     downvotes: vote.down,
     score: voteScore(vote.up, vote.down),
     myVote: vote.myVote,
-    disputed: isDisputed(vote.up, vote.down),
+    disputed: isDisputed(vote.weightedUp, vote.weightedDown),
   };
 }
 
@@ -109,8 +117,14 @@ export async function GET(request: NextRequest) {
       );
 
       const undisputed = window.filter((row) => {
-        const vote = windowVotes.get(row.id) ?? { up: 0, down: 0, myVote: 0 };
-        return !isDisputed(vote.up, vote.down);
+        const vote = windowVotes.get(row.id) ?? {
+          up: 0,
+          down: 0,
+          weightedUp: 0,
+          weightedDown: 0,
+          myVote: 0,
+        };
+        return !isDisputed(vote.weightedUp, vote.weightedDown);
       });
 
       const seen = new Set<string>();
@@ -236,6 +250,14 @@ export async function POST(request: NextRequest) {
         purchaseDate: date,
         userId: session.user.id,
       },
+    });
+
+    await awardContribution(prisma, {
+      userId: session.user.id,
+      type: 'PRICE_REPORT',
+      points: CONTRIBUTION_POINTS.PRICE_REPORT,
+      refType: 'CommunityFuelPrice',
+      refId: created.id,
     });
 
     return NextResponse.json({ ok: true, id: created.id });

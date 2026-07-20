@@ -1676,6 +1676,22 @@ model FuelPriceVote {
   @@map("FuelPriceVote")
 }
 
+// Documentation-only model — NOT part of the generated client in this
+// environment (the client is not regenerated here). Access is via raw SQL
+// only; see prisma/migrations/contribution_event.sql and lib/reputation/ledger.ts.
+model ContributionEvent {
+  id        String   @id @default(uuid()) @db.NVarChar(36)
+  userId    String   @db.NVarChar(36)
+  type      String   @db.NVarChar(30)
+  points    Int
+  refType   String?  @db.NVarChar(30)
+  refId     String?  @db.NVarChar(36)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("ContributionEvent")
+}
+
 model AircraftCache {
   id           Int     @id @default(autoincrement())
   manufacturer String  @db.NVarChar(100)

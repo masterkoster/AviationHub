@@ -67,7 +67,13 @@ export async function POST(request: NextRequest) {
     }
 
     const aggregates = await getVoteAggregates(prisma, [fuelPriceId], meId);
-    const agg = aggregates.get(fuelPriceId) ?? { up: 0, down: 0, myVote: 0 };
+    const agg = aggregates.get(fuelPriceId) ?? {
+      up: 0,
+      down: 0,
+      weightedUp: 0,
+      weightedDown: 0,
+      myVote: 0,
+    };
 
     return NextResponse.json({
       fuelPriceId,
@@ -75,7 +81,7 @@ export async function POST(request: NextRequest) {
       downvotes: agg.down,
       score: voteScore(agg.up, agg.down),
       myVote: agg.myVote,
-      disputed: isDisputed(agg.up, agg.down),
+      disputed: isDisputed(agg.weightedUp, agg.weightedDown),
     });
   } catch (error) {
     console.error('Failed to vote on fuel price', error);

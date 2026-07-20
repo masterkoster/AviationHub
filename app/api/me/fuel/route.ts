@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { awardContribution } from '@/lib/reputation/ledger';
+import { CONTRIBUTION_POINTS } from '@/lib/reputation/config';
 
 // Valid fuel types
 const VALID_FUEL_TYPES = ['100LL', 'JetA', 'MOGAS', 'UL94'];
@@ -119,6 +121,14 @@ export async function POST(request: NextRequest) {
         NULL, NULL, ${icaoUpper}, ${fuelType}, GETDATE(), GETDATE()
       )
     `;
+
+    await awardContribution(prisma, {
+      userId: session.user.id,
+      type: 'FUEL_LOG',
+      points: CONTRIBUTION_POINTS.FUEL_LOG,
+      refType: 'FuelExpense',
+      refId: fuelExpenseId,
+    });
 
     // Community contribution (wrapped in try/catch so it never fails the fuel log)
     if (contributeToCommunity === true && !existingFuelToday) {

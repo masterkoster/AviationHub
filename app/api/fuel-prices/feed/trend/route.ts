@@ -59,8 +59,14 @@ export async function GET(request: NextRequest) {
       session.user.id
     );
     const rows = fetched.filter((row) => {
-      const vote = voteById.get(row.id) ?? { up: 0, down: 0, myVote: 0 };
-      return !isDisputed(vote.up, vote.down);
+      const vote = voteById.get(row.id) ?? {
+        up: 0,
+        down: 0,
+        weightedUp: 0,
+        weightedDown: 0,
+        myVote: 0,
+      };
+      return !isDisputed(vote.weightedUp, vote.weightedDown);
     });
 
     const distinctIcaos = Array.from(new Set(rows.map((r) => r.icao)));
