@@ -245,6 +245,17 @@ export const cloudApi = {
   listEngineReference() {
     return request<{ engines: EngineReference[] }>('/api/me/aircraft-cost/engines')
   },
+
+  // ── Contribution reputation ─────────────────────────────────
+
+  getMyContributions() {
+    return request<{
+      points: number
+      tier: { key: string; label: string; weight: number }
+      counts: { fuelLogs: number; priceReports: number }
+      recentEvents: { type: string; points: number; refType: string | null; createdAt: string }[]
+    }>('/api/me/contributions')
+  },
 }
 
 // ── Fuel feed types ─────────────────────────────────────────────
@@ -259,6 +270,7 @@ export interface FuelFeedRow {
   createdAt: string
   isMine: boolean
   submittedBy: string | null
+  submitterTier: { key: string; label: string; weight: number } | null
   upvotes: number
   downvotes: number
   score: number

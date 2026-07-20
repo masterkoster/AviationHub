@@ -13,6 +13,8 @@ import {
   ListChecks,
   ChevronUp,
   ChevronDown,
+  Award,
+  ShieldCheck,
 } from 'lucide-react'
 import { cloudApi, type FuelFeedRow } from '@/apps/desktop/src/lib/cloud-api'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
@@ -48,6 +50,24 @@ const FUEL_TYPE_CHIP_CLASS: Record<string, string> = {
   MOGAS: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
   UL94: 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400',
 }
+
+// Reputation tier colors — used by both the "your contributions" card and
+// the row reputation badges, so tier -> color stays consistent everywhere.
+const TIER_CHIP_CLASS: Record<string, string> = {
+  new: 'border-border bg-muted text-muted-foreground',
+  contributor: 'border-slate-500/30 bg-slate-500/10 text-slate-600 dark:text-slate-400',
+  trusted: 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400',
+  veteran: 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400',
+  pillar: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+}
+
+function tierChipClass(key: string): string {
+  return TIER_CHIP_CLASS[key] || 'border-border bg-muted text-muted-foreground'
+}
+
+// Trusted and above (weight >= 1.5) get a badge on their fuel-price rows —
+// New/Contributor are skipped to avoid clutter on the feed.
+const ROW_BADGE_MIN_WEIGHT = 1.5
 
 // ── Formatting helpers ──────────────────────────────────────────
 
@@ -125,6 +145,15 @@ export default function DesktopFuelPage() {
   } | null>(null)
   const [trendLoading, setTrendLoading] = useState(true)
 
+  // Your contributions summary
+  const [contributions, setContributions] = useState<{
+    points: number
+    tier: { key: string; label: string; weight: number }
+    counts: { fuelLogs: number; priceReports: number }
+  } | null>(null)
+  const [contributionsLoading, setContributionsLoading] = useState(true)
+  const [contributionsError, setContributionsError] = useState(false)
+
   // Debounce the search box.
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim().toUpperCase()), 300)
@@ -192,6 +221,31 @@ export default function DesktopFuelPage() {
       cancelled = true
     }
   }, [debouncedQ, fuelType])
+
+  // Your contributions summary — best-effort; a failure here should never
+  // block the rest of the fuel page.
+  useEffect(() => {
+    if (status !== 'authenticated') return
+    let cancelled = false
+    async function loadContributions() {
+      setContributionsLoading(true)
+      setContributionsError(false)
+      try {
+        const res = await cloudApi.getMyContributions()
+        if (cancelled) return
+        setContributions({ points: res.points, tier: res.tier, counts: res.counts })
+      } catch {
+        if (cancelled) return
+        setContributionsError(true)
+      } finally {
+        if (!cancelled) setContributionsLoading(false)
+      }
+    }
+    loadContributions()
+    return () => {
+      cancelled = true
+    }
+  }, [status])
 
   async function handleLoadMore() {
     await load(offset + PAGE_SIZE, true)
@@ -317,6 +371,13 @@ export default function DesktopFuelPage() {
             </div>
           </div>
 
+          {/* Your contributions */}
+          <ContributionsCard
+            data={contributions}
+            loading={contributionsLoading}
+            error={contributionsError}
+          />
+
           {/* Stats band */}
           <StatsBand stats={stats} loading={trendLoading} />
 
@@ -410,6 +471,60 @@ function StatsBand({
         </Card>
       ))}
     </div>
+  )
+}
+
+// ── Your contributions ───────────────────────────────────────
+
+function ContributionsCard({
+  data,
+  loading,
+  error,
+}: {
+  data: { points: number; tier: { key: string; label: string; weight: number }; counts: { fuelLogs: number; priceReports: number } } | null
+  loading: boolean
+  error: boolean
+}) {
+  // A failed fetch shouldn't break the rest of the page — just quietly omit
+  // the card rather than showing an error state for a non-critical widget.
+  if (error) return null
+
+  return (
+    <Card className="mb-4 py-4">
+      <CardContent className="px-4">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Your contributions
+        </p>
+        {loading ? (
+          <div className="flex items-center gap-2 py-2">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Loading…</span>
+          </div>
+        ) : !data || data.points === 0 ? (
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Award className="h-4 w-4" />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Log fuel or report a price to start earning contributor status.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge variant="outline" className={tierChipClass(data.tier.key)}>
+              {data.tier.label}
+            </Badge>
+            <span className="text-sm font-semibold tabular-nums text-foreground">
+              {data.points} pts
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {data.counts.fuelLogs} fuel log{data.counts.fuelLogs === 1 ? '' : 's'} ·{' '}
+              {data.counts.priceReports} price report{data.counts.priceReports === 1 ? '' : 's'}
+            </span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -550,11 +665,22 @@ function FuelPriceCard({
         <p className="mb-2 truncate text-sm text-muted-foreground">{row.fbo || 'FBO not specified'}</p>
 
         <div className="flex items-end justify-between gap-2">
-          <p className="text-xs text-muted-foreground">
-            {fmtDate(row.purchaseDate)}{' '}
-            <span className="text-muted-foreground/70">({relativeTime(row.purchaseDate)})</span>
-            {' · reported by '}
-            {row.submittedBy || 'a pilot'}
+          <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+            <span>
+              {fmtDate(row.purchaseDate)}{' '}
+              <span className="text-muted-foreground/70">({relativeTime(row.purchaseDate)})</span>
+              {' · reported by '}
+              {row.submittedBy || 'a pilot'}
+            </span>
+            {row.submitterTier && row.submitterTier.weight >= ROW_BADGE_MIN_WEIGHT && (
+              <Badge
+                variant="outline"
+                className={`gap-0.5 text-[10px] ${tierChipClass(row.submitterTier.key)}`}
+              >
+                <ShieldCheck className="h-3 w-3" />
+                {row.submitterTier.label}
+              </Badge>
+            )}
           </p>
           {!row.isMine && (
             <button

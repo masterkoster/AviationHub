@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth, prisma } from '@/lib/auth';
 import { isDisputed, voteScore } from '@/lib/fuel/dispute';
 import { getVoteAggregates, type VoteAggregate } from '@/lib/fuel/votes';
-import { awardContribution } from '@/lib/reputation/ledger';
-import { CONTRIBUTION_POINTS } from '@/lib/reputation/config';
+import { awardContribution, getPointsForUsers } from '@/lib/reputation/ledger';
+import { CONTRIBUTION_POINTS, reputationTier, type ReputationTier } from '@/lib/reputation/config';
 
 const VALID_FUEL_TYPES = ['100LL', 'JetA', 'MOGAS', 'UL94'];
 const VALID_SORTS = ['recent', 'cheapest', 'highest'];
@@ -24,7 +24,8 @@ function serialize(
   row: FeedRow,
   currentUserId: string,
   usernameById: Map<string, string>,
-  voteById: Map<string, VoteAggregate>
+  voteById: Map<string, VoteAggregate>,
+  tierById: Map<string, ReputationTier>
 ) {
   const username = row.userId ? usernameById.get(row.userId) : undefined;
   const vote = voteById.get(row.id) ?? {
@@ -34,6 +35,7 @@ function serialize(
     weightedDown: 0,
     myVote: 0,
   };
+  const submitterTier = row.userId ? tierById.get(row.userId) ?? null : null;
   return {
     id: row.id,
     icao: row.icao,
@@ -44,6 +46,7 @@ function serialize(
     createdAt: row.createdAt,
     isMine: row.userId != null && row.userId === currentUserId,
     submittedBy: username ? `@${username}` : null,
+    submitterTier,
     upvotes: vote.up,
     downvotes: vote.down,
     score: voteScore(vote.up, vote.down),
@@ -52,14 +55,31 @@ function serialize(
   };
 }
 
+function distinctUserIds(rows: FeedRow[]): string[] {
+  return Array.from(new Set(rows.map((r) => r.userId).filter((id): id is string => Boolean(id))));
+}
+
 async function buildUsernameMap(rows: FeedRow[]): Promise<Map<string, string>> {
-  const ids = Array.from(new Set(rows.map((r) => r.userId).filter((id): id is string => Boolean(id))));
+  const ids = distinctUserIds(rows);
   if (ids.length === 0) return new Map();
   const users = await prisma.user.findMany({
     where: { id: { in: ids } },
     select: { id: true, username: true },
   });
   return new Map(users.map((u) => [u.id, u.username]));
+}
+
+// Per-submitter reputation tier for the given page of rows (never exposes
+// userId/points to the client — only the derived tier).
+async function buildTierMap(rows: FeedRow[]): Promise<Map<string, ReputationTier>> {
+  const ids = distinctUserIds(rows);
+  if (ids.length === 0) return new Map();
+  const pointsById = await getPointsForUsers(prisma, ids);
+  const map = new Map<string, ReputationTier>();
+  for (const id of ids) {
+    map.set(id, reputationTier(pointsById.get(id) ?? 0));
+  }
+  return map;
 }
 
 // GET - browse community fuel price submissions (not airport-scoped)
@@ -148,9 +168,10 @@ export async function GET(request: NextRequest) {
       const page = deduped.slice(offset, offset + limit);
       const hasMore = offset + limit < deduped.length;
       const usernameById = await buildUsernameMap(page);
+      const tierById = await buildTierMap(page);
 
       return NextResponse.json({
-        prices: page.map((row) => serialize(row, session.user!.id!, usernameById, windowVotes)),
+        prices: page.map((row) => serialize(row, session.user!.id!, usernameById, windowVotes, tierById)),
         mode,
         hasMore,
       });
@@ -167,6 +188,7 @@ export async function GET(request: NextRequest) {
     const hasMore = rows.length > limit;
     const page = (hasMore ? rows.slice(0, limit) : rows) as unknown as FeedRow[];
     const usernameById = await buildUsernameMap(page);
+    const tierById = await buildTierMap(page);
     const voteById = await getVoteAggregates(
       prisma,
       page.map((r) => r.id),
@@ -174,7 +196,7 @@ export async function GET(request: NextRequest) {
     );
 
     return NextResponse.json({
-      prices: page.map((row) => serialize(row, session.user!.id!, usernameById, voteById)),
+      prices: page.map((row) => serialize(row, session.user!.id!, usernameById, voteById, tierById)),
       mode,
       hasMore,
     });
