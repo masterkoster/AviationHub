@@ -1,6 +1,7 @@
 'use client'
 
 import { getCloudBaseUrl } from '@/apps/desktop/src/lib/cloud-base-url'
+import type { InspectionComputed } from '@/lib/club/inspections'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const base = getCloudBaseUrl()
@@ -696,6 +697,74 @@ export const cloudApi = {
     const base = getCloudBaseUrl()
     await fetch(`${base}/api/groups/${groupId}/documents/${docId}`, { method: 'DELETE', credentials: 'include' })
   },
+
+  // ── Flying club: groups list, aircraft profile, inspections, maintenance ──
+  // Migrated from app/desktop/flying-club/aircraft/[aircraftId]/page.tsx and
+  // app/desktop/flying-club/squawks/page.tsx. Every call site here branches
+  // on res.ok/res.status itself (some also special-case 404) rather than
+  // treating any non-2xx as a hard failure, so all of these use `requestRaw`
+  // (never throws — mirrors bare `fetch()` exactly) to preserve that.
+
+  getGroups() {
+    return requestRaw<CloudGroupSummary[] | { error?: string }>('/api/groups')
+  },
+
+  getGroupAircraftProfile(groupId: string, aircraftId: string) {
+    return requestRaw<Record<string, unknown>>(`/api/groups/${groupId}/aircraft/${aircraftId}/profile`)
+  },
+
+  getGroupAircraftInspections(groupId: string, aircraftId: string) {
+    return requestRaw<{ currentTachHours?: number | null; inspections?: InspectionComputed[] } & Record<string, unknown>>(
+      `/api/groups/${groupId}/aircraft/${aircraftId}/inspections`
+    )
+  },
+
+  createGroupAircraftInspection(groupId: string, aircraftId: string, payload: Record<string, unknown>) {
+    return requestRaw<Record<string, unknown>>(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  updateGroupAircraftInspection(groupId: string, aircraftId: string, inspectionId: string, payload: Record<string, unknown>) {
+    return requestRaw<Record<string, unknown>>(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections/${inspectionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  deleteGroupAircraftInspection(groupId: string, aircraftId: string, inspectionId: string) {
+    return requestRaw<Record<string, unknown>>(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections/${inspectionId}`, {
+      method: 'DELETE',
+    })
+  },
+
+  reportMaintenanceItem(payload: Record<string, unknown>) {
+    return requestRaw<Record<string, unknown>>('/api/flying-club/maintenance/queue', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+}
+
+// ── Flying club group summary types ─────────────────────────────
+
+export interface CloudGroupSummary {
+  id: string
+  name: string
+  type: string
+  ownerId: string
+  role: string
+  aircraft: Array<{
+    id: string
+    nNumber: string
+    nickname: string | null
+    customName: string | null
+    make: string | null
+    model: string | null
+    status: string | null
+    hourlyRate: number | null
+  }>
 }
 
 // ── Airport search types ─────────────────────────────────────────

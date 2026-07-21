@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
+import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -92,21 +93,16 @@ function ReportSquawkForm({
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch('/api/flying-club/maintenance/queue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          organizationId: group.id,
-          clubAircraftId: aircraftId,
-          description: description.trim(),
-          category,
-          severity,
-          isGrounded,
-        }),
+      const { ok, data } = await cloudApi.reportMaintenanceItem({
+        organizationId: group.id,
+        clubAircraftId: aircraftId,
+        description: description.trim(),
+        category,
+        severity,
+        isGrounded,
       })
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        setError((data && data.error) || 'Failed to report squawk')
+      if (!ok) {
+        setError((data && (data as { error?: string }).error) || 'Failed to report squawk')
         return
       }
       onReported()
@@ -205,9 +201,8 @@ export default function DesktopSquawksPage() {
     setGroupsLoading(true)
     setConnectionError(false)
     try {
-      const res = await fetch('/api/groups')
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
+      const { ok, data } = await cloudApi.getGroups()
+      if (!ok) {
         setConnectionError(true)
         return
       }
@@ -231,10 +226,9 @@ export default function DesktopSquawksPage() {
       const results = await Promise.all(
         group.aircraft.map(async a => {
           try {
-            const res = await fetch(`/api/groups/${group.id}/aircraft/${a.id}/profile`)
-            if (!res.ok) return []
-            const data = await res.json()
-            const openSquawks = Array.isArray(data?.openSquawks) ? data.openSquawks : []
+            const { ok, data } = await cloudApi.getGroupAircraftProfile(group.id, a.id)
+            if (!ok) return []
+            const openSquawks = Array.isArray((data as { openSquawks?: unknown[] })?.openSquawks) ? (data as { openSquawks: unknown[] }).openSquawks : []
             return openSquawks.map((sq: any): OpenSquawk => ({
               id: sq.id,
               description: sq.description,
