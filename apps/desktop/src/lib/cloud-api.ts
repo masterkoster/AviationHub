@@ -48,6 +48,46 @@ async function requestApi<T>(path: string, init: RequestInit | undefined, fallba
   return data as T
 }
 
+// Some desktop call sites (booking-policy-block errors that need res.status,
+// dual-branch success/failure messaging, "is this username taken" checks)
+// branch on res.ok/res.status themselves rather than treating any non-2xx as
+// a hard failure. This mirrors bare `fetch()` exactly — it never throws for
+// HTTP error responses, only for genuine network failures — so migrated call
+// sites can keep their original branching logic unchanged.
+async function requestRaw<T = unknown>(path: string, init?: RequestInit): Promise<{ ok: boolean; status: number; data: T }> {
+  const base = getCloudBaseUrl()
+  const url = `${base}${path}`
+  const res = await fetch(url, {
+    ...init,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+  })
+  const data = await res.json().catch(() => ({}))
+  return { ok: res.ok, status: res.status, data: data as T }
+}
+
+// Multipart uploads must NOT get the JSON Content-Type header that
+// request()/requestApi() force — the browser needs to set its own
+// multipart boundary. Mirrors requestApi's throw-with-data.error contract
+// otherwise.
+async function requestForm<T>(path: string, formData: FormData, fallbackError: string): Promise<T> {
+  const base = getCloudBaseUrl()
+  const url = `${base}${path}`
+  const res = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data as { error?: string })?.error || fallbackError)
+  }
+  return data as T
+}
+
 export const cloudApi = {
   signup(payload: { name: string; email: string; password: string }) {
     const username = payload.email
@@ -512,6 +552,149 @@ export const cloudApi = {
       { method: 'PUT', body: JSON.stringify({ memberId, role }) },
       'Failed to update member role'
     )
+  },
+
+  // ── Flying club (group) management ──────────────────────────
+  // Migrated from app/desktop/flying-club/page.tsx's raw `fetch('/api/...')`
+  // calls. Note: this is the non-`/v1` airport search (returns
+  // {ident,name,municipality,region}, not the {icao,name,city,state,...}
+  // shape `searchAirports`/`/api/v1/airports/search` returns) — kept
+  // separate rather than reusing `searchAirports` because the response
+  // shapes differ and the page's home-airport autocomplete reads `.ident`.
+
+  searchAirportsBasic(q: string) {
+    return request<Array<{ ident: string; name: string; municipality?: string | null; region?: string | null }>>(
+      `/api/airports/search?q=${encodeURIComponent(q)}`
+    )
+  },
+
+  createGroup(payload: {
+    name: string
+    type: 'partnership' | 'club'
+    description?: string
+    website?: string
+    contactEmail?: string
+    homeAirport?: string
+    sizeBracket?: string
+    showOnMap?: boolean
+  }) {
+    return requestApi<Record<string, unknown>>('/api/groups', { method: 'POST', body: JSON.stringify(payload) }, 'Failed to create group')
+  },
+
+  // Returns the raw {ok,status,data} shape (not throwing) because the
+  // caller distinguishes policy-block failures (403/422) from other errors
+  // using res.status, not just the message.
+  createGroupBooking(groupId: string, payload: { aircraftId: string; startTime: string; endTime: string; purpose?: string }) {
+    return requestRaw<{ error?: string } & Record<string, unknown>>(`/api/groups/${groupId}/bookings`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  cancelGroupBooking(groupId: string, bookingId: string, reason?: string) {
+    return requestApi<Record<string, unknown>>(
+      `/api/groups/${groupId}/bookings/${bookingId}`,
+      { method: 'DELETE', body: JSON.stringify({ reason }) },
+      'Failed to cancel booking'
+    )
+  },
+
+  // Raw (non-throwing): the caller reads `data.available`/`data.error` on
+  // both the ok and non-ok paths.
+  checkUsernameAvailable(username: string) {
+    return requestRaw<{ available: boolean | null; error?: string }>(
+      `/api/auth/signup?checkUsername=${encodeURIComponent(username)}`
+    )
+  },
+
+  // Distinct from `signup()` above — this call site lets the user pick their
+  // own username (checked for availability client-side first), whereas
+  // `signup()` auto-generates one from the email.
+  signupWithUsername(payload: { name: string; email: string; username: string; password: string }) {
+    return requestApi<{ success: boolean; user?: Record<string, unknown>; message?: string }>(
+      '/api/auth/signup',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Failed to create account'
+    )
+  },
+
+  addGroupAircraft(groupId: string, payload: Record<string, unknown>) {
+    return requestApi<Record<string, unknown>>(`/api/groups/${groupId}/aircraft`, { method: 'POST', body: JSON.stringify(payload) }, 'Failed to add aircraft')
+  },
+
+  inviteGroupMember(groupId: string, email: string) {
+    return requestApi<{
+      type: 'direct_add' | 'invite'
+      member?: { user: { name?: string; email: string } }
+      inviteLink?: string
+    }>(`/api/groups/${groupId}/invites`, { method: 'POST', body: JSON.stringify({ email }) }, 'Failed to send invite')
+  },
+
+  deleteGroup(groupId: string) {
+    return requestApi<Record<string, unknown>>(`/api/groups/${groupId}`, { method: 'DELETE' }, 'Failed to delete club')
+  },
+
+  createGroupPost(groupId: string, payload: { title: string; content: string; pinned: boolean }) {
+    return requestApi<Record<string, unknown>>(`/api/groups/${groupId}/posts`, { method: 'POST', body: JSON.stringify(payload) }, 'Failed to create post')
+  },
+
+  // Raw (non-throwing): callers show different messages for a server-side
+  // failure (data.error) vs. a network exception, which requires seeing
+  // res.ok directly rather than a thrown Error.
+  notifyGroupRaw(groupId: string, payload: Record<string, unknown>) {
+    return requestRaw<{ error?: string; sent?: number; failed?: number; skipped?: number }>(
+      `/api/groups/${groupId}/notify`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    )
+  },
+
+  uploadGroupDocument(groupId: string, formData: FormData) {
+    return requestForm<Record<string, unknown>>(`/api/groups/${groupId}/documents`, formData, 'Failed to upload')
+  },
+
+  // Lenient, non-throwing GET used only to read the current policy so a
+  // partial-field save (billing schedule) doesn't clobber the rest of the
+  // policy document. Mirrors the pre-migration
+  // `fetch(url).then(r => r.json()).catch(() => ({}))` exactly — it never
+  // checks res.ok, and swallows network/parse failures into `{}`.
+  getGroupPolicyLenient(groupId: string): Promise<Record<string, unknown>> {
+    const base = getCloudBaseUrl()
+    return fetch(`${base}/api/groups/${groupId}/policy`, { credentials: 'include' })
+      .then(r => r.json())
+      .catch(() => ({}))
+  },
+
+  updateGroupPolicy(groupId: string, payload: Record<string, unknown>, fallbackError: string) {
+    return requestApi<Record<string, unknown>>(`/api/groups/${groupId}/policy`, { method: 'PUT', body: JSON.stringify(payload) }, fallbackError)
+  },
+
+  connectGroupStripe(groupId: string) {
+    return requestApi<{ url?: string }>(`/api/groups/${groupId}/stripe/onboard`, { method: 'POST' }, 'Failed to start Stripe onboarding')
+  },
+
+  payInvoice(invoiceId: string) {
+    return requestApi<{ url?: string }>(`/api/invoices/${invoiceId}/pay`, { method: 'POST' }, 'Unable to start payment')
+  },
+
+  runGroupBilling(groupId: string) {
+    return requestApi<{ summary?: { successful: number; totalMembers: number; failed: number } }>(
+      `/api/clubs/${groupId}/billing/run`,
+      { method: 'POST' },
+      'Failed to run billing'
+    )
+  },
+
+  // Non-throwing (bare fetch, result discarded): mirrors the pre-migration
+  // `await fetch(...)` calls that never checked res.ok and always refreshed
+  // the list afterward regardless of outcome.
+  async deleteGroupPost(groupId: string, postId: string): Promise<void> {
+    const base = getCloudBaseUrl()
+    await fetch(`${base}/api/groups/${groupId}/posts/${postId}`, { method: 'DELETE', credentials: 'include' })
+  },
+
+  async deleteGroupDocument(groupId: string, docId: string): Promise<void> {
+    const base = getCloudBaseUrl()
+    await fetch(`${base}/api/groups/${groupId}/documents/${docId}`, { method: 'DELETE', credentials: 'include' })
   },
 }
 

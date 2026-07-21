@@ -28,7 +28,6 @@ const PENDING_MIGRATION = new Set([
   'app/desktop/dashboard/page.tsx',
   'app/desktop/discover/state/[code]/page.tsx',
   'app/desktop/flying-club/aircraft/[aircraftId]/page.tsx',
-  'app/desktop/flying-club/page.tsx',
   'app/desktop/flying-club/squawks/page.tsx',
   'app/desktop/forgot-password/page.tsx',
   'app/desktop/modules/tools/fuel-burn-tool.tsx',
