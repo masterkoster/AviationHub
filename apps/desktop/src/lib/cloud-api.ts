@@ -377,6 +377,8 @@ export interface FuelFeedRow {
   score: number
   myVote: number
   disputed: boolean
+  source: 'community' | 'airnav'
+  sourceLabel: string | null
 }
 
 export interface FuelDeal {

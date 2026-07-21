@@ -6,7 +6,6 @@ import {
   Fuel,
   Loader2,
   PlusCircle,
-  Search,
   DollarSign,
   TrendingDown,
   Users,
@@ -18,6 +17,7 @@ import {
 } from 'lucide-react'
 import { cloudApi, type FuelFeedRow } from '@/apps/desktop/src/lib/cloud-api'
 import { DealsStrip } from './_components/deals-strip'
+import { AirportSearch } from './_components/airport-search'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { ErrorCard } from '@/desktop/components/error-card'
 import { toast } from '@/components/ui/use-toast'
@@ -316,20 +316,9 @@ export default function DesktopFuelPage() {
         <>
           {/* Controls */}
           <div className="mb-4 flex flex-wrap items-end gap-3">
-            <div className="min-w-[160px]">
+            <div className="min-w-[220px]">
               <Label htmlFor="fuel-search" className="mb-1.5">Airport</Label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="fuel-search"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value.toUpperCase())}
-                  placeholder="ICAO (e.g. KPAO)"
-                  maxLength={7}
-                  className="pl-8 uppercase"
-                  autoComplete="off"
-                />
-              </div>
+              <AirportSearch value={q} onChange={setQ} />
             </div>
             <div className="min-w-[140px]">
               <Label className="mb-1.5">Fuel type</Label>
@@ -639,6 +628,7 @@ function FuelPriceCard({
   onDispute: (row: FuelFeedRow) => void
 }) {
   const chipClass = FUEL_TYPE_CHIP_CLASS[row.fuelType] || 'border-border bg-muted text-muted-foreground'
+  const isAirnav = row.source === 'airnav'
 
   return (
     <Card className={row.disputed ? 'py-4 opacity-70' : 'py-4'}>
@@ -646,6 +636,14 @@ function FuelPriceCard({
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-base font-bold text-foreground">{row.icao}</span>
+            {isAirnav && (
+              <Badge
+                variant="outline"
+                className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
+              >
+                {row.sourceLabel || 'AirNav'}
+              </Badge>
+            )}
             {row.isMine && (
               <Badge variant="secondary" className="text-[10px]">you</Badge>
             )}
@@ -663,30 +661,39 @@ function FuelPriceCard({
             <span className="text-2xl font-bold tabular-nums text-foreground">{fmtMoney(row.price)}</span>
             <span className="ml-1 text-xs font-normal text-muted-foreground">/gal</span>
           </div>
-          <VoteControl row={row} onVote={onVote} />
+          {!isAirnav && <VoteControl row={row} onVote={onVote} />}
         </div>
 
-        <p className="mb-2 truncate text-sm text-muted-foreground">{row.fbo || 'FBO not specified'}</p>
+        {!isAirnav && (
+          <p className="mb-2 truncate text-sm text-muted-foreground">{row.fbo || 'FBO not specified'}</p>
+        )}
 
         <div className="flex items-end justify-between gap-2">
-          <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-            <span>
-              {fmtDate(row.purchaseDate)}{' '}
-              <span className="text-muted-foreground/70">({relativeTime(row.purchaseDate)})</span>
-              {' · reported by '}
-              {row.submittedBy || 'a pilot'}
-            </span>
-            {row.submitterTier && row.submitterTier.weight >= ROW_BADGE_MIN_WEIGHT && (
-              <Badge
-                variant="outline"
-                className={`gap-0.5 text-[10px] ${tierChipClass(row.submitterTier.key)}`}
-              >
-                <ShieldCheck className="h-3 w-3" />
-                {row.submitterTier.label}
-              </Badge>
-            )}
-          </p>
-          {!row.isMine && (
+          {isAirnav ? (
+            <p className="text-xs text-muted-foreground">
+              via {row.sourceLabel || 'AirNav'} · last reported {fmtDate(row.purchaseDate)}
+              <span className="text-muted-foreground/70"> — no pilot reports yet</span>
+            </p>
+          ) : (
+            <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              <span>
+                {fmtDate(row.purchaseDate)}{' '}
+                <span className="text-muted-foreground/70">({relativeTime(row.purchaseDate)})</span>
+                {' · reported by '}
+                {row.submittedBy || 'a pilot'}
+              </span>
+              {row.submitterTier && row.submitterTier.weight >= ROW_BADGE_MIN_WEIGHT && (
+                <Badge
+                  variant="outline"
+                  className={`gap-0.5 text-[10px] ${tierChipClass(row.submitterTier.key)}`}
+                >
+                  <ShieldCheck className="h-3 w-3" />
+                  {row.submitterTier.label}
+                </Badge>
+              )}
+            </p>
+          )}
+          {!row.isMine && !isAirnav && (
             <button
               type="button"
               onClick={() => onDispute(row)}

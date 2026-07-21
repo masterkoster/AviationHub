@@ -52,7 +52,73 @@ function serialize(
     score: voteScore(vote.up, vote.down),
     myVote: vote.myVote,
     disputed: isDisputed(vote.weightedUp, vote.weightedDown),
+    source: 'community' as 'community' | 'airnav',
+    sourceLabel: null as string | null,
   };
+}
+
+// AirNav (or other cached) fallback prices for airports that have NO pilot
+// submission yet. Only runs when a specific airport is being searched. Clearly
+// attributed via source/sourceLabel and carries no votes/username (not a user
+// submission). Community data always takes precedence per icao+fuelType.
+const AIRNAV_COL: Record<string, 'price100ll' | 'priceJetA' | 'priceSulfar'> = {
+  '100LL': 'price100ll',
+  JetA: 'priceJetA',
+  UL94: 'priceSulfar',
+};
+
+async function buildAirNavRows(q: string, fuelTypeParam: string) {
+  if (!q) return [];
+  const cacheRows = await prisma.fuelPriceCache.findMany({
+    where: { icao: { startsWith: q } },
+    take: 25,
+  });
+  if (cacheRows.length === 0) return [];
+
+  // Which (icao, fuelType) already have a community price? Those are skipped.
+  const existing = await prisma.communityFuelPrice.findMany({
+    where: { icao: { startsWith: q } },
+    select: { icao: true, fuelType: true },
+  });
+  const communityKeys = new Set(existing.map((e) => `${e.icao}-${e.fuelType}`));
+
+  const wantTypes =
+    fuelTypeParam !== 'all' && VALID_FUEL_TYPES.includes(fuelTypeParam)
+      ? [fuelTypeParam]
+      : ['100LL', 'JetA', 'UL94'];
+
+  const rows: ReturnType<typeof serialize>[] = [];
+  for (const c of cacheRows) {
+    const label = c.source === 'airnav' ? 'AirNav' : c.source ? c.source : 'Cached';
+    const asOf = c.last_reported ?? c.scraped_at;
+    for (const ft of wantTypes) {
+      const col = AIRNAV_COL[ft];
+      if (!col) continue; // MOGAS has no cached column
+      const priceDec = c[col];
+      if (priceDec == null) continue;
+      if (communityKeys.has(`${c.icao}-${ft}`)) continue;
+      rows.push({
+        id: `airnav:${c.icao}:${ft}`,
+        icao: c.icao,
+        fbo: c.attribution ?? null,
+        fuelType: ft,
+        price: Number(priceDec),
+        purchaseDate: asOf,
+        createdAt: asOf,
+        isMine: false,
+        submittedBy: null,
+        submitterTier: null,
+        upvotes: 0,
+        downvotes: 0,
+        score: 0,
+        myVote: 0,
+        disputed: false,
+        source: 'airnav' as const,
+        sourceLabel: label,
+      });
+    }
+  }
+  return rows;
 }
 
 function distinctUserIds(rows: FeedRow[]): string[] {
@@ -170,8 +236,11 @@ export async function GET(request: NextRequest) {
       const usernameById = await buildUsernameMap(page);
       const tierById = await buildTierMap(page);
 
+      const community = page.map((row) => serialize(row, session.user!.id!, usernameById, windowVotes, tierById));
+      const airnav = offset === 0 ? await buildAirNavRows(q, fuelTypeParam) : [];
+
       return NextResponse.json({
-        prices: page.map((row) => serialize(row, session.user!.id!, usernameById, windowVotes, tierById)),
+        prices: [...community, ...airnav],
         mode,
         hasMore,
       });
@@ -195,8 +264,11 @@ export async function GET(request: NextRequest) {
       session.user.id
     );
 
+    const community = page.map((row) => serialize(row, session.user!.id!, usernameById, voteById, tierById));
+    const airnav = offset === 0 ? await buildAirNavRows(q, fuelTypeParam) : [];
+
     return NextResponse.json({
-      prices: page.map((row) => serialize(row, session.user!.id!, usernameById, voteById, tierById)),
+      prices: [...community, ...airnav],
       mode,
       hasMore,
     });
