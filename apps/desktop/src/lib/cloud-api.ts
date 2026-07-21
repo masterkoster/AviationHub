@@ -104,11 +104,75 @@ export const cloudApi = {
       `/api/weather?icao=${encodeURIComponent(icao)}`
     )
   },
-  getRouteWeather(payload: { waypoints: Array<{ icao: string; lat: number; lon: number }>; altitude: number; aircraftTAS: number }) {
+  getRouteWeather(payload: { waypoints: Array<{ icao: string; lat: number; lon: number }>; altitude: number; aircraftTAS: number; fuelBurnGph?: number }) {
     return request<Record<string, unknown>>('/api/route-weather', {
       method: 'POST',
       body: JSON.stringify(payload),
     })
+  },
+
+  // ── Airports ─────────────────────────────────────────────────
+
+  getAirports(params: { q?: string; limit?: number; country?: string; type?: string }) {
+    const qs = new URLSearchParams()
+    if (params.q !== undefined) qs.set('q', params.q)
+    if (params.limit !== undefined) qs.set('limit', String(params.limit))
+    if (params.country !== undefined) qs.set('country', params.country)
+    if (params.type !== undefined) qs.set('type', params.type)
+    const query = qs.toString()
+    return request<{ airports: CloudAirportRow[] }>(`/api/airports${query ? `?${query}` : ''}`)
+  },
+
+  getAirport(icao: string) {
+    return request<Record<string, unknown>>(`/api/airports/${encodeURIComponent(icao)}`)
+  },
+
+  // ── State media (photo panels for map/discover state cards) ────
+
+  getStateMedia(code: string) {
+    return request<{ state: string; images: StateMediaImage[]; fetchedAt: string; fromCache: boolean }>(
+      `/api/state-media/${encodeURIComponent(code)}`
+    )
+  },
+
+  // ── Discover: community routes & flying clubs ───────────────
+
+  getDiscoverRoutes(params: { minDist?: number; maxDist?: number; category?: string; limit?: number; offset?: number }) {
+    const qs = new URLSearchParams()
+    if (params.minDist !== undefined) qs.set('minDist', String(params.minDist))
+    if (params.maxDist !== undefined) qs.set('maxDist', String(params.maxDist))
+    if (params.category) qs.set('category', params.category)
+    if (params.limit !== undefined) qs.set('limit', String(params.limit))
+    if (params.offset !== undefined) qs.set('offset', String(params.offset))
+    const query = qs.toString()
+    return request<{ routes: DiscoverSharedRoute[]; total: number; offset: number; limit: number }>(
+      `/api/discover/routes${query ? `?${query}` : ''}`
+    )
+  },
+
+  getDiscoverClubs() {
+    return request<DiscoverClub[]>('/api/discover/clubs')
+  },
+
+  importDiscoverRoute(id: string) {
+    return request<{ ok: boolean }>(`/api/discover/routes/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'import' }),
+    })
+  },
+
+  createDiscoverRoute(payload: {
+    name: string
+    description?: string | null
+    waypoints: DiscoverSharedRouteWaypoint[]
+    totalDistanceNm: number
+    aircraftCategory: string
+  }) {
+    return requestApi<{ id: string }>(
+      '/api/discover/routes',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Failed'
+    )
   },
 
   async getUserPreferences(): Promise<Record<string, unknown> | null> {
@@ -357,6 +421,66 @@ export const cloudApi = {
       'Failed to disconnect'
     )
   },
+}
+
+// ── Airport search types ─────────────────────────────────────────
+
+export interface CloudAirportRow {
+  icao: string
+  iata?: string | null
+  name: string
+  city?: string | null
+  state?: string | null
+  country?: string | null
+  type?: string | null
+  latitude: number
+  longitude: number
+  elevation_ft?: number | null
+}
+
+// ── State media types ─────────────────────────────────────────────
+
+export interface StateMediaImage {
+  title: string
+  imageUrl: string
+  sourceUrl: string
+  author: string
+  license: string
+  licenseUrl: string
+}
+
+// ── Discover types ─────────────────────────────────────────────────
+
+export interface DiscoverSharedRouteWaypoint {
+  icao: string
+  name: string
+  latitude: number
+  longitude: number
+}
+
+export interface DiscoverSharedRoute {
+  id: string
+  name: string
+  description: string | null
+  waypoints: DiscoverSharedRouteWaypoint[]
+  totalDistanceNm: number
+  aircraftCategory: string
+  downloadsCount: number
+  createdAt: string
+  sharedBy: string
+}
+
+export interface DiscoverClub {
+  id: string
+  name: string
+  description: string | null
+  website: string | null
+  contactEmail: string | null
+  sizeBracket: string | null
+  homeAirport: string
+  airportName: string
+  lat: number
+  lon: number
 }
 
 // ── Fuel feed types ─────────────────────────────────────────────

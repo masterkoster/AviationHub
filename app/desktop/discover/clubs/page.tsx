@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import { ErrorCard } from '@/desktop/components/error-card'
 import { MapErrorBoundary } from '@/desktop/components/map-error-boundary'
 import type { ClubMapPin } from '@/shared/components/map/clubs-map'
+import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
 
 const ClubsMapRenderer = dynamic(() => import('@/shared/components/map/clubs-map'), {
   ssr: false,
@@ -75,9 +76,7 @@ export default function ClubsDiscoveryPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/discover/clubs')
-      if (!res.ok) throw new Error('Failed to load clubs')
-      const data = await res.json() as ClubMapEntry[]
+      const data = await cloudApi.getDiscoverClubs()
       setClubs(Array.isArray(data) ? data : [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load clubs')

@@ -11,6 +11,7 @@ import { stateData, getAllStates, type StateInfo } from '@/lib/stateData'
 import { curatedRoutes, type CuratedRoute } from '@/lib/curated-routes'
 import { aircraftDatabase, type AircraftEntry } from '@/lib/aircraft-database'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
+import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -212,17 +213,15 @@ export default function DiscoverPage() {
   const fetchCommunity = useCallback(async () => {
     setCommunityLoading(true)
     try {
-      const limit = expanded === 'community' ? '30' : '6'
+      const limit = expanded === 'community' ? 30 : 6
       const cat = ['SE', 'ME', 'SEA'].includes(categoryFilter) ? categoryFilter : undefined
-      const params = new URLSearchParams({
-        minDist: String(distMin),
-        maxDist: String(distMax === 99999 ? 9999 : distMax),
-        limit, offset: '0',
+      const data = await cloudApi.getDiscoverRoutes({
+        minDist: distMin,
+        maxDist: distMax === 99999 ? 9999 : distMax,
+        limit,
+        offset: 0,
         ...(cat ? { category: cat } : {}),
       })
-      const res = await fetch(`/api/discover/routes?${params}`)
-      if (!res.ok) throw new Error('failed')
-      const data = await res.json() as { routes: SharedRoute[]; total: number }
       setCommunity(data.routes)
       setCommunityTotal(data.total)
     } catch { /* silent */ }
@@ -234,9 +233,8 @@ export default function DiscoverPage() {
   useEffect(() => {
     let cancelled = false
     setClubsLoading(true)
-    fetch('/api/discover/clubs')
-      .then(res => res.ok ? res.json() : [])
-      .then((data: ClubMapEntry[]) => { if (!cancelled) setClubs(Array.isArray(data) ? data : []) })
+    cloudApi.getDiscoverClubs()
+      .then((data) => { if (!cancelled) setClubs(Array.isArray(data) ? data : []) })
       .catch(() => { if (!cancelled) setClubs([]) })
       .finally(() => { if (!cancelled) setClubsLoading(false) })
     return () => { cancelled = true }
@@ -259,10 +257,7 @@ export default function DiscoverPage() {
       ))
       localStorage.setItem('map_draft_route_name', route.name)
     } catch {}
-    fetch(`/api/discover/routes/${route.id}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'import' }),
-    }).catch(() => {})
+    cloudApi.importDiscoverRoute(route.id).catch(() => {})
     setImportedId(route.id)
     setTimeout(() => { setImportedId(null); router.push('/desktop/map') }, 700)
   }
@@ -762,8 +757,7 @@ function CommunityRouteCard({
     let cancelled = false
     const stateCode = arr ? ICAO_TO_STATE[arr.icao] : undefined
     if (stateCode) {
-      fetch(`/api/state-media/${stateCode}`)
-        .then(r => r.ok ? r.json() : null)
+      cloudApi.getStateMedia(stateCode)
         .then(data => {
           if (cancelled) return
           const url = data?.images?.[0]?.imageUrl as string | undefined
@@ -854,8 +848,7 @@ function StateCard({
   useEffect(() => {
     if (cachedImage !== undefined) { setImage(cachedImage); setLoading(false); return }
     let cancelled = false
-    fetch(`/api/state-media/${stateInfo.state}`)
-      .then(r => r.ok ? r.json() : null)
+    cloudApi.getStateMedia(stateInfo.state)
       .then(data => {
         if (cancelled) return
         const url = (data?.images?.[0]?.imageUrl as string) ?? null
@@ -953,12 +946,7 @@ function ShareRouteDialog({ onClose, onShared }: { onClose: () => void; onShared
     if (draftWaypoints.length < 2) { setError('Your current draft route needs at least 2 waypoints.'); return }
     setSubmitting(true); setError('')
     try {
-      const res = await fetch('/api/discover/routes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), description: description.trim() || null, waypoints: draftWaypoints, totalDistanceNm: distNm, aircraftCategory: category }),
-      })
-      if (!res.ok) { const d = await res.json() as { error?: string }; throw new Error(d.error ?? 'Failed') }
+      await cloudApi.createDiscoverRoute({ name: name.trim(), description: description.trim() || null, waypoints: draftWaypoints, totalDistanceNm: distNm, aircraftCategory: category })
       onShared()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to share route')
