@@ -17,6 +17,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { cloudApi, type FuelFeedRow } from '@/apps/desktop/src/lib/cloud-api'
+import { DealsStrip } from './_components/deals-strip'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { ErrorCard } from '@/desktop/components/error-card'
 import { toast } from '@/components/ui/use-toast'
@@ -377,6 +378,9 @@ export default function DesktopFuelPage() {
             loading={contributionsLoading}
             error={contributionsError}
           />
+
+          {/* Fuel / gas deals */}
+          <DealsStrip icao={debouncedQ || undefined} />
 
           {/* Stats band */}
           <StatsBand stats={stats} loading={trendLoading} />

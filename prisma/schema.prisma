@@ -1692,6 +1692,29 @@ model ContributionEvent {
   @@map("ContributionEvent")
 }
 
+// Documentation-only model — NOT part of the generated client here. Access is
+// via raw SQL only; see prisma/migrations/fuel_deal.sql. Manually/admin-seeded.
+model FuelDeal {
+  id           String    @id @default(dbgenerated("newid()"), map: "DF_FuelDeal_id") @db.NVarChar(36)
+  title        String    @db.NVarChar(200)
+  brand        String?   @db.NVarChar(100)
+  dealType     String    @db.NVarChar(20) // AVGAS | CAR_GAS | OTHER
+  icao         String?   @db.NVarChar(10)
+  region       String?   @db.NVarChar(50)
+  description  String?   @db.NVarChar(Max)
+  discountText String?   @db.NVarChar(100)
+  url          String?   @db.NVarChar(500)
+  startsAt     DateTime?
+  endsAt       DateTime?
+  isActive     Boolean   @default(true)
+  isSample     Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  @@index([icao], map: "IX_FuelDeal_icao")
+  @@index([isActive], map: "IX_FuelDeal_active")
+  @@map("FuelDeal")
+}
+
 model AircraftCache {
   id           Int     @id @default(autoincrement())
   manufacturer String  @db.NVarChar(100)

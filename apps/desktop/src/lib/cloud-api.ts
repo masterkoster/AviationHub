@@ -285,6 +285,15 @@ export const cloudApi = {
     }>('/api/me/contributions')
   },
 
+  getFuelDeals(params: { icao?: string; type?: string; limit?: number } = {}) {
+    const qs = new URLSearchParams()
+    if (params.icao) qs.set('icao', params.icao)
+    if (params.type) qs.set('type', params.type)
+    if (params.limit) qs.set('limit', String(params.limit))
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return request<{ deals: FuelDeal[] }>(`/api/fuel-prices/deals${suffix}`)
+  },
+
   // ── QuickBooks: personal (user's own out-of-pocket expenses) ───
 
   getMyQuickbooksStatus() {
@@ -368,6 +377,21 @@ export interface FuelFeedRow {
   score: number
   myVote: number
   disputed: boolean
+}
+
+export interface FuelDeal {
+  id: string
+  title: string
+  brand: string | null
+  dealType: string
+  icao: string | null
+  region: string | null
+  description: string | null
+  discountText: string | null
+  url: string | null
+  startsAt: string | null
+  endsAt: string | null
+  isSample: boolean
 }
 
 // ── Aircraft cost types ───────────────────────────────────────
