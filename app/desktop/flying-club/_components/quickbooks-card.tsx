@@ -18,14 +18,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Loader2, Calculator, RefreshCw, Unlink } from 'lucide-react'
+import { cloudApi, type QuickBooksStatusResponse } from '@/apps/desktop/src/lib/cloud-api'
 
-interface QuickBooksStatus {
-  connected: boolean
-  status: string
-  companyName?: string | null
-  lastSync?: string | null
-  lastSyncError?: string | null
-}
+type QuickBooksStatus = QuickBooksStatusResponse
 
 export function QuickBooksCard({ groupId }: { groupId: string }) {
   const [status, setStatus] = useState<QuickBooksStatus | null>(null)
@@ -38,9 +33,7 @@ export function QuickBooksCard({ groupId }: { groupId: string }) {
   const loadStatus = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/integrations/quickbooks/status?groupId=${groupId}`)
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Failed to load QuickBooks status')
+      const data = await cloudApi.getGroupQuickbooksStatus(groupId)
       setStatus(data)
       setError(null)
     } catch (err) {
@@ -58,15 +51,13 @@ export function QuickBooksCard({ groupId }: { groupId: string }) {
     setConnecting(true)
     setError(null)
     try {
-      const res = await fetch(`/api/integrations/quickbooks/connect?groupId=${groupId}`)
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'Failed to start QuickBooks connection'); return }
+      const data = await cloudApi.connectGroupQuickbooks(groupId)
       if (data.authUrl) {
         const popup = window.open(data.authUrl, '_blank')
         if (!popup) window.location.href = data.authUrl
       }
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error')
     } finally {
       setConnecting(false)
     }
@@ -76,16 +67,10 @@ export function QuickBooksCard({ groupId }: { groupId: string }) {
     setSyncing(true)
     setError(null)
     try {
-      const res = await fetch('/api/integrations/quickbooks/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupId }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'Sync failed'); return }
+      await cloudApi.syncGroupQuickbooks(groupId)
       await loadStatus()
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error')
     } finally {
       setSyncing(false)
     }
@@ -95,16 +80,10 @@ export function QuickBooksCard({ groupId }: { groupId: string }) {
     setDisconnecting(true)
     setError(null)
     try {
-      const res = await fetch('/api/integrations/quickbooks/disconnect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupId }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'Failed to disconnect'); return }
+      await cloudApi.disconnectGroupQuickbooks(groupId)
       await loadStatus()
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error')
     } finally {
       setDisconnecting(false)
     }

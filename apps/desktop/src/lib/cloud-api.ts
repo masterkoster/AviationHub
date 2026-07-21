@@ -20,6 +20,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+// QuickBooks routes (both /api/me/quickbooks/* and
+// /api/integrations/quickbooks/*) always return a JSON body with an `error`
+// string on failure - callers historically read `data.error` for the
+// message shown to the user (see app/desktop/settings/accounting/page.tsx
+// and app/desktop/flying-club/_components/quickbooks-card.tsx pre-migration).
+// `request()` above throws a generic "Cloud request failed (status): ..."
+// message that doesn't surface that text, so these use a variant that reads
+// the body first and throws with `data.error` (falling back to the same
+// default text each call site used) - callers catch and read `err.message`
+// exactly like they used to read `data.error`.
+async function requestApi<T>(path: string, init: RequestInit | undefined, fallbackError: string): Promise<T> {
+  const base = getCloudBaseUrl()
+  const url = `${base}${path}`
+  const res = await fetch(url, {
+    ...init,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data as { error?: string })?.error || fallbackError)
+  }
+  return data as T
+}
+
 export const cloudApi = {
   signup(payload: { name: string; email: string; password: string }) {
     const username = payload.email
@@ -256,6 +284,70 @@ export const cloudApi = {
       recentEvents: { type: string; points: number; refType: string | null; createdAt: string }[]
     }>('/api/me/contributions')
   },
+
+  // ── QuickBooks: personal (user's own out-of-pocket expenses) ───
+
+  getMyQuickbooksStatus() {
+    return requestApi<QuickBooksStatusResponse>(
+      '/api/me/quickbooks/status',
+      undefined,
+      'Failed to load QuickBooks status'
+    )
+  },
+
+  connectMyQuickbooks() {
+    return requestApi<QuickBooksConnectResponse>(
+      '/api/me/quickbooks/connect',
+      undefined,
+      'Failed to start QuickBooks connection'
+    )
+  },
+
+  syncMyQuickbooks() {
+    return requestApi<QuickBooksSyncResponse>('/api/me/quickbooks/sync', { method: 'POST' }, 'Sync failed')
+  },
+
+  disconnectMyQuickbooks() {
+    return requestApi<QuickBooksDisconnectResponse>(
+      '/api/me/quickbooks/disconnect',
+      { method: 'POST' },
+      'Failed to disconnect'
+    )
+  },
+
+  // ── QuickBooks: flying club (group's invoices/payments) ────────
+
+  getGroupQuickbooksStatus(groupId: string) {
+    return requestApi<QuickBooksStatusResponse>(
+      `/api/integrations/quickbooks/status?groupId=${encodeURIComponent(groupId)}`,
+      undefined,
+      'Failed to load QuickBooks status'
+    )
+  },
+
+  connectGroupQuickbooks(groupId: string) {
+    return requestApi<QuickBooksConnectResponse>(
+      `/api/integrations/quickbooks/connect?groupId=${encodeURIComponent(groupId)}`,
+      undefined,
+      'Failed to start QuickBooks connection'
+    )
+  },
+
+  syncGroupQuickbooks(groupId: string) {
+    return requestApi<QuickBooksGroupSyncResponse>(
+      '/api/integrations/quickbooks/sync',
+      { method: 'POST', body: JSON.stringify({ groupId }) },
+      'Sync failed'
+    )
+  },
+
+  disconnectGroupQuickbooks(groupId: string) {
+    return requestApi<QuickBooksDisconnectResponse>(
+      '/api/integrations/quickbooks/disconnect',
+      { method: 'POST', body: JSON.stringify({ groupId }) },
+      'Failed to disconnect'
+    )
+  },
 }
 
 // ── Fuel feed types ─────────────────────────────────────────────
@@ -390,4 +482,43 @@ export interface EngineReference {
   annualInspectionCost: number | null
   costYear: number
   isEstimate: boolean
+}
+
+// ── QuickBooks types ─────────────────────────────────────────
+
+export interface QuickBooksStatusResponse {
+  connected: boolean
+  status: string
+  companyName?: string | null
+  companyId?: string | null
+  lastSync?: string | null
+  lastSyncStatus?: string | null
+  lastSyncError?: string | null
+  syncedCount?: number
+  syncFrequency?: string | null
+  mappings?: Record<string, unknown>[]
+  recentSyncs?: Record<string, unknown>[]
+}
+
+export interface QuickBooksConnectResponse {
+  success: boolean
+  authUrl: string
+  message?: string
+}
+
+export interface QuickBooksSyncResponse {
+  success: boolean
+  pushed: number
+  skipped: number
+  errors: string[]
+  syncLog: Record<string, unknown>
+}
+
+export interface QuickBooksGroupSyncResponse extends QuickBooksSyncResponse {
+  paymentsRecorded: number
+}
+
+export interface QuickBooksDisconnectResponse {
+  success: boolean
+  message?: string
 }

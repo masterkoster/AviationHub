@@ -6,16 +6,9 @@ import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { notifyError } from '@/desktop/lib/toast-helpers'
 import { toast } from '@/components/ui/use-toast'
 import { SectionHeading, SettingsCard } from '@/desktop/components/settings-ui'
+import { cloudApi, type QuickBooksStatusResponse } from '@/apps/desktop/src/lib/cloud-api'
 
-interface QuickBooksStatus {
-  connected: boolean
-  status: string
-  companyName?: string | null
-  lastSync?: string | null
-  lastSyncStatus?: string | null
-  lastSyncError?: string | null
-  syncedCount?: number
-}
+type QuickBooksStatus = QuickBooksStatusResponse
 
 /**
  * Personal QuickBooks connection - syncs the signed-in user's own aviation
@@ -45,9 +38,7 @@ export default function AccountingSettingsPage() {
     }
     setLoading(true)
     try {
-      const res = await fetch('/api/me/quickbooks/status')
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Failed to load QuickBooks status')
+      const data = await cloudApi.getMyQuickbooksStatus()
       setStatus(data)
       setError(null)
     } catch (err) {
@@ -84,17 +75,12 @@ export default function AccountingSettingsPage() {
     setConnecting(true)
     setError(null)
     try {
-      const res = await fetch('/api/me/quickbooks/connect')
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setError(data.error || 'Failed to start QuickBooks connection')
-        return
-      }
+      const data = await cloudApi.connectMyQuickbooks()
       if (data.authUrl) {
         window.location.href = data.authUrl
       }
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error')
     } finally {
       setConnecting(false)
     }
@@ -104,19 +90,14 @@ export default function AccountingSettingsPage() {
     setSyncing(true)
     setError(null)
     try {
-      const res = await fetch('/api/me/quickbooks/sync', { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setError(data.error || 'Sync failed')
-        return
-      }
+      const data = await cloudApi.syncMyQuickbooks()
       toast({
         title: 'Sync complete',
         description: `${data.pushed} pushed, ${data.skipped} already synced${data.errors?.length ? `, ${data.errors.length} failed` : ''}.`,
       })
       await loadStatus()
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error')
     } finally {
       setSyncing(false)
     }
@@ -126,15 +107,10 @@ export default function AccountingSettingsPage() {
     setDisconnecting(true)
     setError(null)
     try {
-      const res = await fetch('/api/me/quickbooks/disconnect', { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setError(data.error || 'Failed to disconnect')
-        return
-      }
+      await cloudApi.disconnectMyQuickbooks()
       await loadStatus()
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error')
     } finally {
       setDisconnecting(false)
     }

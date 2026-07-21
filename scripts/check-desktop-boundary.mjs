@@ -30,7 +30,6 @@ const PENDING_MIGRATION = new Set([
   'app/desktop/discover/clubs/page.tsx',
   'app/desktop/discover/page.tsx',
   'app/desktop/discover/state/[code]/page.tsx',
-  'app/desktop/flying-club/_components/quickbooks-card.tsx',
   'app/desktop/flying-club/aircraft/[aircraftId]/page.tsx',
   'app/desktop/flying-club/page.tsx',
   'app/desktop/flying-club/squawks/page.tsx',
@@ -40,7 +39,6 @@ const PENDING_MIGRATION = new Set([
   'app/desktop/modules/tools/sunrise-sunset-tool.tsx',
   'app/desktop/modules/tools/weight-balance-tool.tsx',
   'app/desktop/reset-password/page.tsx',
-  'app/desktop/settings/accounting/page.tsx',
 ])
 
 // Catches both quoted (fetch('/api/...')) and template-literal (fetch(`/api/...`)) calls.
