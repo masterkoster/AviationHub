@@ -23,7 +23,6 @@ const ALLOW_API_FETCH = new Set([
 // listed) still fail. Paths are repo-relative, POSIX-style.
 // modules/tools/* are intentionally left here — those routes are being retired.
 const PENDING_MIGRATION = new Set([
-  'app/desktop/admin/page.tsx',
   'app/desktop/aircraft/[nNumber]/page.tsx',
   'app/desktop/calendar/page.tsx',
   'app/desktop/dashboard/page.tsx',

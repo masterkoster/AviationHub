@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
+import { getCloudSession } from '@/apps/desktop/src/lib/cloud-session'
 import {
   LayoutDashboard,
   Users,
@@ -292,21 +294,15 @@ export default function AdminPage() {
   // ── Auth Check ──────────────────────────────────────────────
 
   useEffect(() => {
-    fetch('/api/auth/session')
-      .then(r => r.json())
-      .then(data => {
-        const role = data?.user?.role
-        if (role === 'admin' || role === 'owner') {
-          setAuthCheck('authorized')
-        } else {
-          setAuthCheck('denied')
-          setTimeout(() => router.replace('/desktop/dashboard'), 2000)
-        }
-      })
-      .catch(() => {
+    getCloudSession().then(session => {
+      const role = session.user?.role
+      if (role === 'admin' || role === 'owner') {
+        setAuthCheck('authorized')
+      } else {
         setAuthCheck('denied')
         setTimeout(() => router.replace('/desktop/dashboard'), 2000)
-      })
+      }
+    })
   }, [router])
 
   // ── Data Fetching ───────────────────────────────────────────
@@ -315,9 +311,7 @@ export default function AdminPage() {
     setStatsLoading(true)
     setStatsError('')
     try {
-      const res = await fetch('/api/admin/stats')
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed to load stats')
-      setStats(await res.json())
+      setStats(await cloudApi.getAdminStats())
     } catch (err) {
       setStatsError(err instanceof Error ? err.message : 'Failed to load stats')
     } finally {
@@ -329,11 +323,7 @@ export default function AdminPage() {
     setUsersLoading(true)
     setUsersError('')
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' })
-      if (search) params.set('search', search)
-      const res = await fetch(`/api/admin/users?${params}`)
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed to load users')
-      const data = await res.json()
+      const data = await cloudApi.getAdminUsers({ page, limit: 20, search: search || undefined })
       setUsers(data.users)
       setUserPagination(data.pagination)
     } catch (err) {
@@ -347,11 +337,7 @@ export default function AdminPage() {
     setErrorsLoading(true)
     setErrorsError('')
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' })
-      if (status && status !== 'all') params.set('status', status)
-      const res = await fetch(`/api/admin/error-reports?${params}`)
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed to load error reports')
-      const data = await res.json()
+      const data = await cloudApi.getAdminErrorReports({ page, limit: 20, status })
       setErrors(data.reports)
       setErrorPagination(data.pagination)
       setErrorStatusCounts(data.statusCounts || {})
@@ -367,9 +353,7 @@ export default function AdminPage() {
     setResetPasswordResult(null)
     setResetPasswordEmail('')
     try {
-      const res = await fetch(`/api/admin/users/${userId}`)
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed to load user')
-      const data = await res.json()
+      const data = await cloudApi.getAdminUser(userId)
       setUserDetail(data.user)
     } catch (err) {
       console.error('Failed to load user detail:', err)
@@ -382,11 +366,7 @@ export default function AdminPage() {
     setClubsLoading(true)
     setClubsError('')
     try {
-      const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      const res = await fetch(`/api/admin/clubs?${params}`)
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed to load clubs')
-      const data = await res.json()
+      const data = await cloudApi.getAdminClubs({ search: search || undefined })
       setClubs(data.clubs || [])
     } catch (err) {
       setClubsError(err instanceof Error ? err.message : 'Failed to load clubs')
@@ -400,9 +380,7 @@ export default function AdminPage() {
     setClubDetailError('')
     setClubDetail(null)
     try {
-      const res = await fetch(`/api/admin/clubs/${clubId}`)
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed to load club detail')
-      const data = await res.json()
+      const data = await cloudApi.getAdminClub(clubId)
       setClubDetail(data.club)
     } catch (err) {
       setClubDetailError(err instanceof Error ? err.message : 'Failed to load club detail')
@@ -413,12 +391,7 @@ export default function AdminPage() {
 
   async function updateClubMemberRole(clubId: string, memberId: string, role: string) {
     try {
-      const res = await fetch(`/api/groups/${clubId}/members`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberId, role }),
-      })
-      if (!res.ok) throw new Error('Failed to update member role')
+      await cloudApi.updateGroupMemberRole(clubId, memberId, role)
       if (clubDetail && clubDetail.id === clubId) {
         setClubDetail({
           ...clubDetail,
@@ -457,22 +430,13 @@ export default function AdminPage() {
     setAddUserError('')
     setAddUserSuccess('')
     try {
-      const res = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(addUserForm),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setAddUserError(data.error || 'Failed to create user')
-        return
-      }
+      const data = await cloudApi.createAdminUser(addUserForm)
       setAddUserSuccess(`User "${data.user.username}" created successfully!`)
       setAddUserForm({ username: '', email: '', password: '', name: '', role: 'user', tier: 'free' })
       fetchUsers(userSearch, userPage)
       setTimeout(() => { setShowAddUser(false); setAddUserSuccess('') }, 1500)
-    } catch {
-      setAddUserError('Network error')
+    } catch (err) {
+      setAddUserError(err instanceof Error ? err.message : 'Network error')
     } finally {
       setAddUserLoading(false)
     }
@@ -484,19 +448,10 @@ export default function AdminPage() {
     if (!selectedUserId || !resetPasswordEmail || resetPasswordEmail.length < 6) return
     setResetPasswordResult(null)
     try {
-      const res = await fetch(`/api/admin/users/${selectedUserId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPassword: resetPasswordEmail }),
-      })
-      const data = await res.json()
-      if (res.ok) {
-        setResetPasswordResult({ ok: true, msg: `Password changed to "${resetPasswordEmail}"` })
-      } else {
-        setResetPasswordResult({ ok: false, msg: data.error || 'Failed' })
-      }
-    } catch {
-      setResetPasswordResult({ ok: false, msg: 'Network error' })
+      await cloudApi.resetAdminUserPassword(selectedUserId, resetPasswordEmail)
+      setResetPasswordResult({ ok: true, msg: `Password changed to "${resetPasswordEmail}"` })
+    } catch (err) {
+      setResetPasswordResult({ ok: false, msg: err instanceof Error ? err.message : 'Network error' })
     }
   }
 
@@ -504,12 +459,7 @@ export default function AdminPage() {
 
   async function updateUserTier(userId: string, tier: string) {
     try {
-      const res = await fetch(`/api/admin/users/${userId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier }),
-      })
-      if (!res.ok) throw new Error('Failed to update tier')
+      await cloudApi.updateAdminUser(userId, { tier })
       if (userDetail && userDetail.id === userId) {
         setUserDetail({ ...userDetail, tier })
       }
@@ -519,12 +469,7 @@ export default function AdminPage() {
 
   async function updateUserRole(userId: string, role: string) {
     try {
-      const res = await fetch(`/api/admin/users/${userId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role }),
-      })
-      if (!res.ok) throw new Error('Failed to update role')
+      await cloudApi.updateAdminUser(userId, { role })
       if (userDetail && userDetail.id === userId) {
         setUserDetail({ ...userDetail, role })
       }
@@ -541,11 +486,7 @@ export default function AdminPage() {
 
   async function updateErrorStatus(id: string, status: string) {
     try {
-      await fetch('/api/admin/error-reports', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status }),
-      })
+      await cloudApi.updateErrorReportStatus(id, status)
       fetchErrors(errorStatusFilter, errorPage)
     } catch { /* ignore */ }
   }
@@ -1550,11 +1491,7 @@ export default function AdminPage() {
                 <button
                   onClick={async () => {
                     try {
-                      await fetch('/api/admin/error-reports', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id: selectedReport.id, status: 'resolved', resolution: resolutionText }),
-                      })
+                      await cloudApi.updateErrorReportStatus(selectedReport.id, 'resolved', resolutionText)
                       setSelectedReport({ ...selectedReport, status: 'resolved' })
                       setResolutionText('')
                       fetchErrors(errorStatusFilter, errorPage)

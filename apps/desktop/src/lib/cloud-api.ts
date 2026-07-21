@@ -421,6 +421,98 @@ export const cloudApi = {
       'Failed to disconnect'
     )
   },
+
+  // ── Admin (desktop admin console) ────────────────────────────
+
+  getAdminStats() {
+    return requestApi<AdminStats>('/api/admin/stats', undefined, 'Failed to load stats')
+  },
+
+  getAdminUsers(params: { page: number; limit?: number; search?: string }) {
+    const qs = new URLSearchParams({ page: String(params.page), limit: String(params.limit ?? 20) })
+    if (params.search) qs.set('search', params.search)
+    return requestApi<{ users: AdminUserRow[]; pagination: AdminPagination }>(
+      `/api/admin/users?${qs.toString()}`,
+      undefined,
+      'Failed to load users'
+    )
+  },
+
+  createAdminUser(payload: { username: string; email: string; password: string; name: string; role: string; tier: string }) {
+    return requestApi<AdminCreateUserResult>(
+      '/api/admin/users',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Failed to create user'
+    )
+  },
+
+  getAdminUser(id: string) {
+    return requestApi<{ user: AdminUserDetail }>(`/api/admin/users/${id}`, undefined, 'Failed to load user')
+  },
+
+  updateAdminUser(id: string, payload: { tier?: string; role?: string; verifyEmail?: boolean }) {
+    return requestApi<{ success: boolean }>(
+      `/api/admin/users/${id}`,
+      { method: 'PUT', body: JSON.stringify(payload) },
+      'Failed to update user'
+    )
+  },
+
+  resetAdminUserPassword(id: string, newPassword: string) {
+    return requestApi<{ success: boolean; message?: string }>(
+      `/api/admin/users/${id}`,
+      { method: 'POST', body: JSON.stringify({ newPassword }) },
+      'Failed'
+    )
+  },
+
+  getAdminErrorReports(params: { page: number; limit?: number; status?: string }) {
+    const qs = new URLSearchParams({ page: String(params.page), limit: String(params.limit ?? 20) })
+    if (params.status && params.status !== 'all') qs.set('status', params.status)
+    return requestApi<{ reports: AdminErrorReport[]; pagination: AdminPagination; statusCounts: Record<string, number> }>(
+      `/api/admin/error-reports?${qs.toString()}`,
+      undefined,
+      'Failed to load error reports'
+    )
+  },
+
+  // Mirrors the pre-migration raw `fetch(...)` call this replaces: that call
+  // never checked `res.ok`, so the caller refreshed its list regardless of
+  // response status (only a genuine network failure would throw/reject).
+  // Uses the bare `fetch` primitive rather than `request`/`requestApi`
+  // (which both throw on non-2xx) to preserve that exact behavior.
+  async updateErrorReportStatus(id: string, status: string, resolution?: string): Promise<void> {
+    const base = getCloudBaseUrl()
+    await fetch(`${base}/api/admin/error-reports`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(resolution !== undefined ? { id, status, resolution } : { id, status }),
+    })
+  },
+
+  getAdminClubs(params: { search?: string } = {}) {
+    const qs = new URLSearchParams()
+    if (params.search) qs.set('search', params.search)
+    const query = qs.toString()
+    return requestApi<{ clubs: AdminClub[]; pagination: AdminPagination }>(
+      `/api/admin/clubs${query ? `?${query}` : ''}`,
+      undefined,
+      'Failed to load clubs'
+    )
+  },
+
+  getAdminClub(id: string) {
+    return requestApi<{ club: AdminClubDetail }>(`/api/admin/clubs/${id}`, undefined, 'Failed to load club detail')
+  },
+
+  updateGroupMemberRole(groupId: string, memberId: string, role: string) {
+    return requestApi<{ success: boolean }>(
+      `/api/groups/${groupId}/members`,
+      { method: 'PUT', body: JSON.stringify({ memberId, role }) },
+      'Failed to update member role'
+    )
+  },
 }
 
 // ── Airport search types ─────────────────────────────────────────
@@ -671,4 +763,136 @@ export interface QuickBooksGroupSyncResponse extends QuickBooksSyncResponse {
 export interface QuickBooksDisconnectResponse {
   success: boolean
   message?: string
+}
+
+// ── Admin (desktop admin console) types ─────────────────────────
+
+export interface AdminPagination {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+}
+
+export interface AdminStats {
+  totalUsers: number
+  freeUsers: number
+  proUsers: number
+  newUsersThisWeek: number
+  newUsers30Days: number
+  openErrorReports: number
+  totalFlightPlans: number
+  totalGroups: number
+  totalAircraft: number
+  bookingsLast30Days: number
+  totalListings: number
+  listingActive: number
+  listingPending: number
+  listingFlagged: number
+  listingSold: number
+  estimatedAnnualRevenue: number
+  estimatedMRR: number
+}
+
+export interface AdminUserRow {
+  id: string
+  email: string
+  name: string | null
+  username: string | null
+  tier: string
+  role: string
+  createdAt: string
+  updatedAt: string
+  flightPlanCount: number
+  clubCount: number
+  status: string
+  hours: number
+  club: string
+  joined: string
+}
+
+export interface AdminUserDetail {
+  id: string
+  email: string
+  name: string | null
+  username: string | null
+  tier: string
+  role: string
+  homeState: string | null
+  stripeCustomerId: string | null
+  subscriptionEnd: string | null
+  createdAt: string
+  updatedAt: string
+  flightPlanCount: number
+  clubCount: number
+  errorReports: Array<{ id: string; title: string; status: string; createdAt: string }>
+}
+
+export interface AdminCreateUserResult {
+  user: {
+    id: string
+    username: string
+    email: string
+    name: string | null
+    role: string
+    tier: string
+    createdAt: string
+  }
+}
+
+export interface AdminErrorReport {
+  id: string
+  title: string
+  description?: string
+  status: string
+  severity?: string
+  url?: string
+  userEmail: string | null
+  userName: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminClub {
+  id: string
+  name: string
+  description: string | null
+  ownerId: string
+  owner: { id: string; name: string | null; email: string; username: string | null }
+  createdAt: string
+  members: number
+  aircraft: number
+  plan: string
+  revenue: number
+  status: string
+}
+
+export interface AdminClubDetail {
+  id: string
+  name: string
+  description: string | null
+  type: string
+  publicSlug: string | null
+  ownerId: string
+  owner: { id: string; name: string | null; email: string; username: string | null }
+  createdAt: string
+  stats: { members: number; aircraft: number; bookings: number }
+  members: Array<{
+    id: string
+    userId: string
+    role: string
+    joinedAt: string | null
+    user: { id: string; name: string | null; email: string; username: string | null }
+  }>
+  aircraft: Array<{
+    id: string
+    make: string | null
+    model: string | null
+    nickname: string | null
+    customName: string | null
+    nNumber: string | null
+    status: string | null
+    hourlyRate: number | null
+    year: number | null
+  }>
 }
