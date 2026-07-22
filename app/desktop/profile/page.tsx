@@ -331,6 +331,7 @@ export default function DesktopProfilePage() {
   const [avatarPath, setAvatarPath] = useState<string | null>(null)
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [avatarError, setAvatarError] = useState<string | null>(null)
 
   // ── Certifications ─────────────────────────────────────────────
   const [certs, setCerts] = useState<Certification[]>([])
@@ -750,6 +751,7 @@ export default function DesktopProfilePage() {
   async function handleAvatarUpload() {
     if (!resolvedUser || !isTauri) return
     setUploadingAvatar(true)
+    setAvatarError(null)
     try {
       const { open } = await import('@tauri-apps/plugin-dialog')
       const filePath = await open({
@@ -781,6 +783,7 @@ export default function DesktopProfilePage() {
       window.dispatchEvent(new CustomEvent('desktop-auth-changed'))
     } catch (err) {
       console.error('[profile] avatar upload failed', err)
+      setAvatarError(err instanceof Error ? err.message : 'Could not save the photo.')
     } finally {
       setUploadingAvatar(false)
     }
@@ -986,6 +989,14 @@ export default function DesktopProfilePage() {
                     )}
                   </button>
                 </div>
+                {avatarError && (
+                  <p className="max-w-[9rem] text-center text-xs text-destructive">{avatarError}</p>
+                )}
+                {!isTauri && (
+                  <p className="max-w-[9rem] text-center text-xs text-muted-foreground">
+                    Photo upload is available in the desktop app.
+                  </p>
+                )}
 
                 {/* Color picker popover */}
                 {showColorPicker && (
