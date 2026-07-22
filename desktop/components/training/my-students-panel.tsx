@@ -1,13 +1,14 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Loader2, UserPlus, Check, X, PenLine, Users } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Loader2, UserPlus, Check, X, PenLine, Users, ChevronRight } from 'lucide-react'
 import {
   cloudApi,
   type TrainingRelationship,
   type EndorsementRequestRow,
   type EndorsementTemplate,
 } from '@/apps/desktop/src/lib/cloud-api'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -66,6 +67,14 @@ export default function MyStudentsPanel({
     () => endorsementRequests.filter((r) => r.instructorId === myUserId && r.status === 'pending'),
     [endorsementRequests, myUserId]
   )
+  // Map studentId -> count of pending sign requests, for the master list badge.
+  const pendingByStudent = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const req of pendingSignRequests) {
+      map.set(req.studentId, (map.get(req.studentId) || 0) + 1)
+    }
+    return map
+  }, [pendingSignRequests])
 
   const [respondingId, setRespondingId] = useState<string | null>(null)
   const [signRequest, setSignRequest] = useState<EndorsementRequestRow | null>(null)
@@ -73,6 +82,23 @@ export default function MyStudentsPanel({
   const [addGoal, setAddGoal] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
+
+  // Keep the selection valid as the roster changes (e.g. after a refresh).
+  useEffect(() => {
+    if (selectedStudentId && !activeStudents.some((r) => r.counterpart.userId === selectedStudentId)) {
+      setSelectedStudentId(null)
+    }
+  }, [activeStudents, selectedStudentId])
+
+  const selectedRel = useMemo(
+    () => activeStudents.find((r) => r.counterpart.userId === selectedStudentId) ?? null,
+    [activeStudents, selectedStudentId]
+  )
+  const selectedRequests = useMemo(
+    () => (selectedStudentId ? pendingSignRequests.filter((r) => r.studentId === selectedStudentId) : []),
+    [pendingSignRequests, selectedStudentId]
+  )
 
   async function respond(id: string, action: 'accept' | 'decline') {
     setRespondingId(id)
@@ -199,66 +225,125 @@ export default function MyStudentsPanel({
           </div>
         )}
 
-        {/* Active roster */}
-        <div>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Active students</p>
-          {activeStudents.length === 0 ? (
+        {/* ── Master–detail: active roster (left) + selected student (right) ── */}
+        {activeStudents.length === 0 ? (
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Active students</p>
             <p className="text-sm text-muted-foreground">No students yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {activeStudents.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2"
-                >
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4 lg:flex-row">
+            {/* Master list */}
+            <div className="shrink-0 lg:w-[220px]">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                Active students ({activeStudents.length})
+              </p>
+              <ul className="space-y-1">
+                {activeStudents.map((r) => {
+                  const active = r.counterpart.userId === selectedStudentId
+                  const pending = pendingByStudent.get(r.counterpart.userId) || 0
+                  return (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStudentId(r.counterpart.userId)}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors',
+                          active
+                            ? 'border-primary/40 bg-primary/10'
+                            : 'border-border bg-background hover:bg-muted'
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {r.counterpart.name || r.counterpart.username || 'Unknown pilot'}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {r.counterpart.username ? `@${r.counterpart.username}` : ''}
+                            {r.goal ? ` · ${r.goal}` : ''}
+                          </p>
+                        </div>
+                        {pending > 0 && (
+                          <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                            {pending}
+                          </span>
+                        )}
+                        <ChevronRight
+                          className={cn(
+                            'h-3.5 w-3.5 shrink-0',
+                            active ? 'text-primary' : 'text-muted-foreground/50'
+                          )}
+                        />
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+
+            {/* Detail pane */}
+            <div className="min-w-0 flex-1 rounded-lg border border-border bg-background/50 p-4">
+              {!selectedRel ? (
+                <div className="flex h-full min-h-[140px] flex-col items-center justify-center text-center">
+                  <Users className="h-6 w-6 text-muted-foreground/40" />
+                  <p className="mt-2 text-sm font-medium text-foreground">Select a student</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Choose a student to view their details and endorsement requests.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Detail header */}
                   <div>
-                    <p className="text-sm font-medium text-foreground">
-                      {r.counterpart.name || r.counterpart.username || 'Unknown pilot'}
+                    <p className="text-base font-semibold text-foreground">
+                      {selectedRel.counterpart.name || selectedRel.counterpart.username || 'Unknown pilot'}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {r.counterpart.username ? `@${r.counterpart.username}` : ''}
-                      {r.goal ? ` · ${r.goal}` : ''}
+                      {selectedRel.counterpart.username ? `@${selectedRel.counterpart.username}` : ''}
+                      {selectedRel.goal ? ` · ${selectedRel.goal}` : ''}
                     </p>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
 
-        {/* Pending endorsement requests to sign */}
-        <div>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Endorsement requests</p>
-          {pendingSignRequests.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No endorsement requests waiting on your signature.</p>
-          ) : (
-            <div className="space-y-2">
-              {pendingSignRequests.map((req) => {
-                const student = studentNameById.get(req.studentId)
-                return (
-                  <div
-                    key={req.id}
-                    className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        {student?.name || student?.username || 'A student'}
+                  {/* Endorsement requests to sign, scoped to this student */}
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      Endorsement requests
+                    </p>
+                    {selectedRequests.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No endorsement requests waiting on your signature.
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {req.template?.name || 'Endorsement request'}
-                        {req.message ? ` — "${req.message}"` : ''}
-                      </p>
-                    </div>
-                    <Button size="sm" onClick={() => setSignRequest(req)}>
-                      <PenLine className="h-3.5 w-3.5" />
-                      Review &amp; sign
-                    </Button>
+                    ) : (
+                      <div className="space-y-2">
+                        {selectedRequests.map((req) => (
+                          <div
+                            key={req.id}
+                            className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-foreground">
+                                {req.template?.name || 'Endorsement request'}
+                              </p>
+                              {req.message && (
+                                <p className="truncate text-xs text-muted-foreground">
+                                  &ldquo;{req.message}&rdquo;
+                                </p>
+                              )}
+                            </div>
+                            <Button size="sm" onClick={() => setSignRequest(req)}>
+                              <PenLine className="h-3.5 w-3.5" />
+                              Review &amp; sign
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )
-              })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <SignEndorsementDialog

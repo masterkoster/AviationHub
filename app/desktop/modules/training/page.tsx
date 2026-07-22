@@ -1,7 +1,17 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { GraduationCap, Loader2, AlertTriangle, Plane, Target } from 'lucide-react'
+import { Suspense, useEffect, useState, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
+import {
+  GraduationCap,
+  Loader2,
+  Plane,
+  Users,
+  Award,
+  BookOpen,
+  ExternalLink,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { getLocalTotals, type LocalTotals } from '@/desktop/lib/local-logbook'
 import {
@@ -26,6 +36,7 @@ import CheckrideMeter from '@/desktop/components/training/checkride-meter'
 import CostTracker from '@/desktop/components/training/cost-tracker'
 import MyStudentsPanel from '@/desktop/components/training/my-students-panel'
 import MyInstructorsPanel from '@/desktop/components/training/my-instructors-panel'
+import EndorsementsTab from '@/desktop/components/training/endorsements-tab'
 
 // ── Local DB helper (same pattern as Reports page) ──────────────
 
@@ -80,9 +91,46 @@ function mapCloudToLogbookEntry(f: any): LogbookEntry {
   }
 }
 
+// ── Tabs ────────────────────────────────────────────────────────
+
+type TabName = 'my-training' | 'instruction' | 'endorsements' | 'research'
+const DEFAULT_TAB: TabName = 'my-training'
+
+interface TabItem {
+  name: TabName
+  label: string
+  icon: React.ReactNode
+  cloudOnly?: boolean
+}
+
+const ALL_TABS: TabItem[] = [
+  { name: 'my-training', label: 'My training', icon: <GraduationCap className="h-3.5 w-3.5" /> },
+  { name: 'instruction', label: 'Instruction', icon: <Users className="h-3.5 w-3.5" />, cloudOnly: true },
+  { name: 'endorsements', label: 'Endorsements', icon: <Award className="h-3.5 w-3.5" />, cloudOnly: true },
+  { name: 'research', label: 'Research', icon: <BookOpen className="h-3.5 w-3.5" /> },
+]
+
+function isValidTab(name: string | null, available: TabName[]): name is TabName {
+  return !!name && available.includes(name as TabName)
+}
+
 // ── Page Component ──────────────────────────────────────────────
 
 export default function DesktopTrainingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <TrainingPageInner />
+    </Suspense>
+  )
+}
+
+function TrainingPageInner() {
   const { mode, localUser, status, cloudUser } = useDesktopAuth()
   const [totals, setTotals] = useState<LocalTotals | null>(null)
   const [fullLogbook, setFullLogbook] = useState<LogbookEntry[]>([])
@@ -99,6 +147,35 @@ export default function DesktopTrainingPage() {
   const [templates, setTemplates] = useState<EndorsementTemplate[]>([])
   const [socialLoading, setSocialLoading] = useState(true)
   const [socialError, setSocialError] = useState<string | null>(null)
+
+  // Tabs available depend on whether cloud (social) features are usable.
+  const tabs = useMemo(
+    () => ALL_TABS.filter((t) => !t.cloudOnly || cloudReady),
+    [cloudReady]
+  )
+  const availableNames = useMemo(() => tabs.map((t) => t.name), [tabs])
+
+  const searchParams = useSearchParams()
+  const queryTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState<TabName>(
+    isValidTab(queryTab, ALL_TABS.map((t) => t.name)) ? queryTab : DEFAULT_TAB
+  )
+
+  // If the active tab is no longer available (e.g. cloud features unavailable),
+  // fall back to the default.
+  useEffect(() => {
+    if (!availableNames.includes(activeTab)) setActiveTab(DEFAULT_TAB)
+  }, [availableNames, activeTab])
+
+  function selectTab(name: TabName) {
+    if (name === activeTab) return
+    setActiveTab(name)
+    if (typeof window !== 'undefined') {
+      // Update the URL for deep-linking WITHOUT navigating - replaceState
+      // (not router.push/Link) so switching tabs stays instant.
+      window.history.replaceState(null, '', `?tab=${name}`)
+    }
+  }
 
   const loadSocial = useCallback(async () => {
     if (!cloudReady) {
@@ -172,7 +249,7 @@ export default function DesktopTrainingPage() {
 
   const activeProgress = activeCert ? progressMap[activeCert] : null
 
-  // ── Loading / Error / Empty ──
+  // ── Loading / Error ──
 
   if (loading) {
     return (
@@ -196,22 +273,113 @@ export default function DesktopTrainingPage() {
   return (
     <div className="mx-auto max-w-6xl p-6">
       {/* ── Header ── */}
-      <div className="mb-6">
+      <div className="mb-4">
         <div className="mb-1 flex items-center gap-2">
           <GraduationCap className="h-5 w-5 text-primary" />
-          <h1 className="text-2xl font-bold">Training Dashboard</h1>
+          <h1 className="text-2xl font-bold">Training</h1>
         </div>
         <p className="text-sm text-muted-foreground">
-          FAR requirements progress, checkride readiness, and cost tracking — auto-computed from your logbook.
+          FAR requirements progress, instruction, endorsements, and study resources.
         </p>
       </div>
 
+      {/* ── Tab bar (instant, ?tab-synced buttons — no navigation) ── */}
+      <div className="mb-6 flex flex-wrap gap-1 border-b border-border">
+        {tabs.map((tab) => {
+          const active = activeTab === tab.name
+          return (
+            <button
+              key={tab.name}
+              type="button"
+              onClick={() => selectTab(tab.name)}
+              className={cn(
+                'flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors -mb-px',
+                active
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <span className={active ? 'text-primary' : 'text-muted-foreground'}>{tab.icon}</span>
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── Active tab content (others unmounted) ── */}
+      {activeTab === 'my-training' && (
+        <MyTrainingTab
+          hasData={!!hasData}
+          progressMap={progressMap}
+          activeCert={activeCert}
+          onSelectCert={setActiveCert}
+          activeProgress={activeProgress}
+          fullLogbook={fullLogbook}
+          cloudReady={cloudReady}
+          relationships={relationships}
+          templates={templates}
+          socialLoading={socialLoading}
+          socialError={socialError}
+          onRefreshSocial={loadSocial}
+        />
+      )}
+
+      {activeTab === 'instruction' && cloudReady && (
+        <MyStudentsPanel
+          myUserId={cloudUser!.id!}
+          relationships={relationships}
+          endorsementRequests={endorsementRequests}
+          templates={templates}
+          loading={socialLoading}
+          error={socialError}
+          onRefresh={loadSocial}
+        />
+      )}
+
+      {activeTab === 'endorsements' && cloudReady && <EndorsementsTab />}
+
+      {activeTab === 'research' && <ResearchTab />}
+    </div>
+  )
+}
+
+// ── My training tab (student home) ──────────────────────────────
+
+function MyTrainingTab({
+  hasData,
+  progressMap,
+  activeCert,
+  onSelectCert,
+  activeProgress,
+  fullLogbook,
+  cloudReady,
+  relationships,
+  templates,
+  socialLoading,
+  socialError,
+  onRefreshSocial,
+}: {
+  hasData: boolean
+  progressMap: Record<string, CertProgress>
+  activeCert: CertType
+  onSelectCert: (c: CertType) => void
+  activeProgress: CertProgress | null
+  fullLogbook: LogbookEntry[]
+  cloudReady: boolean
+  relationships: TrainingRelationship[]
+  templates: EndorsementTemplate[]
+  socialLoading: boolean
+  socialError: string | null
+  onRefreshSocial: () => void
+}) {
+  return (
+    <div>
       {/* ── Certificate Selector ── */}
       <section className="mb-6">
         <CertificateCards
           progressMap={progressMap}
           activeCert={activeCert}
-          onSelect={setActiveCert}
+          onSelect={onSelectCert}
         />
       </section>
 
@@ -253,39 +421,78 @@ export default function DesktopTrainingPage() {
           </div>
 
           {/* ── Recent Flights ── */}
-          <section>
+          <section className="mb-6">
             <RecentTrainingFlights entries={fullLogbook} />
           </section>
         </>
       )}
 
-      {/* ── Instructor sign-off: relationships + endorsements ── */}
+      {/* ── The student's instructors / request-a-CFI / request-endorsement ── */}
       {cloudReady && (
-        <div className="mt-6 space-y-6">
-          <div className="mb-1">
-            <h2 className="text-lg font-semibold">Instruction</h2>
-            <p className="text-sm text-muted-foreground">
-              Manage students and instructors, and sign or request endorsements.
-            </p>
-          </div>
-          <MyStudentsPanel
-            myUserId={cloudUser!.id!}
-            relationships={relationships}
-            endorsementRequests={endorsementRequests}
-            templates={templates}
-            loading={socialLoading}
-            error={socialError}
-            onRefresh={loadSocial}
-          />
+        <section>
           <MyInstructorsPanel
             relationships={relationships}
             templates={templates}
             loading={socialLoading}
             error={socialError}
-            onRefresh={loadSocial}
+            onRefresh={onRefreshSocial}
           />
-        </div>
+        </section>
       )}
+    </div>
+  )
+}
+
+// ── Research tab (lightweight placeholder) ──────────────────────
+
+const RESEARCH_LINKS: { label: string; href: string; note: string }[] = [
+  {
+    label: 'FAA Airman Certification Standards (ACS) & PTS',
+    href: 'https://www.faa.gov/training_testing/testing/acs',
+    note: 'Practical test standards for every certificate and rating.',
+  },
+  {
+    label: 'Aeronautical Information Manual (AIM)',
+    href: 'https://www.faa.gov/air_traffic/publications/atpubs/aim_html/',
+    note: 'Official guide to flight information and ATC procedures.',
+  },
+  {
+    label: '14 CFR Part 61 — Certification of Airmen',
+    href: 'https://www.ecfr.gov/current/title-14/chapter-I/subchapter-D/part-61',
+    note: 'Regulatory requirements for pilots and instructors.',
+  },
+]
+
+function ResearchTab() {
+  return (
+    <div className="rounded-xl border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <BookOpen className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Research</h3>
+      </div>
+      <div className="space-y-4 p-4">
+        <p className="text-sm text-muted-foreground">
+          Curated study resources are coming soon. In the meantime, here are the essential FAA references.
+        </p>
+        <ul className="space-y-2">
+          {RESEARCH_LINKS.map((link) => (
+            <li key={link.href}>
+              <a
+                href={link.href}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2.5 transition-colors hover:bg-muted"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">{link.label}</p>
+                  <p className="text-xs text-muted-foreground">{link.note}</p>
+                </div>
+                <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   )
 }
