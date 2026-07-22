@@ -1,8 +1,24 @@
 # Mechanic access + Hangar system — design
 
-> Plan doc (David, 2026-07-22). Design only — **nothing built yet**. Decisions
-> locked: **dedicated Hangar model** (not an org-variant), and write this full
-> plan before any code.
+> Plan doc (David, 2026-07-22). Design only — **nothing built yet**.
+
+## Locked decisions (reviewed 2026-07-22)
+- **Dedicated Hangar model** (not an org-variant): `Hangar` + `HangarAircraft` + `HangarMechanic` + `Maintenance.hangarId`.
+- **Scope = full maintenance, not just squawks.** The mechanic view shows pilot
+  squawks (`Maintenance`) **and scheduled inspections / what's due & overdue**
+  (`AircraftInspection` — annual, 100-hr, etc.) **and grounded aircraft**.
+- **Powers = manage.** A mechanic can change squawk status (open → in-progress →
+  resolved), **ground / return-to-service**, and add notes, photos, and a work
+  record. **Cannot** touch billing, members, or bookings/scheduling.
+- **Both club and hangar.** Build the club `MECHANIC` role (Phase 1) and the
+  hangar path (Phase 2); one maintenance view spans all of a mechanic's scopes.
+- **Creds:** owner *assignment* is enough — no verified A&P required; if the
+  mechanic has a `Mechanic` profile, show their A&P/IA on sign-offs.
+- **Hangar v1:** owner adds *their own* aircraft only. Cross-owner consent
+  (someone else's plane in your hangar) is **Phase 3**. A hangar may include a
+  club aircraft the owner also manages.
+- **Personal-squawk linkage:** ensure personal `Maintenance` rows carry the
+  `nNumber` so `HangarAircraft` tail-matching works (fixed at build time).
 
 ## The goal
 Let a mechanic who's part of a flying club, or assigned to a hangar, **see and
