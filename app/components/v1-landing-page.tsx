@@ -9,7 +9,6 @@ import {
   Clock,
   Menu,
   X,
-  MapPin,
   Check,
   Download,
   Monitor,
@@ -20,22 +19,23 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
-  Mail,
-  Loader2,
+  Users,
+  Wallet,
+  FileOutput,
 } from 'lucide-react'
 
 const desktopFeatures = [
+  {
+    icon: Map,
+    title: 'Flight Planner + Fuel Map',
+    description: 'Free, no signup required. 20,000+ airports, route planning, and community-reported fuel prices with trends.',
+    color: 'bg-emerald-500/10 text-emerald-500',
+  },
   {
     icon: BookOpen,
     title: 'Pilot Logbook',
     description: 'Log flights with full time breakdowns — PIC, SIC, night, instrument, cross-country. Search and filter your entire history.',
     color: 'bg-blue-500/10 text-blue-500',
-  },
-  {
-    icon: Map,
-    title: 'Interactive Map',
-    description: 'Explore 20,000+ airports with fuel prices, frequencies, and runway info. Plan routes visually.',
-    color: 'bg-emerald-500/10 text-emerald-500',
   },
   {
     icon: ShieldCheck,
@@ -50,16 +50,28 @@ const desktopFeatures = [
     color: 'bg-amber-500/10 text-amber-500',
   },
   {
-    icon: Fuel,
-    title: 'Fuel Planning',
-    description: 'Compare fuel prices, calculate range, and find the cheapest stops along your route.',
-    color: 'bg-rose-500/10 text-rose-500',
-  },
-  {
     icon: Clock,
     title: 'Route Weather',
     description: 'METAR, TAF, and wind aloft data for your entire route. See fuel impact from headwinds.',
     color: 'bg-cyan-500/10 text-cyan-500',
+  },
+  {
+    icon: Users,
+    title: 'Flying Clubs',
+    description: 'Schedule aircraft, share costs, and manage billing with your club — built for co-ownership.',
+    color: 'bg-fuchsia-500/10 text-fuchsia-500',
+  },
+  {
+    icon: Wallet,
+    title: 'Aircraft Cost Tracking',
+    description: 'Per-flight and hourly cost of ownership, tracked automatically from your logbook.',
+    color: 'bg-orange-500/10 text-orange-500',
+  },
+  {
+    icon: FileOutput,
+    title: 'ForeFlight / Garmin Export',
+    description: 'Take your logbook with you. Export in formats ForeFlight and Garmin Pilot understand.',
+    color: 'bg-rose-500/10 text-rose-500',
   },
 ]
 
@@ -68,37 +80,6 @@ const GITHUB_RELEASE_URL = 'https://github.com/masterkoster/next-dashboard/relea
 export default function V1LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showSmartScreen, setShowSmartScreen] = useState(false)
-  const [email, setEmail] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const [emailError, setEmailError] = useState('')
-
-  async function handleWaitlist(e: React.FormEvent) {
-    e.preventDefault()
-    if (!email.trim() || !email.includes('@')) {
-      setEmailError('Please enter a valid email')
-      return
-    }
-    setSubmitting(true)
-    setEmailError('')
-    try {
-      const res = await fetch('/api/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
-      })
-      if (res.ok) {
-        setSubmitted(true)
-      } else {
-        const data = await res.json().catch(() => ({}))
-        setEmailError(data.error || 'Something went wrong')
-      }
-    } catch {
-      setEmailError('Network error — try again')
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -119,8 +100,14 @@ export default function V1LandingPage() {
             <Link href="#screenshots" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Screenshots
             </Link>
-            <Link href="#waitlist" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Web Version
+            <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Pricing
+            </Link>
+            <Link
+              href="/fuel-saver"
+              className="text-sm font-medium text-foreground hover:text-primary transition-colors"
+            >
+              Open web app
             </Link>
             <a
               href={GITHUB_RELEASE_URL}
@@ -150,8 +137,15 @@ export default function V1LandingPage() {
               <Link href="#screenshots" onClick={() => setMobileMenuOpen(false)} className="text-sm text-muted-foreground hover:text-foreground">
                 Screenshots
               </Link>
-              <Link href="#waitlist" onClick={() => setMobileMenuOpen(false)} className="text-sm text-muted-foreground hover:text-foreground">
-                Web Version
+              <Link href="/pricing" onClick={() => setMobileMenuOpen(false)} className="text-sm text-muted-foreground hover:text-foreground">
+                Pricing
+              </Link>
+              <Link
+                href="/fuel-saver"
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-md border border-border px-4 py-2.5 text-center text-sm font-medium hover:bg-muted"
+              >
+                Open the web app
               </Link>
               <a
                 href={GITHUB_RELEASE_URL}
@@ -159,7 +153,7 @@ export default function V1LandingPage() {
                 rel="noopener noreferrer"
                 className="rounded-md bg-primary px-4 py-2.5 text-center text-sm font-medium text-primary-foreground"
               >
-                Download for Windows
+                Download for desktop
               </a>
             </div>
           </div>
@@ -169,48 +163,56 @@ export default function V1LandingPage() {
       {/* Hero */}
       <section className="relative pt-14">
         <div className="relative overflow-hidden">
-          <div className="absolute inset-0">
-            <img
-              src="https://images.unsplash.com/photo-1436491865332-7a61a109db05?w=1920&q=80"
-              alt=""
-              className="h-full w-full object-cover"
+          <div className="absolute inset-0 -z-10">
+            <div
+              className="h-full w-full"
+              style={{
+                background:
+                  'radial-gradient(60% 50% at 15% 10%, color-mix(in srgb, var(--primary) 22%, transparent), transparent), ' +
+                  'radial-gradient(50% 40% at 85% 20%, color-mix(in srgb, var(--primary) 14%, transparent), transparent), ' +
+                  'radial-gradient(70% 60% at 50% 100%, color-mix(in srgb, var(--primary) 10%, transparent), transparent)',
+              }}
             />
-            <div className="absolute inset-0 bg-gradient-to-br from-background/80 via-background/90 to-background" />
+            <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-background/80 to-background" />
           </div>
 
           <div className="relative mx-auto max-w-6xl px-4 py-20 sm:py-28 lg:py-32">
             <div className="max-w-2xl">
               <div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-border bg-card/50 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur-sm">
-                <Monitor className="h-3.5 w-3.5" />
-                Desktop App for Windows
+                <Cloud className="h-3.5 w-3.5" />
+                Web app + Desktop app
               </div>
               <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-                Your flights.
+                One logbook,
                 <br />
-                <span className="text-primary">Your data.</span>
+                <span className="text-primary">everywhere.</span>
               </h1>
               <p className="mt-6 text-lg text-muted-foreground max-w-xl">
-                A modern pilot logbook and flight planner. Track flights, plan routes, check weather, manage currency — all offline on your desktop.
+                One product, two surfaces. Use AviationHub in your browser or install it on your desktop — track flights, plan routes, check weather, and manage currency either way.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-4">
+                <Link
+                  href="/fuel-saver"
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3.5 text-base font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
+                >
+                  <Cloud className="h-5 w-5" />
+                  Open the web app
+                </Link>
                 <a
                   href={GITHUB_RELEASE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3.5 text-base font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
-                >
-                  <Download className="h-5 w-5" />
-                  Download for Windows
-                </a>
-                <Link
-                  href="#waitlist"
                   className="inline-flex items-center gap-2 rounded-lg border border-border bg-card/50 px-6 py-3.5 text-base font-medium hover:bg-card transition-colors backdrop-blur-sm"
                 >
-                  <Cloud className="h-5 w-5" />
-                  Web Version (Soon)
-                </Link>
+                  <Download className="h-5 w-5" />
+                  Download for desktop
+                </a>
               </div>
+
+              <p className="mt-4 text-sm text-muted-foreground">
+                Free to start — no signup needed for the planner.
+              </p>
 
               <div className="mt-6">
                 <button
@@ -218,7 +220,7 @@ export default function V1LandingPage() {
                   className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                 >
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                  Windows shows a warning?
+                  Windows shows a warning on the desktop download?
                   {showSmartScreen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </button>
                 {showSmartScreen && (
@@ -244,9 +246,9 @@ export default function V1LandingPage() {
         <div className="mx-auto max-w-6xl px-4 py-10">
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
             <StatBlock value="20,000+" label="Airports" />
-            <StatBlock value="100%" label="Offline capable" />
+            <StatBlock value="Web + Desktop" label="Use it anywhere" />
             <StatBlock value="< 1 min" label="To log a flight" />
-            <StatBlock value="Free" label="Core features" />
+            <StatBlock value="Free" label="To start" />
           </div>
         </div>
       </section>
@@ -279,22 +281,18 @@ export default function V1LandingPage() {
           <div className="text-center mb-12">
             <h2 className="text-2xl font-bold sm:text-3xl">See it in action</h2>
             <p className="mt-2 text-muted-foreground">
-              Screenshots of AviationHub Desktop.
+              Real screenshots — the free planner runs in your browser.
             </p>
           </div>
 
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <ScreenshotPlaceholder label="Dashboard" />
-            <ScreenshotPlaceholder label="Flight Logbook" />
-            <ScreenshotPlaceholder label="Interactive Map" />
-            <ScreenshotPlaceholder label="Route Planner" />
-            <ScreenshotPlaceholder label="Weather Tab" />
-            <ScreenshotPlaceholder label="Weight & Balance" />
+            <BrowserScreenshot src="/marketing/planner.png" url="aviationhub.app/fuel-saver" label="Flight Planner" />
+            <BrowserScreenshot src="/marketing/fuel-map.png" url="aviationhub.app/fuel-saver" label="Fuel Map" />
+            <BrowserScreenshot src="/marketing/logbook.png" url="aviationhub.app/logbook" label="Pilot Logbook" />
+            <BrowserScreenshot src="/marketing/clubs.png" url="aviationhub.app/clubs" label="Flying Clubs" />
+            <BrowserScreenshot src="/marketing/weather.png" url="aviationhub.app/weather" label="Route Weather" />
+            <BrowserScreenshot src="/marketing/weight-balance.png" url="aviationhub.app/weight-balance" label="Weight & Balance" />
           </div>
-
-          <p className="mt-8 text-center text-xs text-muted-foreground">
-            Screenshots coming soon — download the app to try it yourself!
-          </p>
         </div>
       </section>
 
@@ -304,18 +302,42 @@ export default function V1LandingPage() {
           <div className="text-center mb-12">
             <h2 className="text-2xl font-bold sm:text-3xl">Two ways to use it</h2>
             <p className="mt-2 text-muted-foreground">
-              Local mode for privacy, cloud mode for sync.
+              Same product, same data — pick the surface that fits.
             </p>
           </div>
 
           <div className="grid gap-8 md:grid-cols-2 max-w-3xl mx-auto">
             <div className="rounded-xl border border-border bg-card p-6">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-sky-500/10">
+                <Cloud className="h-6 w-6 text-sky-500" />
+              </div>
+              <h3 className="text-lg font-semibold">Web App</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Nothing to install. The flight planner and fuel map are free to use with no signup at all.
+              </p>
+              <ul className="mt-4 space-y-2">
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  Works in any modern browser
+                </li>
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  No signup for the planner
+                </li>
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  Sign in to sync your logbook
+                </li>
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-6">
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-violet-500/10">
                 <Monitor className="h-6 w-6 text-violet-500" />
               </div>
-              <h3 className="text-lg font-semibold">Local Mode</h3>
+              <h3 className="text-lg font-semibold">Desktop App</h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Your data stays on your machine. No account required. Works completely offline. Protected with a PIN.
+                Your data stays on your machine. Works completely offline, protected with a PIN.
               </p>
               <ul className="mt-4 space-y-2">
                 <li className="flex items-center gap-2 text-sm text-foreground/80">
@@ -332,75 +354,84 @@ export default function V1LandingPage() {
                 </li>
               </ul>
             </div>
-
-            <div className="rounded-xl border border-border bg-card p-6">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-sky-500/10">
-                <Cloud className="h-6 w-6 text-sky-500" />
-              </div>
-              <h3 className="text-lg font-semibold">Cloud Mode</h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Sign in to sync across devices. Access your logbook from the desktop app and (soon) the web.
-              </p>
-              <ul className="mt-4 space-y-2">
-                <li className="flex items-center gap-2 text-sm text-foreground/80">
-                  <Check className="h-4 w-4 text-emerald-500" />
-                  Sync across devices
-                </li>
-                <li className="flex items-center gap-2 text-sm text-foreground/80">
-                  <Check className="h-4 w-4 text-emerald-500" />
-                  Automatic backups
-                </li>
-                <li className="flex items-center gap-2 text-sm text-foreground/80">
-                  <Check className="h-4 w-4 text-emerald-500" />
-                  Web access (coming soon)
-                </li>
-              </ul>
-            </div>
           </div>
         </div>
       </section>
 
-      {/* Web Waitlist */}
-      <section id="waitlist" className="border-t border-border bg-primary/5">
+      {/* Pricing teaser */}
+      <section className="border-t border-border bg-muted/30">
         <div className="mx-auto max-w-6xl px-4 py-20">
-          <div className="max-w-xl mx-auto text-center">
-            <div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-              <Cloud className="h-3.5 w-3.5" />
-              Coming Soon
-            </div>
-            <h2 className="text-2xl font-bold sm:text-3xl">Web version in the works</h2>
-            <p className="mt-3 text-muted-foreground">
-              Access your logbook from any browser. Sign up to be notified when it launches.
+          <div className="text-center mb-12">
+            <h2 className="text-2xl font-bold sm:text-3xl">Simple pricing</h2>
+            <p className="mt-2 text-muted-foreground">
+              Free forever, or go Pro for $3.99/mo ($39.99/yr).
             </p>
+          </div>
 
-            {submitted ? (
-              <div className="mt-8 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-6">
-                <Check className="mx-auto h-8 w-8 text-emerald-500 mb-2" />
-                <p className="text-sm font-medium text-foreground">                You&apos;re on the list!</p>
-                <p className="text-xs text-muted-foreground mt-1">We&apos;ll email you when the web version is ready.</p>
+          <div className="grid gap-6 sm:grid-cols-2 max-w-2xl mx-auto">
+            <div className="rounded-xl border border-border bg-card p-6">
+              <h3 className="text-lg font-semibold">Free</h3>
+              <p className="mt-1 text-sm text-muted-foreground">Everything you need to get started.</p>
+              <ul className="mt-4 space-y-2">
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  Up to 6 waypoints per route
+                </li>
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  5 saved flight plans
+                </li>
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  1 flying club, 3 aircraft
+                </li>
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  Home-state fuel prices
+                </li>
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-primary/40 bg-card p-6 relative">
+              <div className="absolute -top-3 right-6 rounded-full bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground">
+                Pro
               </div>
-            ) : (
-              <form onSubmit={handleWaitlist} className="mt-8 flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
-                <div className="flex-1">
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="w-full rounded-lg border border-input bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  {emailError && <p className="mt-1 text-xs text-destructive text-left">{emailError}</p>}
-                </div>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                >
-                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                  Join Waitlist
-                </button>
-              </form>
-            )}
+              <h3 className="text-lg font-semibold">Pro</h3>
+              <p className="mt-1 text-sm text-muted-foreground">$3.99/mo or $39.99/yr</p>
+              <ul className="mt-4 space-y-2">
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  Unlimited waypoints & plans
+                </li>
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  Unlimited clubs & aircraft
+                </li>
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  Fuel prices in all 50 states
+                </li>
+                <li className="flex items-center gap-2 text-sm text-foreground/80">
+                  <Check className="h-4 w-4 text-emerald-500" />
+                  Document storage + ForeFlight/Garmin export
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+            <Link
+              href="/signup"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              Get started free
+            </Link>
+            <Link
+              href="/pricing"
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-6 py-3 text-sm font-medium hover:bg-card transition-colors"
+            >
+              See full pricing
+            </Link>
           </div>
         </div>
       </section>
@@ -409,16 +440,23 @@ export default function V1LandingPage() {
       <section className="border-t border-border">
         <div className="mx-auto max-w-6xl px-4 py-16 text-center">
           <h2 className="text-2xl font-bold sm:text-3xl">Ready to fly?</h2>
-          <p className="mt-2 text-muted-foreground">Download AviationHub and start logging today.</p>
-          <div className="mt-8">
+          <p className="mt-2 text-muted-foreground">Open the web app or download for desktop — same logbook, either way.</p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+            <Link
+              href="/fuel-saver"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-8 py-4 text-base font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
+            >
+              <Cloud className="h-5 w-5" />
+              Open the web app
+            </Link>
             <a
               href={GITHUB_RELEASE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-8 py-4 text-base font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-8 py-4 text-base font-medium hover:bg-muted transition-colors"
             >
               <Download className="h-5 w-5" />
-              Download for Windows
+              Download for desktop
             </a>
           </div>
         </div>
@@ -443,11 +481,17 @@ export default function V1LandingPage() {
               >
                 GitHub
               </a>
-              <Link href="/v1/privacy" className="text-xs text-muted-foreground hover:text-foreground">
+              <Link href="/pricing" className="text-xs text-muted-foreground hover:text-foreground">
+                Pricing
+              </Link>
+              <Link href="/privacy" className="text-xs text-muted-foreground hover:text-foreground">
                 Privacy
               </Link>
-              <Link href="/v1/login" className="text-xs text-muted-foreground hover:text-foreground">
-                Sign In (Web)
+              <Link href="/terms" className="text-xs text-muted-foreground hover:text-foreground">
+                Terms
+              </Link>
+              <Link href="/login" className="text-xs text-muted-foreground hover:text-foreground">
+                Sign In
               </Link>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -469,12 +513,41 @@ function StatBlock({ value, label }: { value: string; label: string }) {
   )
 }
 
-function ScreenshotPlaceholder({ label }: { label: string }) {
+function BrowserScreenshot({ src, url, label }: { src: string; url: string; label: string }) {
+  const [broken, setBroken] = useState(false)
+
   return (
-    <div className="aspect-video rounded-xl border border-dashed border-border bg-card/50 flex items-center justify-center">
-      <div className="text-center">
-        <MapPin className="mx-auto h-8 w-8 text-muted-foreground/30" />
-        <p className="mt-2 text-sm text-muted-foreground">{label}</p>
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-2">
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30" />
+          <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30" />
+          <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30" />
+        </div>
+        <div className="flex-1 truncate rounded-full bg-background px-3 py-1 text-center text-[11px] text-muted-foreground">
+          {url}
+        </div>
+      </div>
+      <div className="aspect-video relative">
+        {!broken ? (
+          <img
+            src={src}
+            alt={label}
+            className="h-full w-full object-cover"
+            onError={() => setBroken(true)}
+          />
+        ) : (
+          <div
+            className="flex h-full w-full items-center justify-center"
+            style={{
+              background:
+                'radial-gradient(80% 80% at 30% 20%, color-mix(in srgb, var(--primary) 16%, transparent), transparent), ' +
+                'radial-gradient(80% 80% at 80% 90%, color-mix(in srgb, var(--primary) 10%, transparent), transparent)',
+            }}
+          >
+            <p className="text-sm font-medium text-muted-foreground">{label}</p>
+          </div>
+        )}
       </div>
     </div>
   )
