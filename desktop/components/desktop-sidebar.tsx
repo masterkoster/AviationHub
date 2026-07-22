@@ -25,7 +25,6 @@ import {
   ShoppingBag,
   Calculator,
   GraduationCap,
-  Gauge,
   FileText,
   Lock,
   Compass,
@@ -115,7 +114,6 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Aircraft', href: '/desktop/aircraft', icon: Plane, shortcut: '5' },
       { label: 'Flying Club', href: '/desktop/flying-club', icon: Users },
       { label: 'Marketplace', href: '/desktop/modules/marketplace', icon: ShoppingBag, status: 'coming-soon' },
-      { label: 'Engine Health', href: '/desktop/modules/engine-health', icon: Gauge, tier: 'pro', status: 'coming-soon' },
     ],
   },
   // ── TOOLS — calculators & system ──
