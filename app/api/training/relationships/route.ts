@@ -76,7 +76,7 @@ export async function GET() {
 }
 
 // POST - request/invite a training relationship.
-// body: { counterpartUserId, myRole: 'student'|'instructor', organizationId?, goal?, note? }
+// body: { counterpartUserId?, counterpartUsername?, myRole: 'student'|'instructor', organizationId?, goal?, note? }
 export async function POST(request: Request) {
   try {
     const session = await auth();
@@ -86,11 +86,23 @@ export async function POST(request: Request) {
     const me = session.user.id;
 
     const body = await request.json().catch(() => ({}));
-    const counterpartUserId = typeof body?.counterpartUserId === 'string' ? body.counterpartUserId : '';
+    let counterpartUserId = typeof body?.counterpartUserId === 'string' ? body.counterpartUserId : '';
+    const counterpartUsername = typeof body?.counterpartUsername === 'string' ? body.counterpartUsername.trim() : '';
     const myRole = body?.myRole === 'instructor' ? 'instructor' : body?.myRole === 'student' ? 'student' : '';
     const organizationId = typeof body?.organizationId === 'string' ? body.organizationId : null;
     const goal = typeof body?.goal === 'string' ? body.goal.trim().slice(0, 100) : null;
     const note = typeof body?.note === 'string' ? body.note.trim() : null;
+
+    if (!counterpartUserId && counterpartUsername) {
+      const byUsername = await prisma.user.findUnique({
+        where: { username: counterpartUsername },
+        select: { id: true },
+      });
+      if (!byUsername) {
+        return NextResponse.json({ error: 'That user was not found.' }, { status: 404 });
+      }
+      counterpartUserId = byUsername.id;
+    }
 
     if (!counterpartUserId || !myRole) {
       return NextResponse.json({ error: 'counterpartUserId and myRole are required' }, { status: 400 });

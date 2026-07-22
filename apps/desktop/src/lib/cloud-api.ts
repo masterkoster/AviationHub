@@ -745,6 +745,89 @@ export const cloudApi = {
       body: JSON.stringify(payload),
     })
   },
+
+  // ── Training: instructor/student relationships + endorsements ──
+
+  listTrainingRelationships() {
+    return requestApi<{ relationships: TrainingRelationship[] }>(
+      '/api/training/relationships',
+      undefined,
+      'Failed to load training relationships'
+    )
+  },
+
+  createTrainingRelationship(payload: {
+    counterpartUserId?: string
+    counterpartUsername?: string
+    myRole: 'student' | 'instructor'
+    organizationId?: string
+    goal?: string
+    note?: string
+  }) {
+    return requestApi<{ id: string; status: string }>(
+      '/api/training/relationships',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Failed to send training request'
+    )
+  },
+
+  respondTrainingRelationship(id: string, action: 'accept' | 'decline' | 'end') {
+    return requestApi<{ status: string }>(
+      `/api/training/relationships/${id}`,
+      { method: 'PATCH', body: JSON.stringify({ action }) },
+      'Failed to update training relationship'
+    )
+  },
+
+  listEndorsementRequests() {
+    return requestApi<{ requests: EndorsementRequestRow[] }>(
+      '/api/endorsements/requests',
+      undefined,
+      'Failed to load endorsement requests'
+    )
+  },
+
+  createEndorsementRequest(payload: { instructorId: string; templateId?: string; message?: string }) {
+    return requestApi<{ request: EndorsementRequestRow }>(
+      '/api/endorsements/requests',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Failed to request endorsement'
+    )
+  },
+
+  updateEndorsementRequest(id: string, status: 'pending' | 'approved' | 'rejected') {
+    return requestApi<{ request: EndorsementRequestRow }>(
+      '/api/endorsements/requests',
+      { method: 'PUT', body: JSON.stringify({ id, status }) },
+      'Failed to update endorsement request'
+    )
+  },
+
+  getEndorsementTemplates() {
+    return requestApi<{ templates: EndorsementTemplate[] }>(
+      '/api/endorsements/templates',
+      undefined,
+      'Failed to load endorsement templates'
+    )
+  },
+
+  signEndorsement(payload: {
+    templateId: string
+    studentId: string
+    type: 'drawn' | 'typed'
+    svgData?: string
+    typedName?: string
+    certNumber?: string
+    logbookEntryId?: string
+    notes?: string
+    userAgent?: string
+  }) {
+    return requestApi<{ endorsement: Endorsement }>(
+      '/api/endorsements/sign',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Failed to sign endorsement'
+    )
+  },
 }
 
 // ── Flying club group summary types ─────────────────────────────
@@ -1147,4 +1230,55 @@ export interface AdminClubDetail {
     hourlyRate: number | null
     year: number | null
   }>
+}
+
+// ── Training: instructor/student relationships + endorsements ──
+
+export interface TrainingRelationship {
+  id: string
+  myRole: 'student' | 'instructor'
+  counterpart: { userId: string; name: string | null; username: string | null }
+  organizationId: string | null
+  status: 'pending' | 'active' | 'declined' | 'ended'
+  initiatedBy: 'student' | 'instructor'
+  goal: string | null
+  note: string | null
+  createdAt: string
+  endedAt: string | null
+  canRespond: boolean
+}
+
+export interface EndorsementTemplate {
+  id: string
+  authority: string
+  name: string
+  code: string
+  category: string | null
+  text: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EndorsementRequestRow {
+  id: string
+  studentId: string
+  instructorId: string
+  templateId: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  message: string | null
+  createdAt: string
+  updatedAt: string
+  template?: EndorsementTemplate | null
+}
+
+export interface Endorsement {
+  id: string
+  templateId: string
+  studentId: string
+  instructorId: string
+  signatureId: string
+  logbookEntryId: string | null
+  signedAt: string
+  notes: string | null
+  createdAt: string
 }

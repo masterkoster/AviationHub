@@ -4,7 +4,12 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { GraduationCap, Loader2, AlertTriangle, Plane, Target } from 'lucide-react'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { getLocalTotals, type LocalTotals } from '@/desktop/lib/local-logbook'
-import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
+import {
+  cloudApi,
+  type TrainingRelationship,
+  type EndorsementRequestRow,
+  type EndorsementTemplate,
+} from '@/apps/desktop/src/lib/cloud-api'
 import { ErrorCard } from '@/desktop/components/error-card'
 import {
   CERTIFICATES,
@@ -19,6 +24,8 @@ import TrainingRoadmap from '@/desktop/components/training/training-roadmap'
 import RecentTrainingFlights from '@/desktop/components/training/recent-training'
 import CheckrideMeter from '@/desktop/components/training/checkride-meter'
 import CostTracker from '@/desktop/components/training/cost-tracker'
+import MyStudentsPanel from '@/desktop/components/training/my-students-panel'
+import MyInstructorsPanel from '@/desktop/components/training/my-instructors-panel'
 
 // ── Local DB helper (same pattern as Reports page) ──────────────
 
@@ -76,12 +83,47 @@ function mapCloudToLogbookEntry(f: any): LogbookEntry {
 // ── Page Component ──────────────────────────────────────────────
 
 export default function DesktopTrainingPage() {
-  const { mode, localUser, status } = useDesktopAuth()
+  const { mode, localUser, status, cloudUser } = useDesktopAuth()
   const [totals, setTotals] = useState<LocalTotals | null>(null)
   const [fullLogbook, setFullLogbook] = useState<LogbookEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [activeCert, setActiveCert] = useState<CertType>('PPL')
+
+  // Instructor sign-off features (relationships, endorsement requests/templates)
+  // are session-cookie-gated — only available in cloud mode, not a local
+  // (offline PIN kiosk) profile, which has no server session.
+  const cloudReady = mode === 'cloud' && status === 'authenticated' && !!cloudUser?.id
+  const [relationships, setRelationships] = useState<TrainingRelationship[]>([])
+  const [endorsementRequests, setEndorsementRequests] = useState<EndorsementRequestRow[]>([])
+  const [templates, setTemplates] = useState<EndorsementTemplate[]>([])
+  const [socialLoading, setSocialLoading] = useState(true)
+  const [socialError, setSocialError] = useState<string | null>(null)
+
+  const loadSocial = useCallback(async () => {
+    if (!cloudReady) {
+      setSocialLoading(false)
+      return
+    }
+    setSocialLoading(true)
+    setSocialError(null)
+    try {
+      const [relRes, reqRes, tplRes] = await Promise.all([
+        cloudApi.listTrainingRelationships(),
+        cloudApi.listEndorsementRequests(),
+        cloudApi.getEndorsementTemplates(),
+      ])
+      setRelationships(relRes.relationships)
+      setEndorsementRequests(reqRes.requests)
+      setTemplates(tplRes.templates)
+    } catch (err) {
+      setSocialError(err instanceof Error ? err.message : 'Failed to load training network')
+    } finally {
+      setSocialLoading(false)
+    }
+  }, [cloudReady])
+
+  useEffect(() => { loadSocial() }, [loadSocial])
 
   // ── Initial data load ──
 
@@ -215,6 +257,34 @@ export default function DesktopTrainingPage() {
             <RecentTrainingFlights entries={fullLogbook} />
           </section>
         </>
+      )}
+
+      {/* ── Instructor sign-off: relationships + endorsements ── */}
+      {cloudReady && (
+        <div className="mt-6 space-y-6">
+          <div className="mb-1">
+            <h2 className="text-lg font-semibold">Instruction</h2>
+            <p className="text-sm text-muted-foreground">
+              Manage students and instructors, and sign or request endorsements.
+            </p>
+          </div>
+          <MyStudentsPanel
+            myUserId={cloudUser!.id!}
+            relationships={relationships}
+            endorsementRequests={endorsementRequests}
+            templates={templates}
+            loading={socialLoading}
+            error={socialError}
+            onRefresh={loadSocial}
+          />
+          <MyInstructorsPanel
+            relationships={relationships}
+            templates={templates}
+            loading={socialLoading}
+            error={socialError}
+            onRefresh={loadSocial}
+          />
+        </div>
       )}
     </div>
   )
