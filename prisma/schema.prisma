@@ -975,6 +975,29 @@ model EndorsementRequest {
   @@map("EndorsementRequest")
 }
 
+// Documentation-only model — NOT part of the generated client here. Access via
+// raw SQL only; see prisma/migrations/training_relationship.sql. The explicit
+// student<->instructor enrollment link (studentUserId/instructorUserId are
+// User ids, matching the endorsement flow). Optionally scoped to a club/school.
+model TrainingRelationship {
+  id               String    @id @default(dbgenerated("newid()"), map: "DF_TrainRel_id") @db.NVarChar(36)
+  studentUserId    String    @db.NVarChar(36)
+  instructorUserId String    @db.NVarChar(36)
+  organizationId   String?   @db.NVarChar(36)
+  status           String    @default("pending") @db.NVarChar(20) // pending|active|declined|ended
+  initiatedBy      String    @db.NVarChar(20) // student|instructor
+  goal             String?   @db.NVarChar(100)
+  note             String?   @db.NVarChar(Max)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
+  endedAt          DateTime?
+
+  @@index([studentUserId], map: "IX_TrainRel_student")
+  @@index([instructorUserId], map: "IX_TrainRel_instructor")
+  @@index([organizationId], map: "IX_TrainRel_org")
+  @@map("TrainingRelationship")
+}
+
 model LogbookAttachment {
   id             String   @id @default(uuid()) @db.NVarChar(36)
   logbookEntryId String   @db.NVarChar(36)
