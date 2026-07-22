@@ -6,6 +6,7 @@ import useSWR from 'swr'
 import ReactMarkdown from 'react-markdown'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
 import { cloudSignIn } from '@/apps/desktop/src/lib/cloud-session'
+import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
 import { completeSetup } from '@/desktop/lib/setup'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +15,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 import ClubScheduleView from './_components/ClubScheduleView'
+import { QuickBooksCard } from './_components/quickbooks-card'
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -203,9 +205,7 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     }
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/airports/search?q=${encodeURIComponent(q)}`)
-        if (!res.ok) return
-        const data = await res.json()
+        const data = await cloudApi.searchAirportsBasic(q)
         setAirportSuggestions(Array.isArray(data) ? data : [])
         setAirportHighlight(-1)
       } catch {
@@ -256,16 +256,10 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch('/api/groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: partnershipName.trim(), type: 'partnership' }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Failed to create group'); return }
-      onCreated({ ...data, aircraft: [], role: 'ADMIN' })
-    } catch {
-      setError('Network error')
+      const data = await cloudApi.createGroup({ name: partnershipName.trim(), type: 'partnership' })
+      onCreated({ ...data, aircraft: [], role: 'ADMIN' } as unknown as Group)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create group')
     } finally {
       setSaving(false)
     }
@@ -276,25 +270,19 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch('/api/groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: clubName.trim(),
-          type: 'club',
-          description: description.trim() || undefined,
-          website: website.trim() || undefined,
-          contactEmail: contactEmail.trim() || undefined,
-          homeAirport: homeAirport.trim() || undefined,
-          sizeBracket: sizeBracket || undefined,
-          showOnMap,
-        }),
+      const data = await cloudApi.createGroup({
+        name: clubName.trim(),
+        type: 'club',
+        description: description.trim() || undefined,
+        website: website.trim() || undefined,
+        contactEmail: contactEmail.trim() || undefined,
+        homeAirport: homeAirport.trim() || undefined,
+        sizeBracket: sizeBracket || undefined,
+        showOnMap,
       })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Failed to create group'); return }
-      onCreated({ ...data, aircraft: [], role: 'ADMIN' })
-    } catch {
-      setError('Network error')
+      onCreated({ ...data, aircraft: [], role: 'ADMIN' } as unknown as Group)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create group')
     } finally {
       setSaving(false)
     }
@@ -550,18 +538,18 @@ function NewBookingModal({ group, onClose, onCreated }: {
     try {
       const startISO = new Date(`${date}T${startTime}:00`).toISOString()
       const endISO = new Date(`${date}T${endTime}:00`).toISOString()
-      const res = await fetch(`/api/groups/${group.id}/bookings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aircraftId, startTime: startISO, endTime: endISO, purpose: purpose || undefined }),
+      const { ok, status, data } = await cloudApi.createGroupBooking(group.id, {
+        aircraftId,
+        startTime: startISO,
+        endTime: endISO,
+        purpose: purpose || undefined,
       })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
+      if (!ok) {
         setError(data.error || 'Failed to create booking')
-        setIsPolicyError(res.status === 403 || res.status === 422)
+        setIsPolicyError(status === 403 || status === 422)
         return
       }
-      onCreated(data)
+      onCreated(data as unknown as Booking)
     } catch {
       setError('Network error')
     } finally {
@@ -677,16 +665,10 @@ function BookingDetailsModal({ booking, groupId, aircraftStatus, isOwn, isAdmin,
     setCancelling(true)
     setError(null)
     try {
-      const res = await fetch(`/api/groups/${groupId}/bookings/${booking.id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: reason.trim() || undefined }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'Failed to cancel booking'); return }
+      await cloudApi.cancelGroupBooking(groupId, booking.id, reason.trim() || undefined)
       onCancelled()
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel booking')
     } finally {
       setCancelling(false)
     }
@@ -817,9 +799,8 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
       setUsernameChecking(true)
       setUsernameCheckError(false)
       try {
-        const res = await fetch(`/api/auth/signup?checkUsername=${encodeURIComponent(username)}`)
-        const data = await res.json()
-        if (res.ok && !data.error) {
+        const { ok, data } = await cloudApi.checkUsernameAvailable(username)
+        if (ok && !data.error) {
           setUsernameAvailable(data.available)
           setUsernameCheckError(false)
         } else {
@@ -859,13 +840,7 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, username, password }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Failed to create account'); return }
+      await cloudApi.signupWithUsername({ name, email, username, password })
 
       // Auto sign in after successful signup
       const signinRes = await cloudSignIn(username, password)
@@ -874,8 +849,8 @@ function ConvertAccountModal({ open, onClose, prefillName }: {
       try { await completeSetup({ mode: 'cloud' }) } catch { /* ignore in web preview */ }
       window.dispatchEvent(new Event('desktop-auth-changed'))
       onClose()
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create account')
     } finally {
       setSaving(false)
     }
@@ -1227,24 +1202,18 @@ function AddAircraftModal({ group, onClose, onCreated }: {
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch(`/api/groups/${group.id}/aircraft`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nNumber: nNumber.trim().toUpperCase(),
-          nickname: nickname.trim() || undefined,
-          customName: customName.trim() || undefined,
-          make: make.trim() || undefined,
-          model: model.trim() || undefined,
-          year: year ? parseInt(year) : undefined,
-          hourlyRate: hourlyRate ? parseFloat(hourlyRate) : undefined,
-        }),
+      const data = await cloudApi.addGroupAircraft(group.id, {
+        nNumber: nNumber.trim().toUpperCase(),
+        nickname: nickname.trim() || undefined,
+        customName: customName.trim() || undefined,
+        make: make.trim() || undefined,
+        model: model.trim() || undefined,
+        year: year ? parseInt(year) : undefined,
+        hourlyRate: hourlyRate ? parseFloat(hourlyRate) : undefined,
       })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Failed to add aircraft'); return }
-      onCreated(data)
-    } catch {
-      setError('Network error')
+      onCreated(data as unknown as ClubAircraft)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add aircraft')
     } finally {
       setSaving(false)
     }
@@ -1381,19 +1350,13 @@ function InviteMemberModal({ group, onClose, onAdded }: {
     setError(null)
     setResult(null)
     try {
-      const res = await fetch(`/api/groups/${group.id}/invites`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Failed to send invite'); return }
-      setResult(data)
+      const data = await cloudApi.inviteGroupMember(group.id, email.trim())
+      setResult(data as typeof result)
       if (data.type === 'direct_add') {
         onAdded?.()
       }
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send invite')
     } finally {
       setSaving(false)
     }
@@ -1486,15 +1449,10 @@ function DeleteClubModal({ group, onClose, onDeleted }: {
     setDeleting(true)
     setError(null)
     try {
-      const res = await fetch(`/api/groups/${group.id}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        setError(data.error || 'Failed to delete club')
-        return
-      }
+      await cloudApi.deleteGroup(group.id)
       onDeleted()
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete club')
     } finally {
       setDeleting(false)
     }
@@ -1565,13 +1523,7 @@ function NewPostModal({ groupId, onClose, onCreated, canEmailNotice }: {
     setError(null)
     setStatusMessage(null)
     try {
-      const res = await fetch(`/api/groups/${groupId}/posts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.trim(), content, pinned }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Failed to create post'); return }
+      await cloudApi.createGroupPost(groupId, { title: title.trim(), content, pinned })
       onCreated()
 
       if (!canEmailNotice || !alsoEmail) {
@@ -1583,13 +1535,8 @@ function NewPostModal({ groupId, onClose, onCreated, canEmailNotice }: {
       // the post already succeeded, so only the notify step can still fail.
       setPosted(true)
       try {
-        const notifyRes = await fetch(`/api/groups/${groupId}/notify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subject: title.trim(), message: content.trim() }),
-        })
-        const notifyData = await notifyRes.json().catch(() => ({}))
-        if (!notifyRes.ok) {
+        const { ok: notifyOk, data: notifyData } = await cloudApi.notifyGroupRaw(groupId, { subject: title.trim(), message: content.trim() })
+        if (!notifyOk) {
           setStatusMessage(`Posted · email failed: ${notifyData.error || 'Unable to send'}`)
         } else {
           setStatusMessage(`Posted · emailed to ${notifyData.sent} member${notifyData.sent === 1 ? '' : 's'}${notifyData.failed ? ` (${notifyData.failed} failed)` : ''}`)
@@ -1597,7 +1544,7 @@ function NewPostModal({ groupId, onClose, onCreated, canEmailNotice }: {
       } catch {
         setStatusMessage('Posted · email failed: Network error')
       }
-    } catch { setError('Network error') }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to create post') }
     finally { setSaving(false) }
   }
 
@@ -1693,14 +1640,9 @@ function UploadDocumentModal({ groupId, onClose, onCreated }: {
       formData.append('description', description)
       formData.append('category', category)
 
-      const res = await fetch(`/api/groups/${groupId}/documents`, {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Failed to upload'); return }
+      await cloudApi.uploadGroupDocument(groupId, formData)
       onCreated()
-    } catch { setError('Network error') }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to upload') }
     finally { setSaving(false) }
   }
 
@@ -1795,23 +1737,17 @@ function BookingPolicyCard({ groupId }: { groupId: string }) {
     setError(null)
     setSaved(false)
     try {
-      const res = await fetch(`/api/groups/${groupId}/policy`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          maxBookingHours: maxBookingHours.trim() === '' ? null : parseFloat(maxBookingHours),
-          maxAdvanceDays: maxAdvanceDays.trim() === '' ? null : parseInt(maxAdvanceDays, 10),
-          minBookingNoticeHours: minBookingNoticeHours.trim() === '' ? null : parseFloat(minBookingNoticeHours),
-          blockOnOverdueInspection,
-          blockOnGroundedSquawk,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'Failed to save booking policy'); return }
-      mutatePolicy(data, { revalidate: false })
+      const data = await cloudApi.updateGroupPolicy(groupId, {
+        maxBookingHours: maxBookingHours.trim() === '' ? null : parseFloat(maxBookingHours),
+        maxAdvanceDays: maxAdvanceDays.trim() === '' ? null : parseInt(maxAdvanceDays, 10),
+        minBookingNoticeHours: minBookingNoticeHours.trim() === '' ? null : parseFloat(minBookingNoticeHours),
+        blockOnOverdueInspection,
+        blockOnGroundedSquawk,
+      }, 'Failed to save booking policy')
+      mutatePolicy(data as unknown as ClubPolicy, { revalidate: false })
       setSaved(true)
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save booking policy')
     } finally {
       setSaving(false)
     }
@@ -1959,17 +1895,15 @@ function PaymentsCard({ groupId }: { groupId: string }) {
     setConnecting(true)
     setError(null)
     try {
-      const res = await fetch(`/api/groups/${groupId}/stripe/onboard`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'Failed to start Stripe onboarding'); return }
+      const data = await cloudApi.connectGroupStripe(groupId)
       if (data.url) {
         // Popup blockers silently eat window.open — fall back to navigating
         // this tab (Stripe onboarding returns to the app via return_url).
         const popup = window.open(data.url, '_blank')
         if (!popup) window.location.href = data.url
       }
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start Stripe onboarding')
     } finally {
       setConnecting(false)
     }
@@ -2106,22 +2040,16 @@ function BillingScheduleCard({ groupId }: { groupId: string }) {
     try {
       // The policy PUT expects the full booking-policy payload too; fetch the
       // current values so this save doesn't clobber them.
-      const current = await fetch(`/api/groups/${groupId}/policy`).then(r => r.json()).catch(() => ({}))
-      const res = await fetch(`/api/groups/${groupId}/policy`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...current,
-          billingDayOfMonth: billingDayOfMonth === '' ? null : parseInt(billingDayOfMonth, 10),
-          emailStatements,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'Failed to save billing schedule'); return }
-      mutatePolicy(data, { revalidate: false })
+      const current = await cloudApi.getGroupPolicyLenient(groupId)
+      const data = await cloudApi.updateGroupPolicy(groupId, {
+        ...current,
+        billingDayOfMonth: billingDayOfMonth === '' ? null : parseInt(billingDayOfMonth, 10),
+        emailStatements,
+      }, 'Failed to save billing schedule')
+      mutatePolicy(data as unknown as BillingScheduleSettings, { revalidate: false })
       setSaved(true)
-    } catch {
-      setError('Network error')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save billing schedule')
     } finally {
       setSaving(false)
     }
@@ -2264,13 +2192,8 @@ function FinanceEmailModal({ groupId, selectedCount, userIds, onClose }: {
     setError(null)
     setResult(null)
     try {
-      const res = await fetch(`/api/groups/${groupId}/notify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject: subject.trim(), message: message.trim(), template, userIds }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'Failed to send'); return }
+      const { ok, data } = await cloudApi.notifyGroupRaw(groupId, { subject: subject.trim(), message: message.trim(), template, userIds })
+      if (!ok) { setError(data.error || 'Failed to send'); return }
       setResult({ sent: data.sent ?? 0, failed: data.failed ?? 0, skipped: data.skipped ?? 0 })
     } catch {
       setError('Network error')
@@ -2646,15 +2569,10 @@ function BillingTab({ groupId, isFinance, aircraft, clubName }: { groupId: strin
     setPayingId(invoiceId)
     setPayErrors(prev => ({ ...prev, [invoiceId]: '' }))
     try {
-      const res = await fetch(`/api/invoices/${invoiceId}/pay`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setPayErrors(prev => ({ ...prev, [invoiceId]: data.error || 'Unable to start payment' }))
-        return
-      }
+      const data = await cloudApi.payInvoice(invoiceId)
       if (data.url) window.location.href = data.url
-    } catch {
-      setPayErrors(prev => ({ ...prev, [invoiceId]: 'Network error' }))
+    } catch (err) {
+      setPayErrors(prev => ({ ...prev, [invoiceId]: err instanceof Error ? err.message : 'Unable to start payment' }))
     } finally {
       setPayingId(null)
     }
@@ -2668,12 +2586,7 @@ function BillingTab({ groupId, isFinance, aircraft, clubName }: { groupId: strin
     setRunError(null)
     setRunSuccess(null)
     try {
-      const res = await fetch(`/api/clubs/${groupId}/billing/run`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setRunError(data.error || 'Failed to run billing')
-        return
-      }
+      const data = await cloudApi.runGroupBilling(groupId)
       const summary = data.summary
       setRunSuccess(
         summary
@@ -2682,8 +2595,8 @@ function BillingTab({ groupId, isFinance, aircraft, clubName }: { groupId: strin
       )
       mutateMyInvoices()
       mutateAllInvoices()
-    } catch {
-      setRunError('Network error')
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : 'Failed to run billing')
     } finally {
       setRunningBilling(false)
     }
@@ -2758,6 +2671,8 @@ function BillingTab({ groupId, isFinance, aircraft, clubName }: { groupId: strin
       </Card>
 
       {isFinance && <PaymentsCard groupId={groupId} />}
+
+      {isFinance && <QuickBooksCard groupId={groupId} />}
 
       {isFinance && <BillingScheduleCard groupId={groupId} />}
 
@@ -3430,7 +3345,7 @@ export default function FlyingClubPage() {
                                 className="h-7 w-7"
                                 aria-label={`Delete post "${post.title}"`}
                                 onClick={async () => {
-                                  await fetch(`/api/groups/${selectedGroupId}/posts/${post.id}`, { method: 'DELETE' })
+                                  await cloudApi.deleteGroupPost(selectedGroupId as string, post.id)
                                   mutatePosts()
                                 }}
                               >
@@ -3522,7 +3437,7 @@ export default function FlyingClubPage() {
                                   size="sm"
                                   aria-label={`Delete document "${doc.name}"`}
                                   onClick={async () => {
-                                    await fetch(`/api/groups/${selectedGroupId}/documents/${doc.id}`, { method: 'DELETE' })
+                                    await cloudApi.deleteGroupDocument(selectedGroupId as string, doc.id)
                                     mutateDocuments()
                                   }}
                                 >

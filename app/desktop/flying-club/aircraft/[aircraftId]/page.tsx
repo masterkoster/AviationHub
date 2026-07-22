@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
+import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -234,49 +235,34 @@ function InspectionModal({
     setSaving(true)
     try {
       if (mode === 'add') {
-        const res = await fetch(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type,
-            label: label.trim() || undefined,
-            lastDoneDate: lastDoneDate || undefined,
-            lastDoneHours: lastDoneHours !== '' ? Number(lastDoneHours) : undefined,
-            intervalMonths: intervalMonths !== '' ? Number(intervalMonths) : undefined,
-            intervalHours: intervalHours !== '' ? Number(intervalHours) : undefined,
-            isRequired,
-            notes: notes.trim() || undefined,
-          }),
+        const { ok, data } = await cloudApi.createGroupAircraftInspection(groupId, aircraftId, {
+          type,
+          label: label.trim() || undefined,
+          lastDoneDate: lastDoneDate || undefined,
+          lastDoneHours: lastDoneHours !== '' ? Number(lastDoneHours) : undefined,
+          intervalMonths: intervalMonths !== '' ? Number(intervalMonths) : undefined,
+          intervalHours: intervalHours !== '' ? Number(intervalHours) : undefined,
+          isRequired,
+          notes: notes.trim() || undefined,
         })
-        const data = await res.json().catch(() => null)
-        if (!res.ok) { setError((data && data.error) || 'Failed to add inspection'); return }
+        if (!ok) { setError((data && (data as { error?: string }).error) || 'Failed to add inspection'); return }
       } else if (mode === 'edit' && existing) {
-        const res = await fetch(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections/${existing.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            label: label.trim() || null,
-            lastDoneDate: lastDoneDate || null,
-            lastDoneHours: lastDoneHours !== '' ? Number(lastDoneHours) : null,
-            intervalMonths: intervalMonths !== '' ? Number(intervalMonths) : null,
-            intervalHours: intervalHours !== '' ? Number(intervalHours) : null,
-            isRequired,
-            notes: notes.trim() || null,
-          }),
+        const { ok, data } = await cloudApi.updateGroupAircraftInspection(groupId, aircraftId, existing.id, {
+          label: label.trim() || null,
+          lastDoneDate: lastDoneDate || null,
+          lastDoneHours: lastDoneHours !== '' ? Number(lastDoneHours) : null,
+          intervalMonths: intervalMonths !== '' ? Number(intervalMonths) : null,
+          intervalHours: intervalHours !== '' ? Number(intervalHours) : null,
+          isRequired,
+          notes: notes.trim() || null,
         })
-        const data = await res.json().catch(() => null)
-        if (!res.ok) { setError((data && data.error) || 'Failed to update inspection'); return }
+        if (!ok) { setError((data && (data as { error?: string }).error) || 'Failed to update inspection'); return }
       } else if (mode === 'complete' && existing) {
         const body: Record<string, unknown> = {}
         if (lastDoneDate) body.lastDoneDate = lastDoneDate
         if (lastDoneHours !== '') body.lastDoneHours = Number(lastDoneHours)
-        const res = await fetch(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections/${existing.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-        const data = await res.json().catch(() => null)
-        if (!res.ok) { setError((data && data.error) || 'Failed to record completion'); return }
+        const { ok, data } = await cloudApi.updateGroupAircraftInspection(groupId, aircraftId, existing.id, body)
+        if (!ok) { setError((data && (data as { error?: string }).error) || 'Failed to record completion'); return }
       }
       onSaved()
     } catch {
@@ -444,10 +430,9 @@ export default function DesktopAircraftProfilePage() {
     if (!useGroupId) return
     setInspectionsError(null)
     try {
-      const res = await fetch(`/api/groups/${useGroupId}/aircraft/${aircraftId}/inspections`)
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        setInspectionsError((data && data.error) || 'Failed to load inspections')
+      const { ok, data } = await cloudApi.getGroupAircraftInspections(useGroupId, aircraftId)
+      if (!ok) {
+        setInspectionsError((data && (data as { error?: string }).error) || 'Failed to load inspections')
         return
       }
       setInspections(Array.isArray(data?.inspections) ? data.inspections : [])
@@ -461,10 +446,9 @@ export default function DesktopAircraftProfilePage() {
     if (!groupId) return
     if (!window.confirm(`Remove "${c.label}" from tracked inspections?`)) return
     try {
-      const res = await fetch(`/api/groups/${groupId}/aircraft/${aircraftId}/inspections/${c.id}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        setInspectionsError((data && data.error) || 'Failed to remove inspection')
+      const { ok, data } = await cloudApi.deleteGroupAircraftInspection(groupId, aircraftId, c.id)
+      if (!ok) {
+        setInspectionsError((data && (data as { error?: string }).error) || 'Failed to remove inspection')
         return
       }
       refetchInspections()
@@ -484,13 +468,12 @@ export default function DesktopAircraftProfilePage() {
       setConnectionError(false)
       setInspectionsError(null)
       try {
-        const groupsRes = await fetch('/api/groups')
-        const groupsData = await groupsRes.json().catch(() => null)
-        if (!groupsRes.ok) {
-          if (!cancelled) setError((groupsData && groupsData.error) || 'Failed to load groups')
+        const groupsResult = await cloudApi.getGroups()
+        if (!groupsResult.ok) {
+          if (!cancelled) setError((groupsResult.data && (groupsResult.data as { error?: string }).error) || 'Failed to load groups')
           return
         }
-        const groups: Array<{ id: string; role?: string; aircraft?: Array<{ id: string }> }> = Array.isArray(groupsData) ? groupsData : []
+        const groups: Array<{ id: string; role?: string; aircraft?: Array<{ id: string }> }> = Array.isArray(groupsResult.data) ? groupsResult.data : []
         const owningGroup = groups.find(g => (g.aircraft || []).some(a => a.id === aircraftId))
 
         if (!owningGroup) {
@@ -502,30 +485,30 @@ export default function DesktopAircraftProfilePage() {
           setRole(owningGroup.role || 'MEMBER')
         }
 
-        const [profileRes, inspRes] = await Promise.all([
-          fetch(`/api/groups/${owningGroup.id}/aircraft/${aircraftId}/profile`),
-          fetch(`/api/groups/${owningGroup.id}/aircraft/${aircraftId}/inspections`),
+        const [profileResult, inspResult] = await Promise.all([
+          cloudApi.getGroupAircraftProfile(owningGroup.id, aircraftId),
+          cloudApi.getGroupAircraftInspections(owningGroup.id, aircraftId),
         ])
-        const profileData = await profileRes.json().catch(() => null)
+        const profileData = profileResult.data
 
-        if (profileRes.status === 404) {
+        if (profileResult.status === 404) {
           if (!cancelled) setNotFound(true)
           return
         }
-        if (!profileRes.ok) {
-          if (!cancelled) setError((profileData && profileData.error) || 'Failed to load aircraft profile')
+        if (!profileResult.ok) {
+          if (!cancelled) setError((profileData && (profileData as { error?: string }).error) || 'Failed to load aircraft profile')
           return
         }
 
-        if (!cancelled) setProfile(profileData)
+        if (!cancelled) setProfile(profileData as unknown as AircraftProfileData)
 
-        const inspData = await inspRes.json().catch(() => null)
+        const inspData = inspResult.data
         if (!cancelled) {
-          if (inspRes.ok && inspData) {
+          if (inspResult.ok && inspData) {
             setInspections(Array.isArray(inspData.inspections) ? inspData.inspections : [])
             setCurrentTachHours(inspData.currentTachHours ?? null)
           } else {
-            setInspectionsError((inspData && inspData.error) || 'Failed to load inspections')
+            setInspectionsError((inspData && (inspData as { error?: string }).error) || 'Failed to load inspections')
           }
         }
       } catch {

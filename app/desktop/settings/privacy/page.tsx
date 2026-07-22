@@ -1,57 +1,21 @@
-'use client'
+import { redirect } from 'next/navigation'
 
-import { useState } from 'react'
-import { Shield } from 'lucide-react'
-import { getConsent, setConsent, type AnalyticsConsent } from '@/desktop/lib/analytics-consent'
-import { SettingsCard, SectionHeading } from '@/desktop/components/settings-ui'
-import { cn } from '@/lib/utils'
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}
 
-export default function PrivacySettingsPage() {
-  const [analyticsConsent, setAnalyticsConsent] = useState<AnalyticsConsent>(getConsent())
-
-  function toggleAnalytics() {
-    const next: AnalyticsConsent = analyticsConsent === 'granted' ? 'denied' : 'granted'
-    setConsent(next)
-    setAnalyticsConsent(next)
+// Old route-based deep link (e.g. a bookmark to /desktop/settings/privacy, or
+// the QuickBooks OAuth callback redirecting to /desktop/settings/accounting)
+// - forward to the tabbed page with this section active. Any other query
+// params (success/error from OAuth callbacks, etc.) are preserved.
+export default async function Page({ searchParams }: PageProps) {
+  const params = await searchParams
+  const qs = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (key === 'tab') continue
+    if (typeof value === 'string') qs.set(key, value)
+    else if (Array.isArray(value) && value.length > 0) qs.set(key, value[0])
   }
-
-  return (
-    <SettingsCard>
-      <SectionHeading
-        icon={<Shield className="h-4 w-4" />}
-        title="Privacy"
-        description="Control anonymous usage analytics. This only applies to the desktop app."
-      />
-
-      <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 p-3">
-        <div>
-          <p className="text-xs font-medium">Analytics</p>
-          <p className="text-[11px] text-muted-foreground">
-            {analyticsConsent === 'granted'
-              ? 'Anonymous usage data is being collected'
-              : analyticsConsent === 'denied'
-                ? 'Anonymous usage data is disabled'
-                : "You haven't chosen yet"}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={analyticsConsent === 'granted'}
-          onClick={toggleAnalytics}
-          className={cn(
-            'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-            analyticsConsent === 'granted' ? 'bg-primary' : 'bg-muted-foreground/30',
-          )}
-        >
-          <span
-            className={cn(
-              'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-              analyticsConsent === 'granted' ? 'translate-x-6' : 'translate-x-1',
-            )}
-          />
-        </button>
-      </div>
-    </SettingsCard>
-  )
+  qs.set('tab', 'privacy')
+  redirect(`/desktop/settings?${qs.toString()}`)
 }

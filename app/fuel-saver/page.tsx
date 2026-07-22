@@ -14,6 +14,7 @@ const TripFinder = dynamic(() => import('./components/TripFinder'), { ssr: false
 import { DEFAULT_MAP_OPTIONS, type MapLayerOptions } from './map-options';
 const MapControls = dynamic(() => import('./MapControls').then((m) => m.MapControls), { ssr: false });
 import FlightPlayback from './FlightPlayback';
+import PostFlightReview from './PostFlightReview';
 import RangeRingCalculator from './RangeRing';
 import PerformanceSettingsPanel, { PerformanceSettings, DEFAULT_SETTINGS } from './PerformanceSettings';
 import AuthModal from './AuthModal';
@@ -2761,6 +2762,15 @@ function FuelSaverContent() {
                   fuelPrices={fuelPrices}
                   onAddWaypoint={(airport) => addWaypoint(airport)}
                 />
+
+                  {/* Post-flight review: planned vs actual flown track */}
+                  <div className="mt-3">
+                    <PostFlightReview
+                      plannedWaypoints={waypoints}
+                      tasKts={selectedAircraft.speed}
+                      burnGph={selectedAircraft.burnRate}
+                    />
+                  </div>
                 </>
               )}
             </div>

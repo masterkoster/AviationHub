@@ -47,7 +47,7 @@ export default function TierExplainerModal({ isOpen, onClose }: TierExplainerMod
         <div className="text-center mb-6">
           <div className="text-5xl mb-4">✈️</div>
           <h2 className="text-2xl font-bold text-white">
-            Welcome to Signal Desk! 
+            Welcome to AviationHub!
           </h2>
           <p className="text-slate-400 mt-2">
             Your free flight planning & fuel saver tool

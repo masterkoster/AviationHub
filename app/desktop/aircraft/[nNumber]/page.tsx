@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/breadcrumb'
 import { DocumentUploader } from '@/desktop/components/document-uploader'
 import { DocumentGrid } from '@/desktop/components/document-grid'
+import { AircraftPhoto } from '@/desktop/components/aircraft/aircraft-photo'
 import {
   getDocuments,
   saveDocument,
@@ -231,6 +232,35 @@ export default function AircraftDetailPage({ params }: { params: Promise<{ nNumb
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
+
+      {/* Hero photo + quick stats */}
+      <div className="mb-4 space-y-3">
+        <AircraftPhoto nNumber={aircraft.nNumber} userId={resolvedUserId} model={aircraft.model} />
+        {(() => {
+          const usefulLoad =
+            wbData.maxWeight != null && wbData.emptyWeight != null
+              ? wbData.maxWeight - wbData.emptyWeight
+              : null
+          const stats: { label: string; value: string }[] = []
+          if (aircraft.model) stats.push({ label: 'Model', value: String(aircraft.model) })
+          if (wbData.emptyWeight) stats.push({ label: 'Empty Weight', value: `${wbData.emptyWeight} lb` })
+          if (wbData.maxWeight) stats.push({ label: 'Max Gross', value: `${wbData.maxWeight} lb` })
+          if (usefulLoad != null && usefulLoad > 0) stats.push({ label: 'Useful Load', value: `${usefulLoad} lb` })
+          if (wbData.fuelCapacity) stats.push({ label: 'Fuel Capacity', value: `${wbData.fuelCapacity} gal` })
+          if (stats.length === 0) return null
+          return (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              {stats.map((s) => (
+                <div key={s.label} className="rounded-md border border-border bg-card px-3 py-2 shadow-sm">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{s.label}</p>
+                  <p className="mt-0.5 truncate text-sm font-semibold" title={s.value}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+      </div>
+
       <div className="rounded-lg border border-border bg-card shadow-sm divide-y divide-border">
         {/* Header */}
         <div className="p-5">

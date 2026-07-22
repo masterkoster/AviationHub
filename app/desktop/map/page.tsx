@@ -29,6 +29,7 @@ import {
   duplicateRoute,
 } from '@/apps/desktop/src/lib/route-planner-storage'
 import { saveFlightPlan } from '@/apps/desktop/src/lib/flight-plan-storage'
+import { cloudApi } from '@/apps/desktop/src/lib/cloud-api'
 import { fetchMetarBatch, fetchTafBatch } from '@/desktop/lib/weather-fetch'
 import { loadPilotCertStatus, evaluateWeatherRules } from '@/desktop/lib/weather-rules'
 import type { MetarData, PilotCertStatus, WeatherWarning } from '@/desktop/lib/weather-types'
@@ -505,12 +506,19 @@ export default function DesktopMapPage() {
     }
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/airports?q=${encodeURIComponent(airportSearch)}&limit=8&country=US`)
-        if (res.ok) {
-          const data = await res.json()
-          setAirportResults(data.airports || [])
-          setHighlightIdx(-1)
-        }
+        const data = await cloudApi.getAirports({ q: airportSearch, limit: 8, country: 'US' })
+        setAirportResults(
+          (data.airports || []).map((a): Airport => ({
+            icao: a.icao,
+            iata: a.iata ?? undefined,
+            name: a.name,
+            city: a.city ?? undefined,
+            latitude: a.latitude,
+            longitude: a.longitude,
+            type: a.type ?? undefined,
+          }))
+        )
+        setHighlightIdx(-1)
       } catch {
         setAirportResults([])
       }
@@ -544,13 +552,9 @@ export default function DesktopMapPage() {
     setSelectedAirport(airport)
     setLoadingAirportDetails(true)
     setSelectedAirportDetails(null)
-    fetch(`/api/airports/${airport.icao}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error('Failed')
-        return res.json()
-      })
-      .then((data: AirportDetails) => {
-        setSelectedAirportDetails(data)
+    cloudApi.getAirport(airport.icao)
+      .then((data) => {
+        setSelectedAirportDetails(data as unknown as AirportDetails)
       })
       .catch(() => {
         setSelectedAirportDetails(null)
@@ -575,11 +579,8 @@ export default function DesktopMapPage() {
         if (!info) return
         let media: DesktopStateInfo['media'] = []
         try {
-          const res = await fetch(`/api/state-media/${normalized}`)
-          if (res.ok) {
-            const data = await res.json()
-            media = Array.isArray(data?.images) ? data.images : []
-          }
+          const data = await cloudApi.getStateMedia(normalized)
+          media = Array.isArray(data?.images) ? data.images : []
         } catch {
           media = []
         }
@@ -664,28 +665,31 @@ export default function DesktopMapPage() {
       // If 2+ waypoints, fetch route weather impact via local API
       if (waypoints.length >= 2) {
         try {
-          const res = await fetch('/api/route-weather', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              waypoints: waypoints.map((w) => ({ icao: w.icao, lat: w.latitude, lon: w.longitude })),
-              altitude: cruiseAltFt,
-              aircraftTAS: cruiseKts,
-              fuelBurnGph: burnGph,
-            }),
-          })
-          if (res.ok) {
-            const data = await res.json()
-            setRouteWeather({
-              totalDistance: data.summary?.totalDistance,
-              totalTimeStillAir: data.summary?.totalTimeStillAir,
-              totalTimeWithWind: data.summary?.totalTimeWithWind,
-              fuelImpact: data.summary?.fuelImpact,
-              fuelImpactPercent: data.summary?.fuelImpactPercent,
-              significant: data.summary?.significant,
-              segments: data.segments,
-            })
+          const data = await cloudApi.getRouteWeather({
+            waypoints: waypoints.map((w) => ({ icao: w.icao, lat: w.latitude, lon: w.longitude })),
+            altitude: cruiseAltFt,
+            aircraftTAS: cruiseKts,
+            fuelBurnGph: burnGph,
+          }) as {
+            summary?: {
+              totalDistance?: number
+              totalTimeStillAir?: number
+              totalTimeWithWind?: number
+              fuelImpact?: number
+              fuelImpactPercent?: number
+              significant?: boolean
+            }
+            segments?: RouteWeatherSummary['segments']
           }
+          setRouteWeather({
+            totalDistance: data.summary?.totalDistance,
+            totalTimeStillAir: data.summary?.totalTimeStillAir,
+            totalTimeWithWind: data.summary?.totalTimeWithWind,
+            fuelImpact: data.summary?.fuelImpact,
+            fuelImpactPercent: data.summary?.fuelImpactPercent,
+            significant: data.summary?.significant,
+            segments: data.segments,
+          })
         } catch {
           // non-fatal
         }

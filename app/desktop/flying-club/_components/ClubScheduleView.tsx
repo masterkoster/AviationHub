@@ -63,6 +63,13 @@ function acLabel(a: ScheduleAircraft) {
   return a.nickname || a.customName || null
 }
 
+/** An aircraft that is grounded or has an overdue required inspection can't be
+ *  reserved — the server rejects such bookings, so the UI must not offer them. */
+function isBookable(a: ScheduleAircraft): boolean {
+  if (a.airworthiness === 'OVERDUE') return false
+  return !/ground|maintenance|inop|down|unavailable/i.test(a.status || '')
+}
+
 /** Clip [start,end] to a single day's visible 06:00–22:00 window; fraction 0..1. */
 function clipToDay(start: Date, end: Date, day: Date): { l: number; w: number } | null {
   const dayStart = new Date(day)
@@ -137,8 +144,11 @@ export default function ClubScheduleView({
       ? anchor.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
       : `${visibleDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${visibleDays[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
 
-  function laneClick(e: React.MouseEvent<HTMLDivElement>, aircraftId: string) {
-    if (!onBook) return
+  const firstBookable = aircraft.find(isBookable)
+
+  function laneClick(e: React.MouseEvent<HTMLDivElement>, ac: ScheduleAircraft) {
+    if (!onBook || !isBookable(ac)) return
+    const aircraftId = ac.id
     const rect = e.currentTarget.getBoundingClientRect()
     const frac = Math.min(0.999, Math.max(0, (e.clientX - rect.left) / rect.width))
     const dayIdx = Math.floor(frac * totalDays)
@@ -175,8 +185,10 @@ export default function ClubScheduleView({
           </div>
           {onBook && aircraft.length > 0 && (
             <button
-              onClick={() => onBook({ aircraftId: aircraft[0].id, date: ymd(visibleDays[0]), startHour: 9 })}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:brightness-105"
+              onClick={() => firstBookable && onBook({ aircraftId: firstBookable.id, date: ymd(visibleDays[0]), startHour: 9 })}
+              disabled={!firstBookable}
+              title={firstBookable ? undefined : 'No aircraft are currently reservable'}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" /> Book
             </button>
@@ -240,8 +252,9 @@ export default function ClubScheduleView({
                   return (
                     <div
                       key={a.id}
-                      className="relative h-16 border-b border-border"
-                      onClick={(e) => laneClick(e, a.id)}
+                      className={`relative h-16 border-b border-border ${isBookable(a) ? '' : 'cursor-not-allowed bg-muted/30'}`}
+                      title={isBookable(a) ? undefined : 'Not reservable — grounded or inspection overdue'}
+                      onClick={(e) => laneClick(e, a)}
                     >
                       {/* grid columns */}
                       <div className="pointer-events-none absolute inset-0 flex">

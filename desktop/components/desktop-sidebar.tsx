@@ -25,11 +25,13 @@ import {
   ShoppingBag,
   Calculator,
   GraduationCap,
-  Gauge,
   FileText,
   Lock,
   Compass,
   Shield,
+  Receipt,
+  Fuel,
+  FolderOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
@@ -80,6 +82,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Fly',
     items: [
       { label: 'Map', href: '/desktop/map', icon: Globe, shortcut: '7' },
+      { label: 'Fuel', href: '/desktop/fuel', icon: Fuel },
       { label: 'Weather', href: '/desktop/weather', icon: CloudSun, shortcut: '8' },
       { label: 'Calendar', href: '/desktop/calendar', icon: CalendarDays, shortcut: '9' },
     ],
@@ -101,6 +104,8 @@ const NAV_GROUPS: NavGroup[] = [
         ],
       },
       { label: 'Reports', href: '/desktop/reports', icon: FileText },
+      { label: 'Documents', href: '/desktop/documents', icon: FolderOpen },
+      { label: 'Expenses', href: '/desktop/expenses', icon: Receipt },
     ],
   },
   // ── MANAGE — assets & people ──
@@ -109,16 +114,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Manage',
     items: [
       { label: 'Aircraft', href: '/desktop/aircraft', icon: Plane, shortcut: '5' },
-      {
-        label: 'Flying Club',
-        href: '/desktop/flying-club',
-        icon: Users,
-        children: [
-          { label: 'Operations workspace', href: '/desktop/flying-club/ops', icon: LayoutDashboard },
-        ],
-      },
+      { label: 'Flying Club', href: '/desktop/flying-club', icon: Users },
       { label: 'Marketplace', href: '/desktop/modules/marketplace', icon: ShoppingBag, status: 'coming-soon' },
-      { label: 'Engine Health', href: '/desktop/modules/engine-health', icon: Gauge, tier: 'pro', status: 'coming-soon' },
     ],
   },
   // ── TOOLS — calculators & system ──

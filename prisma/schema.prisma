@@ -221,6 +221,7 @@ model User {
   MarketplaceListing          MarketplaceListing[]
   LogbookStartingTotal        LogbookStartingTotal?
   GroupChatMessage            GroupChatMessage[]
+  integrations                Integration[]
 
   @@index([resetToken])
   @@map("User")
@@ -974,6 +975,29 @@ model EndorsementRequest {
   @@map("EndorsementRequest")
 }
 
+// Documentation-only model — NOT part of the generated client here. Access via
+// raw SQL only; see prisma/migrations/training_relationship.sql. The explicit
+// student<->instructor enrollment link (studentUserId/instructorUserId are
+// User ids, matching the endorsement flow). Optionally scoped to a club/school.
+model TrainingRelationship {
+  id               String    @id @default(dbgenerated("newid()"), map: "DF_TrainRel_id") @db.NVarChar(36)
+  studentUserId    String    @db.NVarChar(36)
+  instructorUserId String    @db.NVarChar(36)
+  organizationId   String?   @db.NVarChar(36)
+  status           String    @default("pending") @db.NVarChar(20) // pending|active|declined|ended
+  initiatedBy      String    @db.NVarChar(20) // student|instructor
+  goal             String?   @db.NVarChar(100)
+  note             String?   @db.NVarChar(Max)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
+  endedAt          DateTime?
+
+  @@index([studentUserId], map: "IX_TrainRel_student")
+  @@index([instructorUserId], map: "IX_TrainRel_instructor")
+  @@index([organizationId], map: "IX_TrainRel_org")
+  @@map("TrainingRelationship")
+}
+
 model LogbookAttachment {
   id             String   @id @default(uuid()) @db.NVarChar(36)
   logbookEntryId String   @db.NVarChar(36)
@@ -1368,6 +1392,8 @@ model FuelExpense {
   notes          String?   @db.NVarChar(Max)
   approvedBy     String?   @db.NVarChar(36)
   approvedAt     DateTime?
+  airportIcao    String?   @db.NVarChar(10)
+  fuelType       String?   @db.NVarChar(20)
   createdAt      DateTime? @default(now())
   updatedAt      DateTime? @default(now()) @updatedAt
 
@@ -1655,6 +1681,61 @@ model CommunityFuelPrice {
   @@index([icao, fuelType])
   @@index([purchaseDate])
   @@map("CommunityFuelPrice")
+}
+
+// Documentation-only model — NOT part of the generated client in this
+// environment (the client is not regenerated here). Access is via raw SQL
+// only; see prisma/migrations/fuel_price_vote.sql and lib/fuel/votes.ts.
+model FuelPriceVote {
+  id          String   @id @default(uuid()) @db.NVarChar(36)
+  fuelPriceId String   @db.NVarChar(36)
+  userId      String   @db.NVarChar(36)
+  value       Int      @db.SmallInt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@unique([fuelPriceId, userId])
+  @@index([fuelPriceId])
+  @@map("FuelPriceVote")
+}
+
+// Documentation-only model — NOT part of the generated client in this
+// environment (the client is not regenerated here). Access is via raw SQL
+// only; see prisma/migrations/contribution_event.sql and lib/reputation/ledger.ts.
+model ContributionEvent {
+  id        String   @id @default(uuid()) @db.NVarChar(36)
+  userId    String   @db.NVarChar(36)
+  type      String   @db.NVarChar(30)
+  points    Int
+  refType   String?  @db.NVarChar(30)
+  refId     String?  @db.NVarChar(36)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("ContributionEvent")
+}
+
+// Documentation-only model — NOT part of the generated client here. Access is
+// via raw SQL only; see prisma/migrations/fuel_deal.sql. Manually/admin-seeded.
+model FuelDeal {
+  id           String    @id @default(dbgenerated("newid()"), map: "DF_FuelDeal_id") @db.NVarChar(36)
+  title        String    @db.NVarChar(200)
+  brand        String?   @db.NVarChar(100)
+  dealType     String    @db.NVarChar(20) // AVGAS | CAR_GAS | OTHER
+  icao         String?   @db.NVarChar(10)
+  region       String?   @db.NVarChar(50)
+  description  String?   @db.NVarChar(Max)
+  discountText String?   @db.NVarChar(100)
+  url          String?   @db.NVarChar(500)
+  startsAt     DateTime?
+  endsAt       DateTime?
+  isActive     Boolean   @default(true)
+  isSample     Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  @@index([icao], map: "IX_FuelDeal_icao")
+  @@index([isActive], map: "IX_FuelDeal_active")
+  @@map("FuelDeal")
 }
 
 model AircraftCache {
@@ -1952,10 +2033,20 @@ model OutreachEmail {
 // ────────────────────────────────────────────────────────────────────────────
 
 model Integration {
-  id             String @id @default(uuid()) @db.NVarChar(36)
-  organizationId String @db.NVarChar(36) // Organization this integration belongs to
-  provider       String @db.NVarChar(50) // "quickbooks", "google-calendar", "zapier"
-  status         String @default("disconnected") @db.NVarChar(20) // "connected", "disconnected", "error"
+  id             String  @id @default(uuid()) @db.NVarChar(36)
+  // Exactly one of organizationId (club scope) / userId (personal scope) is
+  // set. Enforced by two SQL Server FILTERED unique indexes created via raw
+  // SQL in prisma/migrations/integration_user_scope.sql — NOT representable
+  // as a single Prisma @@unique since either column may be NULL:
+  //   Integration_org_provider  UNIQUE (organizationId, provider) WHERE organizationId IS NOT NULL
+  //   Integration_user_provider UNIQUE (userId, provider)         WHERE userId IS NOT NULL
+  // The generated Prisma client predates this migration (client was not
+  // regenerated - see docs/QUICKBOOKS.md), so personal-Integration reads and
+  // writes go through parameterized raw SQL rather than the typed client.
+  organizationId String? @db.NVarChar(36) // Organization this integration belongs to (club scope)
+  userId         String? @db.NVarChar(36) // User this integration belongs to (personal scope)
+  provider       String  @db.NVarChar(50) // "quickbooks", "google-calendar", "zapier"
+  status         String  @default("disconnected") @db.NVarChar(20) // "connected", "disconnected", "error"
 
   // OAuth tokens (encrypted in production)
   accessToken  String?   @db.NVarChar(Max)
@@ -1975,12 +2066,15 @@ model Integration {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization?       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
   mappings     QuickBooksMapping[]
   syncLogs     SyncLog[]
 
-  @@unique([organizationId, provider])
+  @@index([organizationId, provider])
+  @@index([userId, provider])
   @@index([organizationId])
+  @@index([userId])
   @@index([provider])
   @@index([status])
   @@map("Integration")
@@ -2383,4 +2477,68 @@ model FaaAircraftCache {
   scraped_at          DateTime @default(now())
 
   @@map("FaaAircraftCache")
+}
+
+// ── Aircraft cost-of-ownership model (Phase 2) ──
+// NOTE: these tables are created via prisma/migrations/aircraft_cost_model.sql
+// and accessed via raw SQL (the generated client is not regenerated here).
+
+model EngineMaintenanceProfile {
+  id                   String    @id @default(dbgenerated("newid()"), map: "DF_EngMaint_id") @db.NVarChar(36)
+  engineModelKey       String    @db.NVarChar(120) // normalized family token, e.g. 'O-320', 'IO-550'
+  engineMfr            String?   @db.NVarChar(100)
+  engineModel          String?   @db.NVarChar(100)
+  aircraftClass        String?   @db.NVarChar(50) // PISTON_SINGLE, PISTON_TWIN, LSA
+  tboHours             Int?
+  tboMonths            Int?
+  overhaulCost         Decimal?  @db.Decimal(10, 2)
+  propOverhaulHours    Int?
+  propOverhaulCost     Decimal?  @db.Decimal(10, 2)
+  annualInspectionCost Decimal?  @db.Decimal(10, 2)
+  costYear             Int       @default(2026)
+  isEstimate           Boolean   @default(true)
+  source               String?   @db.NVarChar(200)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now()) @updatedAt
+
+  @@unique([engineModelKey, costYear], map: "UX_EngMaint_key_year")
+  @@map("EngineMaintenanceProfile")
+}
+
+model AircraftCostProfile {
+  id                   String    @id @default(dbgenerated("newid()"), map: "DF_AcCost_id") @db.NVarChar(36)
+  scope                String    @db.NVarChar(20) // PERSONAL | CLUB
+  userId               String?   @db.NVarChar(36)
+  userAircraftId       String?   @db.NVarChar(36)
+  clubAircraftId       String?   @db.NVarChar(36)
+  organizationId       String?   @db.NVarChar(36)
+  nNumber              String?   @db.NVarChar(10)
+  engineModelKey       String?   @db.NVarChar(120)
+  // cached reserve snapshot (from reference, editable):
+  tboHours             Int?
+  overhaulCost         Decimal?  @db.Decimal(10, 2)
+  propOverhaulHours    Int?
+  propOverhaulCost     Decimal?  @db.Decimal(10, 2)
+  costYear             Int?
+  // variable reserve inputs:
+  fuelBurnGph          Decimal?  @db.Decimal(6, 2)
+  oilReservePerHour    Decimal?  @db.Decimal(8, 2)
+  maintReservePerHour  Decimal?  @db.Decimal(8, 2)
+  // fixed annual costs:
+  insuranceAnnual      Decimal?  @db.Decimal(10, 2)
+  hangarMonthly        Decimal?  @db.Decimal(10, 2)
+  annualInspectionCost Decimal?  @db.Decimal(10, 2)
+  financingMonthly     Decimal?  @db.Decimal(10, 2)
+  subscriptionsAnnual  Decimal?  @db.Decimal(10, 2)
+  otherFixedAnnual     Decimal?  @db.Decimal(10, 2)
+  expectedAnnualHours  Decimal?  @db.Decimal(8, 2)
+  hourlyRateOverride   Decimal?  @db.Decimal(10, 2)
+  notes                String?   @db.NVarChar(Max)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now()) @updatedAt
+
+  @@index([userId], map: "IX_AcCost_user")
+  @@index([clubAircraftId], map: "IX_AcCost_club")
+  @@index([userAircraftId], map: "IX_AcCost_uac")
+  @@map("AircraftCostProfile")
 }

@@ -2,18 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { isUuid } from '@/lib/validate'
-import { QuickBooksClient } from '@/lib/integrations/quickbooks-client'
+import { isFinanceRole } from '@/lib/club/roles'
+import { revokeToken } from '@/lib/quickbooks'
 
 /**
- * POST /api/integrations/quickbooks/disconnect
- * 
- * Disconnects QuickBooks integration
- * Revokes OAuth tokens and updates database
+ * POST /api/integrations/quickbooks/disconnect  { groupId }
+ *
+ * Revokes OAuth tokens at Intuit (best-effort) and clears the stored tokens.
+ * Finance-gated (ADMIN or TREASURER).
  */
 export async function POST(request: NextRequest) {
   try {
     const session = await auth()
-    
+
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -28,18 +29,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid groupId' }, { status: 400 })
     }
 
-    // Verify user has admin access to this group
     const membership = await prisma.organizationMember.findFirst({
-      where: { organizationId: groupId, userId: session.user.id, role: 'ADMIN' },
+      where: { organizationId: groupId, userId: session.user.id },
     })
-    if (!membership) {
+    if (!membership || !isFinanceRole(membership.role)) {
       return NextResponse.json(
-        { error: 'Only group admins can manage the QuickBooks integration' },
+        { error: 'Only group admins or the treasurer can manage the QuickBooks integration' },
         { status: 403 }
       )
     }
 
-    // Find integration
     const integration = await prisma.integration.findUnique({
       where: {
         organizationId_provider: {
@@ -53,18 +52,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
     }
 
-    // Revoke tokens with QuickBooks
+    // Revoke at Intuit (best-effort - proceed to clear our record regardless).
     if (integration.refreshToken) {
       try {
-        const client = new QuickBooksClient()
-        await client.revokeToken(integration.refreshToken)
+        await revokeToken(integration.refreshToken)
       } catch (error) {
         console.error('Failed to revoke QuickBooks token:', error)
-        // Continue anyway - we'll update our database
       }
     }
 
-    // Update integration status
     await prisma.integration.update({
       where: { id: integration.id },
       data: {
@@ -73,7 +69,7 @@ export async function POST(request: NextRequest) {
         refreshToken: null,
         tokenExpiry: null,
         lastSyncStatus: null,
-        updatedAt: new Date(),
+        lastSyncError: null,
       },
     })
 

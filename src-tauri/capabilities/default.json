@@ -26,7 +26,17 @@
     "dialog:allow-open",
     "fs:default",
     "fs:allow-write-text-file",
-    "fs:allow-read-file",
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$APPDATA/**" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$PICTURE/**" }
+      ]
+    },
     {
       "identifier": "fs:allow-write-file",
       "allow": [
