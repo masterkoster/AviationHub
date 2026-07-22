@@ -31,6 +31,7 @@ import {
   Shield,
   Receipt,
   Fuel,
+  FolderOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
@@ -103,6 +104,7 @@ const NAV_GROUPS: NavGroup[] = [
         ],
       },
       { label: 'Reports', href: '/desktop/reports', icon: FileText },
+      { label: 'Documents', href: '/desktop/documents', icon: FolderOpen },
       { label: 'Expenses', href: '/desktop/expenses', icon: Receipt },
     ],
   },

@@ -828,6 +828,10 @@ export const cloudApi = {
       'Failed to sign endorsement'
     )
   },
+
+  listEndorsements() {
+    return request<{ endorsements: EndorsementRecord[] }>('/api/endorsements')
+  },
 }
 
 // ── Flying club group summary types ─────────────────────────────
@@ -1281,4 +1285,18 @@ export interface Endorsement {
   signedAt: string
   notes: string | null
   createdAt: string
+}
+
+// Enriched endorsement record returned by GET /api/endorsements — the
+// current user's issued endorsements as both student and instructor, with
+// template/user/signature details already joined in.
+export interface EndorsementRecord {
+  id: string
+  myRole: 'student' | 'instructor'
+  template: { code: string; category: string | null; title: string } | null
+  studentName: string | null
+  instructorName: string | null
+  signedAt: string
+  notes: string | null
+  signature: { type: string; typedName: string | null; svgData: string | null } | null
 }
