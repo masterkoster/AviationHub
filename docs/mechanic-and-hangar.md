@@ -12,6 +12,10 @@
   record. **Cannot** touch billing, members, or bookings/scheduling.
 - **Both club and hangar.** Build the club `MECHANIC` role (Phase 1) and the
   hangar path (Phase 2); one maintenance view spans all of a mechanic's scopes.
+- **Independent mechanics (no club/hangar) get a third access model — direct
+  per-aircraft grants**, two sources: an owner grants their regular A&P *standing*
+  access from the aircraft page, and a *marketplace hire* auto-grants *temporary*
+  job-scoped access (ties in the existing `Mechanic` / `MaintenanceRequest` flow).
 - **Creds:** owner *assignment* is enough — no verified A&P required; if the
   mechanic has a `Mechanic` profile, show their A&P/IA on sign-offs.
 - **Hangar v1:** owner adds *their own* aircraft only. Cross-owner consent
@@ -26,13 +30,15 @@ manage squawks** for the aircraft they're responsible for:
 - **Club:** a mechanic the club owner has given the mechanic role → sees that club's squawks.
 - **Hangar:** an owner registers a hangar, adds aircraft, assigns a mechanic → that mechanic sees squawks for the hangar's aircraft (works outside any club).
 
-## Two scopes, one principle
+## Three access models, one principle
 > *A mechanic is granted maintenance visibility over a set of aircraft.*
 
-That set comes from either a **club** (org membership + role) or a **hangar**
-(a new facility entity). Squawks (`Maintenance`) are already scoped to
-`organizationId` + aircraft, and `OrganizationMember` already has per-org roles —
-so the club path is mostly reuse; the hangar path is the new build.
+That set is the **union** of:
+1. **Club** — org membership + `MECHANIC` role (mostly reuse; squawks are already `organizationId`-scoped).
+2. **Hangar** — a mechanic assigned to a hangar (new facility entity).
+3. **Direct aircraft grant** — an owner grants a mechanic access to a specific
+   aircraft: *standing* ("my A&P") or *job-scoped* (a marketplace hire). This is
+   how independent/freelance mechanics with no club/hangar get in.
 
 ## "Team mechanic" ≠ marketplace `Mechanic`
 There's already a `Mechanic` model (A&P/IA creds, ratings, quotes, `MechanicQuote`/
@@ -85,6 +91,26 @@ HangarMechanic            a mechanic assigned to a hangar
   invitedAt, respondedAt
 ```
 
+### Direct aircraft grant (new — independent mechanics)
+```
+AircraftMechanicGrant     owner grants a mechanic access to one aircraft
+  id             uuid pk
+  nNumber        text          the aircraft
+  ownerUserId    User id       who granted it
+  mechanicUserId User id       the mechanic
+  scope          'all' | 'job'         standing whole-aircraft vs one job
+  source         'direct' | 'marketplace'
+  jobRequestId   -> MaintenanceRequest?   set for marketplace hires
+  status         'invited' | 'active' | 'ended'
+  createdAt, endedAt
+```
+- **Direct/standing** ("my A&P"): owner invites from the aircraft page → `scope='all'`,
+  `source='direct'`, no auto-expiry.
+- **Marketplace**: accepting a `MechanicQuote` / scheduling a job auto-creates a
+  grant with `scope='job'`, `source='marketplace'`, `jobRequestId` set; it flips to
+  `ended` when the job closes. This is the bridge between the marketplace (discovery
+  + hire) and access (the grant).
+
 ### Squawk (`Maintenance`) change
 Add a nullable **`hangarId`** column (idempotent raw-SQL migration). Two ways a
 squawk becomes hangar-visible:
@@ -101,6 +127,11 @@ For the current user, union of:
 2. **Hangar squawks:** aircraft in hangars where I'm an `active` `HangarMechanic`
    (via `HangarAircraft`), matched to `Maintenance` by `clubAircraftId`/`nNumber`
    (plus any `Maintenance.hangarId` direct rows).
+3. **Direct-grant squawks:** aircraft with an `active` `AircraftMechanicGrant` for me
+   (matched by `nNumber`); a `scope='job'` grant narrows to that job's squawk.
+
+Same union applies to **inspections** (`AircraftInspection`) for those aircraft —
+the mechanic view is squawks + inspections due/overdue + grounded, per the locked scope.
 
 Owners always see their own aircraft's squawks. A club member without a
 maintenance role sees only what the club already shows them (report + own).
@@ -148,12 +179,15 @@ One **Squawks / Maintenance** workspace:
 ## Phasing
 1. **Club mechanic role** — add `MECHANIC` role + `isMaintenanceRole`, gate the
    existing squawks page/actions, add the desktop entry point. *(Small, all reuse.)*
-2. **Hangar** — the 3 tables + `Maintenance.hangarId` migration, hangar CRUD,
-   add-aircraft (own fleet), assign-mechanic (invite/accept), and the unified
-   `GET /api/squawks` + scope switcher in the UI.
-3. **Cross-owner consent** (owner A's plane in owner B's hangar → A accepts),
-   notifications on new/grounding squawks, and "log work → maintenance record /
-   airworthiness entry".
+2. **Hangar + direct grants** — the hangar tables + `Maintenance.hangarId` migration,
+   the `AircraftMechanicGrant` table, hangar CRUD + add-aircraft (own fleet) +
+   assign-mechanic, the owner's "add my A&P" direct grant from the aircraft page,
+   and the unified maintenance view (`GET /api/maintenance` spanning club + hangar +
+   grants, squawks + inspections) with a scope switcher.
+3. **Marketplace bridge + cross-owner + workflow** — accepting a marketplace quote
+   auto-creates a job-scoped grant; cross-owner hangar consent (owner A's plane in
+   owner B's hangar → A accepts); notifications on new/grounding squawks; and
+   "log work → maintenance record / airworthiness entry".
 
 ## Open questions to settle before Phase 2
 - Personal-aircraft squawk ↔ tail linkage (above).
