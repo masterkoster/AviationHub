@@ -1,46 +1,21 @@
-'use client'
+import { redirect } from 'next/navigation'
 
-import { Loader2, Bell } from 'lucide-react'
-import { useDesktopAuth } from '@/desktop/hooks/use-desktop-auth'
-import { usePreferences } from '@/desktop/hooks/use-preferences'
-import { SettingsCard, SectionHeading, ToggleSwitch } from '@/desktop/components/settings-ui'
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}
 
-export default function NotificationsSettingsPage() {
-  const { localUser, cloudUser } = useDesktopAuth()
-  const userId = localUser?.id ?? cloudUser?.id ?? null
-  const { preferences, loading: prefsLoading, update: updatePref } = usePreferences(userId)
-
-  return (
-    <SettingsCard>
-      <SectionHeading
-        icon={<Bell className="h-4 w-4" />}
-        title="Notifications"
-        description="Control which alerts and checks are shown."
-      />
-
-      {prefsLoading ? (
-        <div className="flex items-center justify-center py-6">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <ToggleSwitch
-            label="Currency expiry alerts"
-            description="Warn when a currency or certification is about to expire"
-            checked={preferences?.notificationCurrencyAlerts === 1}
-            onChange={(checked) => updatePref('notificationCurrencyAlerts', checked ? 1 : 0)}
-            disabled={prefsLoading}
-          />
-
-          <ToggleSwitch
-            label="Check for updates on startup"
-            description="Automatically check for app updates when the app launches"
-            checked={preferences?.notificationUpdateCheck === 1}
-            onChange={(checked) => updatePref('notificationUpdateCheck', checked ? 1 : 0)}
-            disabled={prefsLoading}
-          />
-        </div>
-      )}
-    </SettingsCard>
-  )
+// Old route-based deep link (e.g. a bookmark to /desktop/settings/notifications, or
+// the QuickBooks OAuth callback redirecting to /desktop/settings/accounting)
+// - forward to the tabbed page with this section active. Any other query
+// params (success/error from OAuth callbacks, etc.) are preserved.
+export default async function Page({ searchParams }: PageProps) {
+  const params = await searchParams
+  const qs = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (key === 'tab') continue
+    if (typeof value === 'string') qs.set(key, value)
+    else if (Array.isArray(value) && value.length > 0) qs.set(key, value[0])
+  }
+  qs.set('tab', 'notifications')
+  redirect(`/desktop/settings?${qs.toString()}`)
 }
